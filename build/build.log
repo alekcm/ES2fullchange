@@ -1,6 +1,6 @@
-=== build 2026-10-22T14:43:05Z ===
-10.0.401
-csc      = /usr/share/dotnet/sdk/10.0.112/Roslyn/bincore/csc.dll
+=== build 2026-10-22T14:45:19Z ===
+10.0.402
+csc      = /usr/share/dotnet/sdk/10.0.113/Roslyn/bincore/csc.dll
 BepInEx  = .tools/bepinex/BepInEx/core/BepInEx.dll
 0Harmony = .tools/bepinex/BepInEx/core/0Harmony.dll
 sources  :
@@ -14,8 +14,11 @@ mod/src/Plugin.cs
 mod/src/Texts.cs
 mod/src/TurnEffects.cs
 === csc output ===
-Microsoft (R) Visual C# Compiler version 5.0.0-2.26422.108 (95017c71)
+Microsoft (R) Visual C# Compiler version 5.0.0-2.26504.104 (4099f839)
 Copyright (C) Microsoft Corporation. All rights reserved.
 
-mod/src/ModeWindow.cs(60,27): error CS0117: 'Input' does not contain a definition for 'GetKeyDown'
-=== exit code: 1 ===
+=== exit code: 0 ===
+total 36
+drwxr-xr-x 2 runner runner  4096 Oct 22 14:45 .
+drwxr-xr-x 9 runner runner  4096 Oct 22 14:45 ..
+-rw-r--r-- 1 runner runner 28672 Oct 22 14:45 ES2.HackingModes.dll
