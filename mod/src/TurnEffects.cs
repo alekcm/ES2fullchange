@@ -64,7 +64,7 @@ namespace ES2.HackingModes
                 return;
             }
 
-            if (Plugin.Cfg.EffectsRequireArrival.Value && !GameBridge.HasReachedTarget(operation))
+            if (Plugin.Cfg.EffectsOnlyWhenConnected.Value && !GameBridge.IsConnected(operation))
             {
                 state.LastResult = Texts.WaitingForArrival;
                 return;

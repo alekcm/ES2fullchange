@@ -73,6 +73,31 @@ namespace ES2.HackingModes
             get { return En ? "connected to the system" : "подключён к системе"; }
         }
 
+        internal static string Travelling
+        {
+            get { return En ? "on the way" : "в пути"; }
+        }
+
+        internal static string TurnsLeft
+        {
+            get { return En ? "{0} turn(s) to the target" : "до цели {0} ход(ов)"; }
+        }
+
+        internal static string CompletedWaiting
+        {
+            get { return En ? "already finished, waiting for a vanilla outcome" : "уже дошёл до конца, ждёт ванильного исхода"; }
+        }
+
+        internal static string NotASystem
+        {
+            get
+            {
+                return En
+                    ? "The target is not a colonized system — modes are not available, the operation runs as usual."
+                    : "Цель — не колонизированная система, режимы недоступны: операция идёт как обычно.";
+            }
+        }
+
         internal static string LastTurn
         {
             get { return En ? "Last turn: " : "Прошлый ход: "; }

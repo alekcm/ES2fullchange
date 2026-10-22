@@ -4,14 +4,20 @@ using HarmonyLib;
 namespace ES2.HackingModes
 {
     // ----------------------------------------------------------------------
-    // Скорость взлома = 0, пока операция в пассивном режиме.
-    // В ванили HackingOperation.ClientEndTurn прекращает набор прогресса,
-    // если множитель скорости шага <= 0, а GetRemainingTurns возвращает "никогда".
+    // Скорость взлома = 0 для пассивных режимов.
+    //
+    // По умолчанию обнуление включается, когда операция дотянулась до целевой системы:
+    // линия взлома проложена и висит подключённой, но внутрь система так и не вскрывается,
+    // то есть ванильный исход никогда не применяется и операция не исчезает.
+    // Если в конфиге FreezeImmediately = true, скорость обнуляется сразу после выбора режима.
+    //
+    // Ваниль это переживает штатно: HackingOperation.ClientEndTurn не набирает прогресс
+    // при множителе <= 0, а GetRemainingTurns в этом случае возвращает int.MaxValue.
     // ----------------------------------------------------------------------
     [HarmonyPatch(typeof(NodeHackingOperationStep), "GetSpeedMultiplier")]
     internal static class Patch_NodeStepSpeed
     {
-        // __1 — второй аргумент метода (HackingOperation operation)
+        // __1 — второй аргумент метода: HackingOperation operation
         private static void Postfix(HackingOperation __1, ref float __result)
         {
             SpeedPatchHelper.Apply(__1, ref __result);
@@ -37,25 +43,35 @@ namespace ES2.HackingModes
                 {
                     return;
                 }
-                if (ModeState.IsPassive((ulong)operation.GUID))
+                if (!ModeState.IsPassive((ulong)operation.GUID))
+                {
+                    return;
+                }
+                if (Plugin.Cfg.FreezeImmediately.Value || GameBridge.IsConnected(operation))
                 {
                     result = 0f;
                 }
             }
             catch (Exception)
             {
-                // В интерфейсе этот метод дёргается часто — молчим, чтобы не засорять лог.
+                // Метод дёргается интерфейсом каждый кадр — молча игнорируем, чтобы не залить лог.
             }
         }
     }
 
     // ----------------------------------------------------------------------
-    // Раз в ход применяем эффекты режимов.
+    // Раз в ход применяем эффекты режимов. Патчим и начало, и конец хода:
+    // внутри TurnEffects стоит защёлка по номеру хода, так что эффект применится один раз.
     // ----------------------------------------------------------------------
-    [HarmonyPatch(typeof(HackingManager), "ClientEndTurn")]
-    internal static class Patch_TurnTick
+    [HarmonyPatch(typeof(HackingManager), "ClientBeginTurn")]
+    internal static class Patch_TurnTickBegin
     {
         private static void Postfix()
+        {
+            SafeTick();
+        }
+
+        internal static void SafeTick()
         {
             try
             {
@@ -63,13 +79,22 @@ namespace ES2.HackingModes
             }
             catch (Exception e)
             {
-                Log.Error("Ошибка в обработке конца хода: " + e);
+                Log.Error("Ошибка в обработке хода: " + e);
             }
         }
     }
 
+    [HarmonyPatch(typeof(HackingManager), "ClientEndTurn")]
+    internal static class Patch_TurnTickEnd
+    {
+        private static void Postfix()
+        {
+            Patch_TurnTickBegin.SafeTick();
+        }
+    }
+
     // ----------------------------------------------------------------------
-    // Новая операция — предложить выбор режима сразу же.
+    // Новая операция — сразу предложить выбор режима.
     // ----------------------------------------------------------------------
     [HarmonyPatch(typeof(HackingManager), "StartHackingOperation",
         new Type[] { typeof(GameEntityGUID), typeof(IHackingOperationStart), typeof(IHackingOperationTarget), typeof(NodePosition[]), typeof(GameEntityGUID) })]
@@ -93,8 +118,9 @@ namespace ES2.HackingModes
     }
 
     // ----------------------------------------------------------------------
-    // Операция в пассивном режиме не "срабатывает", даже если дошла до цели:
-    // она просто висит подключённой к системе и кормит нас эффектом.
+    // Страховка: если операция в пассивном режиме всё-таки прошла все шаги
+    // (например, режим переключили, когда взлом уже добрался до цели),
+    // не даём ванили применить исход и убить операцию — она остаётся подключённой.
     // ----------------------------------------------------------------------
     [HarmonyPatch(typeof(HackingOperation), "ClientBeginTurn")]
     internal static class Patch_KeepPassiveOperationAlive
@@ -111,21 +137,14 @@ namespace ES2.HackingModes
                 {
                     return true;
                 }
-                HackingOperationStep[] steps = __instance.Steps;
-                if (steps == null)
-                {
-                    return true;
-                }
-                // Ванильный код завершает операцию только когда пройдены все шаги —
-                // в этом случае (и только в нём) мы его пропускаем.
-                if (__instance.CurrentStepIndex >= steps.Length)
+                if (GameBridge.IsCompleted(__instance))
                 {
                     return false;
                 }
             }
             catch (Exception e)
             {
-                Log.Error("Ошибка в ClientBeginTurn: " + e);
+                Log.Error("Ошибка в ClientBeginTurn операции: " + e);
             }
             return true;
         }

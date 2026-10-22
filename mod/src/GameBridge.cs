@@ -178,21 +178,63 @@ namespace ES2.HackingModes
             return string.IsNullOrEmpty(value) ? "?" : value;
         }
 
-        /// <summary>Операция уже дотянулась до целевого узла?</summary>
-        internal static bool HasReachedTarget(HackingOperation operation)
+        /// <summary>
+        /// Операция дотянулась до целевой системы ("взлом подключён"):
+        /// текущий шаг — последний (узел целевой системы) или дальше.
+        /// </summary>
+        internal static bool IsConnected(HackingOperation operation)
         {
             try
             {
+                if (operation == null)
+                {
+                    return false;
+                }
                 HackingOperationStep[] steps = operation.Steps;
                 if (steps == null || steps.Length == 0)
                 {
                     return false;
                 }
-                return operation.CurrentStepIndex >= steps.Length - 1 && steps[steps.Length - 1].IsFinished;
+                return operation.CurrentStepIndex >= steps.Length - 1;
             }
             catch (Exception)
             {
                 return false;
+            }
+        }
+
+        /// <summary>Операция прошла все шаги и ждёт применения ванильного исхода.</summary>
+        internal static bool IsCompleted(HackingOperation operation)
+        {
+            try
+            {
+                if (operation == null)
+                {
+                    return false;
+                }
+                HackingOperationStep[] steps = operation.Steps;
+                if (steps == null)
+                {
+                    return false;
+                }
+                return operation.CurrentStepIndex >= steps.Length;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Сколько ходов осталось до цели по оценке игры (int.MaxValue = никогда).</summary>
+        internal static int RemainingTurns(HackingOperation operation)
+        {
+            try
+            {
+                return operation == null ? int.MaxValue : operation.GetRemainingTurns();
+            }
+            catch (Exception)
+            {
+                return int.MaxValue;
             }
         }
 

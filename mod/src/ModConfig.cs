@@ -13,7 +13,8 @@ namespace ES2.HackingModes
         internal readonly ConfigEntry<float> RelationPerTurn;
         internal readonly ConfigEntry<float> RelationCap;
         internal readonly ConfigEntry<bool> MinorAllowNormalOperation;
-        internal readonly ConfigEntry<bool> EffectsRequireArrival;
+        internal readonly ConfigEntry<bool> EffectsOnlyWhenConnected;
+        internal readonly ConfigEntry<bool> FreezeImmediately;
         internal readonly ConfigEntry<KeyCode> ToggleKey;
         internal readonly ConfigEntry<bool> AutoOpenOnNewOperation;
         internal readonly ConfigEntry<bool> ShowCornerButton;
@@ -45,8 +46,13 @@ namespace ES2.HackingModes
             MinorAllowNormalOperation = file.Bind("5. Малые фракции: отношения", "AllowNormalOperation", false,
                 "true — для малых фракций в окне появится и кнопка 'Пустить операцию' (обычный взлом).");
 
-            EffectsRequireArrival = file.Bind("1. Общее", "EffectsRequireArrival", false,
-                "true — пассивные режимы начинают работать только когда операция дошла до целевой системы.");
+            EffectsOnlyWhenConnected = file.Bind("1. Общее", "EffectsOnlyWhenConnected", true,
+                "true — пассивные режимы работают только когда взлом дотянулся до целевой системы (рекомендуется). "
+                + "false — эффект идёт сразу после запуска операции.");
+
+            FreezeImmediately = file.Bind("1. Общее", "FreezeImmediately", false,
+                "true — скорость взлома обнуляется сразу при выборе пассивного режима, операция даже не доедет до цели. "
+                + "false — операция спокойно доходит до системы и только там замирает (скорость 0), оставаясь подключённой.");
 
             ToggleKey = file.Bind("6. Интерфейс", "ToggleKey", KeyCode.F9,
                 "Клавиша, открывающая/закрывающая окно выбора режимов.");

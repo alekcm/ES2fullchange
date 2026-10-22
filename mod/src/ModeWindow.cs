@@ -177,25 +177,24 @@ namespace ES2.HackingModes
         {
             ulong guid = GameBridge.Guid(operation);
             OperationState state = ModeState.Get(guid);
-            bool minor = GameBridge.IsMinorTarget(operation);
+            ColonizedStarSystem colony = GameBridge.TargetColony(operation);
+            bool minor = colony != null && colony.Empire is MinorEmpire;
+            bool completed = GameBridge.IsCompleted(operation);
+            bool connected = GameBridge.IsConnected(operation);
 
             GUILayout.BeginVertical(GUI.skin.box);
             GUILayout.Label(GameBridge.TargetName(operation), headerStyle);
+            GUILayout.Label(Texts.CurrentMode + Texts.ModeOf(state.Mode) + "  [" + Status(operation, state, completed, connected) + "]", tipStyle);
 
-            string status;
-            if (state.Mode == HackMode.Normal)
+            if (colony == null)
             {
-                status = Texts.Running;
+                GUILayout.Label(Texts.NotASystem, tipStyle);
+                GUILayout.EndVertical();
+                return;
             }
-            else
-            {
-                status = Texts.Frozen;
-                if (GameBridge.HasReachedTarget(operation))
-                {
-                    status += ", " + Texts.Arrived;
-                }
-            }
-            GUILayout.Label(Texts.CurrentMode + Texts.ModeOf(state.Mode) + "  [" + status + "]", tipStyle);
+
+            bool wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && !completed;
 
             GUILayout.BeginHorizontal();
             if (minor)
@@ -214,6 +213,7 @@ namespace ES2.HackingModes
                 DrawModeButton(operation, state, HackMode.Normal, Texts.ModeNormal);
             }
             GUILayout.EndHorizontal();
+            GUI.enabled = wasEnabled;
 
             GUILayout.Label(Tip(operation, state.Mode, minor), tipStyle);
 
@@ -222,6 +222,30 @@ namespace ES2.HackingModes
                 GUILayout.Label(Texts.LastTurn + state.LastResult, tipStyle);
             }
             GUILayout.EndVertical();
+        }
+
+        private string Status(HackingOperation operation, OperationState state, bool completed, bool connected)
+        {
+            if (completed)
+            {
+                return Texts.CompletedWaiting;
+            }
+            if (connected)
+            {
+                return state.Mode == HackMode.Normal
+                    ? Texts.Arrived
+                    : Texts.Arrived + ", " + Texts.Frozen;
+            }
+            if (state.Mode != HackMode.Normal && Plugin.Cfg.FreezeImmediately.Value)
+            {
+                return Texts.Frozen;
+            }
+            int turns = GameBridge.RemainingTurns(operation);
+            if (turns > 0 && turns < 10000)
+            {
+                return Texts.Travelling + ", " + string.Format(CultureInfo.InvariantCulture, Texts.TurnsLeft, turns);
+            }
+            return Texts.Travelling;
         }
 
         private void DrawModeButton(HackingOperation operation, OperationState state, HackMode mode, string label)
