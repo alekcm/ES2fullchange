@@ -1,4 +1,4 @@
-=== build 2026-10-22T14:52:28Z ===
+=== build 2026-10-22T15:00:30Z ===
 10.0.402
 csc      = /usr/share/dotnet/sdk/10.0.113/Roslyn/bincore/csc.dll
 BepInEx  = .tools/bepinex/BepInEx/core/BepInEx.dll
@@ -17,9 +17,8 @@ mod/src/TurnEffects.cs
 Microsoft (R) Visual C# Compiler version 5.0.0-2.26504.104 (4099f839)
 Copyright (C) Microsoft Corporation. All rights reserved.
 
-mod/src/Plugin.cs(30,40): error CS0246: The type or namespace name 'Patch_TurnTick' could not be found (are you missing a using directive or an assembly reference?)
-=== exit code: 1 ===
-total 36
-drwxr-xr-x 2 runner runner  4096 Oct 22 14:52 .
-drwxr-xr-x 9 runner runner  4096 Oct 22 14:52 ..
--rw-r--r-- 1 runner runner 28672 Oct 22 14:52 ES2.HackingModes.dll
+=== exit code: 0 ===
+total 40
+drwxr-xr-x 2 runner runner  4096 Oct 22 15:00 .
+drwxr-xr-x 9 runner runner  4096 Oct 22 15:00 ..
+-rw-r--r-- 1 runner runner 30720 Oct 22 15:00 ES2.HackingModes.dll
