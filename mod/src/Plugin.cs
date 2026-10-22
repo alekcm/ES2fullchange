@@ -27,7 +27,8 @@ namespace ES2.HackingModes
             Harmony harmony = new Harmony(PluginGuid);
             ApplyPatch(harmony, typeof(Patch_NodeStepSpeed));
             ApplyPatch(harmony, typeof(Patch_MoveStepSpeed));
-            ApplyPatch(harmony, typeof(Patch_TurnTick));
+            ApplyPatch(harmony, typeof(Patch_TurnTickBegin));
+            ApplyPatch(harmony, typeof(Patch_TurnTickEnd));
             ApplyPatch(harmony, typeof(Patch_StartOperation));
             ApplyPatch(harmony, typeof(Patch_KeepPassiveOperationAlive));
 
