@@ -1,0 +1,21 @@
+=== build 2026-10-22T14:43:05Z ===
+10.0.401
+csc      = /usr/share/dotnet/sdk/10.0.112/Roslyn/bincore/csc.dll
+BepInEx  = .tools/bepinex/BepInEx/core/BepInEx.dll
+0Harmony = .tools/bepinex/BepInEx/core/0Harmony.dll
+sources  :
+mod/src/GameBridge.cs
+mod/src/Log.cs
+mod/src/ModConfig.cs
+mod/src/ModeState.cs
+mod/src/ModeWindow.cs
+mod/src/Patches.cs
+mod/src/Plugin.cs
+mod/src/Texts.cs
+mod/src/TurnEffects.cs
+=== csc output ===
+Microsoft (R) Visual C# Compiler version 5.0.0-2.26422.108 (95017c71)
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+mod/src/ModeWindow.cs(60,27): error CS0117: 'Input' does not contain a definition for 'GetKeyDown'
+=== exit code: 1 ===
