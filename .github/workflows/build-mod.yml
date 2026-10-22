@@ -1,0 +1,115 @@
+name: build-mod
+
+# Сборка плагина ES2 Hacking Modes.
+# Собирается прямо здесь, в GitHub Actions: компилятор C# (Roslyn из .NET SDK) компилирует
+# mod/src/*.cs против настоящих DLL игры из папки Managed/ и против BepInEx 5.
+# Результат (dist/ES2.HackingModes.dll) и лог сборки коммитятся обратно в ветку.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "arena/**" ]
+    paths:
+      - 'mod/**'
+      - '.github/workflows/build-mod.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Скачать BepInEx (нужен только как reference)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          mkdir -p .tools
+          gh release download v5.4.23.2 --repo BepInEx/BepInEx --pattern 'BepInEx_win_x64*.zip' --dir .tools \
+            || gh release download v5.4.23.2 --repo BepInEx/BepInEx --pattern '*x64*.zip' --dir .tools \
+            || gh release download --repo BepInEx/BepInEx --pattern '*x64*.zip' --dir .tools
+          ls -la .tools
+          mkdir -p .tools/bepinex
+          for z in .tools/*.zip; do unzip -o "$z" -d .tools/bepinex > /dev/null; done
+          find .tools/bepinex -name '*.dll' | sort
+
+      - name: Компиляция
+        id: compile
+        run: |
+          mkdir -p dist build
+          {
+            echo "=== build $(date -u +%FT%TZ) ==="
+            dotnet --version || true
+          } > build/build.log
+
+          CSC="$(ls /usr/share/dotnet/sdk/*/Roslyn/bincore/csc.dll 2>/dev/null | head -1)"
+          if [ -z "$CSC" ]; then
+            CSC="$(find / -name csc.dll -path '*Roslyn*' 2>/dev/null | head -1)"
+          fi
+          BEP="$(find .tools/bepinex -name 'BepInEx.dll' | head -1)"
+          HARMONY="$(find .tools/bepinex -name '0Harmony.dll' | head -1)"
+          {
+            echo "csc      = $CSC"
+            echo "BepInEx  = $BEP"
+            echo "0Harmony = $HARMONY"
+            echo "sources  :"
+            ls -1 mod/src/*.cs
+            echo "=== csc output ==="
+          } >> build/build.log
+
+          set +e
+          dotnet exec "$CSC" \
+            /noconfig /nostdlib+ /optimize+ /target:library /langversion:6 /warn:3 \
+            /out:dist/ES2.HackingModes.dll \
+            /r:Managed/mscorlib.dll \
+            /r:Managed/System.dll \
+            /r:Managed/System.Core.dll \
+            /r:Managed/UnityEngine.dll \
+            /r:Managed/Assembly-CSharp.dll \
+            /r:Managed/Assembly-CSharp-firstpass.dll \
+            /r:Managed/Amplitude.dll \
+            /r:"$BEP" \
+            /r:"$HARMONY" \
+            mod/src/*.cs >> build/build.log 2>&1
+          STATUS=$?
+          set -e
+          echo "=== exit code: $STATUS ===" >> build/build.log
+          if [ -f dist/ES2.HackingModes.dll ]; then
+            ls -la dist >> build/build.log
+          fi
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          cat build/build.log
+
+      - name: Закоммитить результат сборки
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f build/build.log dist/ES2.HackingModes.dll 2>/dev/null || git add -f build/build.log
+          if git diff --cached --quiet; then
+            echo "нечего коммитить"
+          else
+            git commit -m "ci: сборка плагина [skip ci]"
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Артефакт
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ES2.HackingModes
+          path: |
+            dist/ES2.HackingModes.dll
+            build/build.log
+          if-no-files-found: warn
+
+      - name: Проверка статуса компиляции
+        if: always()
+        run: |
+          test "${{ steps.compile.outputs.status }}" = "0"
