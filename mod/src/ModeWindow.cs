@@ -57,14 +57,14 @@ namespace ES2.HackingModes
                 {
                     return;
                 }
-                if (Input.GetKeyDown(Plugin.Cfg.ToggleKey.Value))
+                if (UnityEngine.Input.GetKeyDown(Plugin.Cfg.ToggleKey.Value))
                 {
                     visible = !visible;
                     nextRefresh = 0f;
                 }
-                if (Time.unscaledTime >= nextRefresh)
+                if (UnityEngine.Time.unscaledTime >= nextRefresh)
                 {
-                    nextRefresh = Time.unscaledTime + 0.5f;
+                    nextRefresh = UnityEngine.Time.unscaledTime + 0.5f;
                     operations = GameBridge.LocalOperations();
                     DetectNewOperations();
                 }
