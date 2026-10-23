@@ -1,0 +1,127 @@
+// Galactic Council of the Academy - law registry (pure C#, no game dependencies).
+using System;
+using System.Collections.Generic;
+
+public sealed class CouncilLawDef
+{
+    public const int KindCycle = 0;      // lasts until the next vote opens
+    public const int KindInstant = 1;    // executed once when enacted
+    public const int KindPermanent = 2;  // permanent stat change (while in the council)
+
+    public string Id;
+    public bool Targeted;       // true = "against/for one empire", false = whole council yes/no
+    public int Kind;
+    public int Benefit;         // +1 helps the target / the voters, -1 hurts the target (used by AI voting)
+    public string Group;        // laws of one group are never offered in the same vote
+    public bool Implemented;    // effect exists in this build; only implemented laws are offered
+    public string Ru, En, RuDesc, EnDesc;
+
+    public CouncilLawDef(string id, bool targeted, int kind, int benefit, string group, bool implemented,
+        string ru, string en, string ruDesc, string enDesc)
+    {
+        Id = id; Targeted = targeted; Kind = kind; Benefit = benefit; Group = group; Implemented = implemented;
+        Ru = ru; En = en; RuDesc = ruDesc; EnDesc = enDesc;
+    }
+}
+
+public static class CouncilLaws
+{
+    public static readonly List<CouncilLawDef> All = Build();
+
+    // Law ids (stable: they are stored in saves)
+    public const string Merit = "Merit";
+    public const string ExpansionMandate = "ExpansionMandate";
+    public const string ExpansionLimit = "ExpansionLimit";
+    public const string DustPayout = "DustPayout";
+    public const string Replenishment = "Replenishment";
+    public const string IntelExchange = "IntelExchange";
+    public const string NoDestabilization = "NoDestabilization";
+    public const string Counterintel = "Counterintel";
+    public const string NoConfidence = "NoConfidence";
+
+    public static CouncilLawDef Get(string id)
+    {
+        for (int i = 0; i < All.Count; i++) if (All[i].Id == id) return All[i];
+        return null;
+    }
+
+    static List<CouncilLawDef> Build()
+    {
+        var l = new List<CouncilLawDef>();
+        const int C = CouncilLawDef.KindCycle, I = CouncilLawDef.KindInstant, P = CouncilLawDef.KindPermanent;
+
+        // ---------------- applies to everyone (yes / no) ----------------
+        l.Add(new CouncilLawDef("ResearchDevUp", false, C, 1, "resDev", false, "Ускоренное развитие империи", "Accelerated Empire Development",
+            "Исследования ветки «Развитие империи» ускоряются на 50%.", "Empire Development research is 50% faster."));
+        l.Add(new CouncilLawDef("ResearchDevDown", false, C, -1, "resDev", false, "Замедленное развитие империи", "Stalled Empire Development",
+            "Исследования ветки «Развитие империи» замедляются на 50%.", "Empire Development research is 50% slower."));
+        l.Add(new CouncilLawDef("ResearchEcoUp", false, C, 1, "resEco", false, "Ускоренная экономика и торговля", "Accelerated Economy & Trade",
+            "Исследования ветки «Экономика и торговля» ускоряются на 50%.", "Economy & Trade research is 50% faster."));
+        l.Add(new CouncilLawDef("ResearchEcoDown", false, C, -1, "resEco", false, "Замедленная экономика и торговля", "Stalled Economy & Trade",
+            "Исследования ветки «Экономика и торговля» замедляются на 50%.", "Economy & Trade research is 50% slower."));
+        l.Add(new CouncilLawDef("ResearchMilUp", false, C, 1, "resMil", false, "Ускоренные военные исследования", "Accelerated Military Research",
+            "Исследования военной ветки ускоряются на 50%.", "Military research is 50% faster."));
+        l.Add(new CouncilLawDef("ResearchMilDown", false, C, -1, "resMil", false, "Замедленные военные исследования", "Stalled Military Research",
+            "Исследования военной ветки замедляются на 50%.", "Military research is 50% slower."));
+        l.Add(new CouncilLawDef("WarshipUpkeepUp", false, C, -1, "upkeep", false, "Военные расходы", "War Expenditure",
+            "Содержание боевых кораблей в Пыли повышается на 100%.", "Warship upkeep in Dust is +100%."));
+        l.Add(new CouncilLawDef("EvacCompensation", false, C, 1, "evac", false, "Компенсация за эвакуацию", "Evacuation Compensation",
+            "Сверхсущественное повышение компенсации Пылью за эвакуацию системы.", "Greatly increased Dust compensation for evacuating a system."));
+        l.Add(new CouncilLawDef("EscortSquads", false, C, 1, "squads", false, "Эскортные эскадры", "Escort Squadrons",
+            "Небольшие временные эскортные эскадры всем членам Совета.", "Small temporary escort squadrons for every council member."));
+        l.Add(new CouncilLawDef("Mentoring", false, I, 1, "mentor", false, "Академическое менторство", "Academic Mentoring",
+            "Все герои-губернаторы, не управляемые ИИ, моментально получают +3 уровня.", "All non-AI hero governors instantly gain +3 levels."));
+        l.Add(new CouncilLawDef("StrategicPresence", false, C, 1, "presence", false, "Программа стратегического присутствия", "Strategic Presence Program",
+            "Дополнительные голоса на следующем заседании за удержание заранее отмеченных систем.", "Extra votes at the next session for holding pre-marked systems."));
+        l.Add(new CouncilLawDef(NoConfidence, false, I, 0, "noconf", false, "Вотум недоверия", "Vote of No Confidence",
+            "Отзывает действующий победный мандат и прекращает его отсчёт.", "Revokes the active victory mandate and stops its countdown."));
+        l.Add(new CouncilLawDef(Counterintel, false, C, 0, "backdoor", true, "Контрразведка от Академии", "Academy Counter-Intelligence",
+            "Запрещает установку новых бэкдоров.", "Installing new backdoors is forbidden."));
+        l.Add(new CouncilLawDef(IntelExchange, false, C, 0, "sleepers", true, "Обмен разведывательными методиками", "Intelligence Method Exchange",
+            "Для всех взломов считается, что в системе на 4 спящих больше.", "For all hacks, the system counts as having 4 more sleepers."));
+        l.Add(new CouncilLawDef(NoDestabilization, false, C, 0, "sleepers", true, "Пакт о недопустимости дестабилизации", "Anti-Destabilization Pact",
+            "Любые взломы, требующие наличия спящих, недопустимы.", "Any hack that requires sleepers is forbidden."));
+        l.Add(new CouncilLawDef("Deregulation", false, C, 1, "market", false, "Дерегулирование рынка", "Market Deregulation",
+            "Существенное снижение цен на рынке при покупке стратегических ресурсов и роскоши.", "Large discount on strategic and luxury resources at the Market."));
+        l.Add(new CouncilLawDef("Privateering", false, C, 1, "market2", false, "Разрешение на каперство", "Letters of Marque",
+            "Существенное снижение цен на рынке при покупке военных кораблей.", "Large discount when buying warships at the Market."));
+        l.Add(new CouncilLawDef("TradeReinvest", false, C, 1, "tc", false, "Реинвестиции торговых компаний", "Trading Company Reinvestment",
+            "Временный бонус к Промышленности в системах со штаб-квартирами или филиалами торговых компаний.", "Temporary Industry bonus in systems with trading company HQs or subsidiaries."));
+
+        // ---------------- aimed at one empire (vote for an empire) ----------------
+        l.Add(new CouncilLawDef("DamageDown", true, C, -1, "dmg", false, "Ограничение вооружений", "Arms Limitation",
+            "Урон корабельного вооружения империи снижается на 20%.", "The empire's ship weapon damage is reduced by 20%."));
+        l.Add(new CouncilLawDef(DustPayout, true, I, 1, "payout", true, "Выплата Академии", "Academy Payout",
+            "Разовая выплата Пыли за каждую контролируемую колонизированную систему. Размер выплаты растёт с этапом партии.",
+            "One-time Dust payment for every controlled colonized system. Scales with the stage of the game."));
+        l.Add(new CouncilLawDef("UpkeepDown", true, C, 1, "upkeepT", false, "Льготы на содержание флота", "Fleet Upkeep Relief",
+            "Расходы на содержание кораблей в Пыли снижаются на 50%.", "Ship upkeep in Dust is reduced by 50%."));
+        l.Add(new CouncilLawDef("PillageX2", true, C, 1, "pillage", false, "Право на разграбление", "Right of Plunder",
+            "Добыча от действия «Разграбить систему» повышена в 2 раза.", "Loot from the 'Pillage System' action is doubled."));
+        l.Add(new CouncilLawDef("FortInspection", true, C, -1, "fort", false, "Инспекция укреплений", "Fortification Inspection",
+            "Ослабление обороняющихся наземных войск и увеличение потерь гарнизона от осады на 50%.", "Defending ground troops are weakened and siege garrison losses are +50%."));
+        l.Add(new CouncilLawDef("TradeRestrictions", true, C, -1, "trade", false, "Торговые ограничения", "Trade Restrictions",
+            "Покупки и продажи ресурсов на Рынке для выбранной империи в 2 раза менее выгодны.", "Market purchases and sales are twice as unfavourable for the chosen empire."));
+        l.Add(new CouncilLawDef("Truce", true, I, 1, "truce", false, "Академическое перемирие", "Academic Truce",
+            "Автоматически прекращает войны фракции с другими членами Совета.", "Automatically ends the faction's wars with other council members."));
+        l.Add(new CouncilLawDef(Replenishment, true, C, 1, "replen", true, "Программа пополнения", "Replenishment Program",
+            "Увеличение производства людских ресурсов (+50%) на время действия закона.", "Manpower production is increased by 50% while the law is in force."));
+        l.Add(new CouncilLawDef(ExpansionMandate, true, P, 1, "colony", true, "Мандат на экспансию", "Expansion Mandate",
+            "Навсегда даёт +1 к колонизационному лимиту, пока империя состоит в Совете.", "Permanently grants +1 colonization limit while the empire stays in the council."));
+        l.Add(new CouncilLawDef("Infrastructure", true, C, 1, "infra", false, "Инфраструктурная программа", "Infrastructure Program",
+            "Снижение промышленной стоимости системных улучшений (кроме галактических чудес).", "Lower Industry cost of system improvements (except galactic wonders)."));
+        l.Add(new CouncilLawDef("AcademySquad", true, C, 1, "squad", false, "Академическая эскадра", "Academy Squadron",
+            "Временная академическая эскадра; состав зависит от этапа партии. Возвращается по окончании закона.", "A temporary Academy squadron scaled to the game stage. Returned when the law ends."));
+        l.Add(new CouncilLawDef("CapitalFortify", true, C, 1, "capital", false, "Укрепление столицы", "Capital Fortification",
+            "Увеличение живучести защитников домашней системы и ускоренное восстановление гарнизона вне осады.", "Home-system defenders are tougher and recover faster outside of sieges."));
+        l.Add(new CouncilLawDef(ExpansionLimit, true, P, -1, "colony", true, "Ограничение экспансии", "Expansion Restriction",
+            "Империя навсегда теряет 1 колонизационный лимит, пока состоит в Совете.", "The empire permanently loses 1 colonization limit while in the council."));
+        l.Add(new CouncilLawDef("StealthOps", true, C, 1, "stealth", false, "Лицензия на скрытые операции", "Covert Operations License",
+            "Небольшая специализированная рейдерская группа с маскировкой.", "A small specialized cloaked raider group."));
+        l.Add(new CouncilLawDef(Merit, true, P, 1, "votes", true, "Признание заслуг", "Recognition of Merit",
+            "Выбранная фракция навсегда получает +30 голосов.", "The chosen faction permanently gains +30 votes."));
+        l.Add(new CouncilLawDef("Antimonopoly", true, C, -1, "tcT", false, "Антимонопольный надзор", "Antitrust Oversight",
+            "Временный штраф к доходам торговых компаний выбранной фракции (или отключение компании и филиалов).", "Temporary income penalty to the chosen faction's trading companies."));
+        return l;
+    }
+}
