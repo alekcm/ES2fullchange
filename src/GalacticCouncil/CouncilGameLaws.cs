@@ -43,7 +43,7 @@ public static partial class CouncilGame
         catch (Exception e) { Fail("AdjustSimplifiedDamage", e); }
     }
 
-    // ---------------------------------------------------------------- ground battle: Fortification Inspection / Capital Reinforcement
+    // ---------------------------------------------------------------- ground battle: weaker / tougher defending troops
 
     /// <summary>Return hook of ServerGroundBattle.GetColonizedStarSystemOpponentPropertyValue(system, property, opponentName).</summary>
     public static float AdjustOpponentProp(float value, ColonizedStarSystem system, StaticString property, string opponent)
@@ -51,22 +51,12 @@ public static partial class CouncilGame
         try
         {
             if (!Core.Enabled || system == null || opponent != "Defender") return value;
+            if (property != SimulationProperties.StarSystem.GroundBattleOpponentTroopsMaxHealthMultiplier) return value;
             var owner = system.Empire;
             if (owner == null) return value;
             int e = owner.Index;
-            bool fort = Core.IsLawActiveFor(LawFort, e);
-            bool cap = Core.IsLawActiveFor(LawCapital, e) && system.IsHomeSystemOfCurrentOwner;
-            if (!fort && !cap) return value;
-            if (property == SimulationProperties.StarSystem.GroundBattleOpponentTroopsMaxHealthMultiplier)
-            {
-                if (fort) value *= 0.75f;      // weaker defending troops
-                if (cap) value *= 1.5f;        // tougher home-system defenders
-            }
-            else if (fort && (property == SimulationProperties.StarSystem.GroundBattleBombardmentOpponentDamagesMin
-                           || property == SimulationProperties.StarSystem.GroundBattleBombardmentOpponentDamagesMax))
-            {
-                value *= 1.5f;                 // siege losses of the garrison +50%
-            }
+            if (Core.IsLawActiveFor(LawFort, e)) value *= 0.75f;                                                  // weaker defending troops
+            if (Core.IsLawActiveFor(LawCapital, e) && system.IsHomeSystemOfCurrentOwner) value *= 1.5f;           // tougher home-system defenders
         }
         catch (Exception e) { Fail("AdjustOpponentProp", e); }
         return value;
@@ -105,66 +95,105 @@ public static partial class CouncilGame
         }
     }
 
-    // ---------------------------------------------------------------- Trading Company Reinvestment
+    // ---------------------------------------------------------------- per-system effects
+    // Trading Company Reinvestment: SystemProduction x1.25 in systems with a company HQ / subsidiary of a member.
+    // Fortification Inspection: SystemManpowerLoss (garrison siege losses) x1.5 in every system of the target.
+    // Capital Reinforcement: SystemManpowerRefillRate (garrison recovery) x2 in the target's home system.
+    // Same mechanism as the god-mode code of the mod: a descriptor of its own type holding modifiers whose path is the class of the target.
 
-    static readonly List<SimulationDescriptor> reinvestDescriptors = new List<SimulationDescriptor>();
-    static readonly List<ColonizedStarSystem> reinvestTargets = new List<ColonizedStarSystem>();
-    static string reinvestSig = "";
+    static readonly List<SimulationDescriptor> sysDescriptors = new List<SimulationDescriptor>();
+    static readonly List<ColonizedStarSystem> sysTargets = new List<ColonizedStarSystem>();
+    static string sysSig = "";
 
-    static void ClearReinvest()
+    static void ClearSystemEffects()
     {
-        for (int i = 0; i < reinvestDescriptors.Count; i++)
+        for (int i = 0; i < sysDescriptors.Count; i++)
         {
-            try { reinvestTargets[i].SimulationObject.RemoveDescriptor(reinvestDescriptors[i]); reinvestTargets[i].Refresh(false); } catch (Exception) { }
+            try { sysTargets[i].SimulationObject.RemoveDescriptor(sysDescriptors[i]); sysTargets[i].Refresh(false); } catch (Exception) { }
         }
-        reinvestDescriptors.Clear();
-        reinvestTargets.Clear();
-        reinvestSig = "";
+        sysDescriptors.Clear();
+        sysTargets.Clear();
+        sysSig = "";
     }
 
-    static void RefreshReinvest(Game game)
+    const int FxReinvest = 1, FxFort = 2, FxCapital = 4;
+
+    static void RefreshSystemEffects(Game game)
     {
-        bool on = Core.Enabled && Core.IsLawActive(LawReinvest);
-        if (!on) { if (reinvestDescriptors.Count > 0) ClearReinvest(); return; }
+        if (!Core.Enabled) { if (sysDescriptors.Count > 0) ClearSystemEffects(); return; }
+        bool reinvest = Core.IsLawActive(LawReinvest), fort = Core.IsLawActive(LawFort), cap = Core.IsLawActive(LawCapital);
+        if (!reinvest && !fort && !cap) { if (sysDescriptors.Count > 0) ClearSystemEffects(); return; }
+
+        var flags = new Dictionary<ulong, int>();
+        var systems = new Dictionary<ulong, ColonizedStarSystem>();
         var repo = Services.GetService<IColonizedStarSystemRepositoryService>();
-        if (repo == null) return;
-        var systems = new List<ColonizedStarSystem>();
-        var ids = new List<ulong>();
         foreach (MajorEmpire e in game.EnumerableMajorEmpires)
         {
-            if (!Core.IsMember(e.Index) || e.HasBeenEliminated) continue;
-            var com = e.GetAgency<DepartmentOfCommerce>();
-            if (com == null) continue;
-            foreach (TradingCompanyStructure st in com.EnumerableTradingCompanyStructures)
+            if (e.HasBeenEliminated) continue;
+            if (reinvest && repo != null && Core.IsMember(e.Index))
             {
-                if (st == null || st.IsDisabled || st.IsLost) continue;
-                ColonizedStarSystem cs;
-                if (!repo.TryGetValue(e, st.NodePosition, out cs) || cs == null) continue;
-                ulong id = cs.GUID;
-                if (ids.Contains(id)) continue;
-                ids.Add(id); systems.Add(cs);
+                var com = e.GetAgency<DepartmentOfCommerce>();
+                if (com != null)
+                    foreach (TradingCompanyStructure st in com.EnumerableTradingCompanyStructures)
+                    {
+                        if (st == null || st.IsDisabled || st.IsLost) continue;
+                        ColonizedStarSystem cs;
+                        if (!repo.TryGetValue(e, st.NodePosition, out cs) || cs == null) continue;
+                        Mark(flags, systems, cs, FxReinvest);
+                    }
+            }
+            bool f = fort && Core.IsLawActiveFor(LawFort, e.Index);
+            bool c = cap && Core.IsLawActiveFor(LawCapital, e.Index);
+            if (!f && !c) continue;
+            var interior = e.GetAgency<DepartmentOfTheInterior>();
+            if (interior == null) continue;
+            foreach (ColonizedStarSystem cs in interior.ColonizedStarSystems)
+            {
+                if (cs == null) continue;
+                if (f) Mark(flags, systems, cs, FxFort);
+                if (c && cs.IsHomeSystemOfCurrentOwner) Mark(flags, systems, cs, FxCapital);
             }
         }
+        var ids = new List<ulong>(flags.Keys);
         ids.Sort();
         var sb = new System.Text.StringBuilder();
-        for (int i = 0; i < ids.Count; i++) sb.Append(ids[i]).Append(',');
+        for (int i = 0; i < ids.Count; i++) sb.Append(ids[i]).Append(':').Append(flags[ids[i]]).Append(',');
         string sig = sb.ToString();
-        if (sig == reinvestSig) return;
-        ClearReinvest();
-        reinvestSig = sig;
-        for (int i = 0; i < systems.Count; i++)
+        if (sig == sysSig) return;
+        ClearSystemEffects();
+        sysSig = sig;
+        for (int i = 0; i < ids.Count; i++)
         {
-            var cs = systems[i];
+            var cs = systems[ids[i]];
             if (cs.SimulationObject == null) continue;
-            var mod = CustomHackingHelper.MakeModifier(SimulationProperties.StarSystem.SystemProduction.ToString(),
-                SimulationModifierDescriptor.ModifierOperation.Multiplication, 1.25f, "ClassColonizedStarSystem");
-            var desc = CustomHackingHelper.CreateAndRegisterDescriptor(null, "GalacticCouncil_Reinvest_" + (++descSeq), "ClassColonizedStarSystem", null,
-                new SimulationModifierDescriptor[] { mod });
+            int fl = flags[ids[i]];
+            var mods = new List<SimulationModifierDescriptor>();
+            if ((fl & FxReinvest) != 0) mods.Add(SysMod(SimulationProperties.StarSystem.SystemProduction, 1.25f));
+            if ((fl & FxFort) != 0) mods.Add(SysMod(SimulationProperties.StarSystem.SystemManpowerLoss, 1.5f));
+            if ((fl & FxCapital) != 0)
+            {
+                mods.Add(SysMod(SimulationProperties.StarSystem.SystemManpowerRefillRate, 2f));
+                mods.Add(SysMod(SimulationProperties.StarSystem.MaximumSystemManpowerRefillRate, 2f));
+            }
+            var desc = CustomHackingHelper.CreateAndRegisterDescriptor(null, "GalacticCouncilSys_" + (++descSeq), "GalacticCouncilSys", null, mods.ToArray());
             cs.SimulationObject.AddDescriptor(desc);
-            reinvestDescriptors.Add(desc);
-            reinvestTargets.Add(cs);
+            sysDescriptors.Add(desc);
+            sysTargets.Add(cs);
             cs.Refresh(false);
         }
+    }
+
+    static void Mark(Dictionary<ulong, int> flags, Dictionary<ulong, ColonizedStarSystem> systems, ColonizedStarSystem cs, int flag)
+    {
+        ulong id = cs.GUID;
+        int cur; flags.TryGetValue(id, out cur);
+        flags[id] = cur | flag;
+        systems[id] = cs;
+    }
+
+    static SimulationModifierDescriptor SysMod(StaticString property, float factor)
+    {
+        return CustomHackingHelper.MakeModifier(property.ToString(), SimulationModifierDescriptor.ModifierOperation.Multiplication, factor, "ClassStarSystem");
     }
 
     // ---------------------------------------------------------------- evacuation compensation
@@ -319,5 +348,47 @@ public static partial class CouncilGame
         }
         catch (Exception e) { Fail("PresenceLines", e); }
         return res;
+    }
+
+    // ---------------------------------------------------------------- Academy home world counts as half of the capitals needed for a military victory
+
+    /// <summary>
+    /// End hook of VictoryManager.SetupInterpreterContextForContender(contender): the victory formulas read the number of capitals
+    /// that still exist from the interpreter context (NumberOfHealthyHomeSystems). For a contender that holds the Academy home world the
+    /// number is lowered by (number of players / 2), i.e. the Academy home world counts for half of the players' capitals.
+    /// </summary>
+    public static void AdjustVictoryContext(VictoryManager manager, MajorEmpire[] empires)
+    {
+        try
+        {
+            var game = GetGame();
+            if (game == null || game.Galaxy == null || manager == null || empires == null || manager.InterpreterContext == null) return;
+            int healthy = 0, players = 0;
+            foreach (MajorEmpire e in game.EnumerableMajorEmpires)
+            {
+                players++;
+                var interior = e.GetAgency<DepartmentOfTheInterior>();
+                var home = interior != null ? interior.HomeSystemNode : null;
+                if (home == null || !home.IsDestroyed) healthy++;
+            }
+            float value = healthy;
+            if (HoldsAcademyHome(game, empires)) value = Math.Max(1f, healthy - players / 2);
+            manager.InterpreterContext.Register(new StaticString("NumberOfHealthyHomeSystems"), (object)value);
+        }
+        catch (Exception e) { Fail("AdjustVictoryContext", e); }
+    }
+
+    static bool HoldsAcademyHome(Game game, MajorEmpire[] empires)
+    {
+        var repo = Services.GetService<IColonizedStarSystemRepositoryService>();
+        if (repo == null) return false;
+        foreach (ColonizedStarSystem cs in repo.GetValues(game.Galaxy.AcademyHomePosition))
+        {
+            if (cs == null || cs.State != StarSystemState.Colony) continue;
+            var holder = cs.Empire as MajorEmpire;
+            if (holder == null) continue;
+            for (int i = 0; i < empires.Length; i++) if (empires[i] != null && empires[i].Index == holder.Index) return true;
+        }
+        return false;
     }
 }

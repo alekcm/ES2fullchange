@@ -26,7 +26,7 @@ public static partial class CouncilGame
         try { PressOutcasts(game); } catch (Exception e) { Fail("PressOutcasts", e); }
         try { EndMarshalContracts(); } catch (Exception e) { Fail("EndMarshalContracts", e); }
         try { RefreshCompanyIncome(game); } catch (Exception e) { Fail("RefreshCompanyIncome", e); }
-        try { RefreshReinvest(game); } catch (Exception e) { Fail("RefreshReinvest", e); }
+        try { RefreshSystemEffects(game); } catch (Exception e) { Fail("RefreshSystemEffects", e); }
         try { SyncSquads(game); } catch (Exception e) { Fail("SyncSquads", e); }
         try { AnnounceHolders(); } catch (Exception e) { Fail("AnnounceHolders", e); }
     }

@@ -301,7 +301,7 @@ public static partial class CouncilGame
                     SimulationModifierDescriptor.ModifierOperation.Addition, 20f, "ClassEmpire"));
             }
             if (mods.Count == 0) continue;
-            var desc = CustomHackingHelper.CreateAndRegisterDescriptor(null, "GalacticCouncil_" + idx + "_" + (++descSeq), "ClassEmpire", null, mods.ToArray());
+            var desc = CustomHackingHelper.CreateAndRegisterDescriptor(null, "GalacticCouncil_" + idx + "_" + (++descSeq), "GalacticCouncilEmp", null, mods.ToArray());
             emp.SimulationObject.AddDescriptor(desc);
             appliedDescriptors.Add(desc);
             appliedTargets.Add(emp.SimulationObject);
@@ -313,7 +313,7 @@ public static partial class CouncilGame
 
     static void ClearEffects(Game game)
     {
-        try { ClearReinvest(); } catch (Exception) { }
+        try { ClearSystemEffects(); } catch (Exception) { }
         for (int i = 0; i < appliedDescriptors.Count; i++)
         {
             try { appliedTargets[i].RemoveDescriptor(appliedDescriptors[i]); } catch (Exception) { }

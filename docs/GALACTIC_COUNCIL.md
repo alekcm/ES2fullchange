@@ -1,4 +1,4 @@
-# Galactic Council (Stages 1-3)
+# Galactic Council (Stages 1-6)
 
 Replaces the Academy "request resources" phase with a Council vote. Implemented as C# (`src/GalacticCouncil`),
 compiled with Mono/Roslyn and merged into `Managed/Assembly-CSharp.dll` with Cecil (`tools/Patcher`).
@@ -63,12 +63,12 @@ Not verified in game: that the heuristic finds a design, that the fleet name is 
 * Ship weapon damage -20%: the game only has automatic battles. `ServerEncounterState_RunSimpleBattle.ComputeSimplifiedEffectiveDamagePercentage`
   (end) -> `CouncilGame.AdjustSimplifiedDamage`: the target's effective damage percentage x0.8 (group leader's empire).
 * Fortification Inspection / Capital Reinforcement: `ServerGroundBattle.GetColonizedStarSystemOpponentPropertyValue` (return) ->
-  `AdjustOpponentProp`. For the defending opponent of the target's system: troop max health x0.75 (inspection) / x1.5 (capital, home system of the owner),
-  bombardment damage min/max x1.5 (inspection).
+  `AdjustOpponentProp`. For the defending opponent of the target's system: troop max health x0.75 (inspection) / x1.5 (capital, home system of the owner).
+  (Stage 6: the bombardment multiplier was removed, the siege acts on the garrison, see below.)
 * Antitrust Oversight: `DepartmentOfCommerce.GetTradingCompanyIncomeMultiplier` (return) -> `AdjustCompanyIncome`: x0.5 for the target's companies;
   companies are marked `IncomeDirty` when the law set changes.
 * Trading Company Reinvestment: every turn the systems that hold a company HQ/subsidiary of a member get a descriptor
-  (`SystemProduction` x1.25, class `ClassColonizedStarSystem`); removed when the law ends.
+  (`SystemProduction` x1.25); removed when the law ends. (Stage 6: moved to the shared system-effects descriptor, see below.)
 * Evacuation compensation: `DepartmentOfTheInterior.DecolonizeProcessor` calls `CouncilGame.OnDecolonize(order, system)` before the system is removed.
   Voluntary evacuation into a colony ship pays an extra `3 x improvement costs + 250 x stage` Dust.
 * Academic Truce: forced peace with every war of the target (`SetDiplomaticRelationState(Truce)` both ways, then
@@ -76,10 +76,19 @@ Not verified in game: that the heuristic finds a design, that the fleet name is 
 * Strategic Presence: when the law is enacted `PresenceMarks` are drawn (5..12 random systems, deterministic seed); when the next session opens
   each member gets +10 votes per marked system it holds (colony or outpost), max +50; marks are consumed. Shown in the Laws tab. State is saved.
 
-Not implemented: the Academy home world counting as 50% of the capitals for a military victory. The victory formulas are XML
-(`InterpreterBasedVictoryConditionEvaluatorDefinition`); the code only exposes `NumberOfHealthyHomeSystems` to them, the property that counts captured
-capitals is defined in game data which this repository does not contain. "Faster garrison recovery outside sieges" (Capital Reinforcement) has no hook
-in code either (system garrison recovery is formula-driven).
+## Stage 6: garrison, Academy home world
+Garrison = the system manpower (`SimulationProperties/StarSystem`: `SystemManpowerStock`, `SystemManpowerRefillRate`, `SystemManpowerLoss`, ...).
+* `CouncilGame.RefreshSystemEffects` (every turn) keeps ONE descriptor per affected `ColonizedStarSystem` (type `GalacticCouncilSys`, modifiers with
+  path `ClassStarSystem`, the same pattern as `CustomHackingHelper.ApplyPostOverhaulGodModEffects`; `Multiplication` operation):
+  * Fortification Inspection: `SystemManpowerLoss` x1.5 in every system of the target (siege losses of the garrison, ships in orbit);
+  * Capital Reinforcement: `SystemManpowerRefillRate` and `MaximumSystemManpowerRefillRate` x2 in the target's home system (garrison recovery);
+  * Trading Company Reinvestment: `SystemProduction` x1.25.
+  The descriptors are rebuilt only when the signature (system + flags) changes and are removed when the law ends or the Council is disbanded.
+* Empire-wide descriptors now use their own type `GalacticCouncilEmp` (previously the class name `ClassEmpire`).
+* Academy home world = half of the capitals: `VictoryManager.SetupInterpreterContextForContender` (end) -> `CouncilGame.AdjustVictoryContext(manager, contender.Empires)`.
+  The victory formulas read `NumberOfHealthyHomeSystems` from the interpreter context. For a contender that holds the Academy home world (colony state
+  at `Galaxy.AcademyHomePosition`) the value becomes `max(1, healthy - players / 2)`; for the others the true value is registered again (the context is shared).
+  Assumption: the military victory formula uses `NumberOfHealthyHomeSystems` as the number of capitals that must be captured.
 
 ## Hooks in the game assembly
 | Where | What |
@@ -98,6 +107,7 @@ in code either (system garrison recovery is formula-driven).
 | `ServerGroundBattle.GetColonizedStarSystemOpponentPropertyValue` (every `ret`) | value goes through `CouncilGame.AdjustOpponentProp` |
 | `DepartmentOfCommerce.GetTradingCompanyIncomeMultiplier` (every `ret`) | value goes through `CouncilGame.AdjustCompanyIncome` |
 | `DepartmentOfTheInterior.<DecolonizeProcessor>.MoveNext` (before `RemoveColonizedStarSystemAndPlanets`) | `CouncilGame.OnDecolonize` |
+| `VictoryManager.SetupInterpreterContextForContender` (end) | `CouncilGame.AdjustVictoryContext` |
 | `DepartmentOfDefense.ScrapShipsPreprocessor`, `DepartmentOfCommerce.SelloutTradableShipsPreprocessor` (start) | return false when a ship belongs to a council squad |
 
 ## UI

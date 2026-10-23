@@ -52,6 +52,7 @@ public static class Patcher
         HookBattleLaws(game);
         HookCompany(game);
         HookDecolonize(game);
+        HookVictoryContext(game);
 
         Console.WriteLine("publicized members: " + cl.PublicizedLog.Count);
         foreach (var s in cl.PublicizedLog.OrderBy(x => x)) Console.WriteLine("  + " + s);
@@ -350,6 +351,27 @@ public static class Patcher
         il.InsertBefore(call, il.Create(OpCodes.Ldloc, vInt));
         il.InsertBefore(call, il.Create(OpCodes.Ldloc, vSys));
         Console.WriteLine("hook: DecolonizeProcessor calls OnDecolonize before removing the system");
+    }
+
+    // VictoryManager.SetupInterpreterContextForContender(contender) end => AdjustVictoryContext(this, contender.Empires)
+    static void HookVictoryContext(TypeDefinition game)
+    {
+        var vm = mod.GetType("VictoryManager");
+        var m = vm.Methods.First(x => x.Name == "SetupInterpreterContextForContender");
+        var contender = vm.NestedTypes.First(t => t.Name == "VictoryContender");
+        var empires = contender.Fields.First(f => f.Name == "Empires");
+        LengthenBranches(m);
+        var il = m.Body.GetILProcessor();
+        var rets = m.Body.Instructions.Where(i => i.OpCode == OpCodes.Ret).ToList();
+        foreach (var r in rets)
+        {
+            // rewrite the ret in place (branches may target it), append the call after it
+            r.OpCode = OpCodes.Ldarg_0; r.Operand = null;
+            var seq = new List<Instruction> { il.Create(OpCodes.Ldarg_1), il.Create(OpCodes.Ldfld, empires), il.Create(OpCodes.Call, GameMethod(game, "AdjustVictoryContext")), il.Create(OpCodes.Ret) };
+            var at = r;
+            foreach (var x in seq) { il.InsertAfter(at, x); at = x; }
+        }
+        Console.WriteLine("hook: victory interpreter context returns wrapped: " + rets.Count);
     }
 
     // H3: GroundBattleOutcomeLootDefinition.FillLoot(battle, loot, populations) => ...; AdjustLoot(battle, loot)
