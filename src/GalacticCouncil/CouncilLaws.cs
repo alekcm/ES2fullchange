@@ -141,13 +141,13 @@ public static class CouncilLaws
             "Исследования военной ветки замедляются на 50%.", "Military research is 50% slower."));
         l.Add(new CouncilLawDef("WarshipUpkeepUp", false, C, -1, "upkeep", true, "Военные расходы", "War Expenditure",
             "Содержание боевых кораблей в Пыли повышается на 100%.", "Warship upkeep in Dust is +100%."));
-        l.Add(new CouncilLawDef("EvacCompensation", false, C, 1, "evac", false, "Компенсация за эвакуацию", "Evacuation Compensation",
+        l.Add(new CouncilLawDef("EvacCompensation", false, C, 1, "evac", true, "Компенсация за эвакуацию", "Evacuation Compensation",
             "Сверхсущественное повышение компенсации Пылью за эвакуацию системы.", "Greatly increased Dust compensation for evacuating a system."));
         l.Add(new CouncilLawDef("EscortSquads", false, C, 1, "squads", true, "Эскортные эскадры", "Escort Squadrons",
             "Небольшие временные эскортные эскадры всем членам Совета.", "Small temporary escort squadrons for every council member."));
         l.Add(new CouncilLawDef("Mentoring", false, I, 1, "mentor", true, "Академическое менторство", "Academic Mentoring",
             "Все герои-губернаторы, не управляемые ИИ, моментально получают +3 уровня.", "All non-AI hero governors instantly gain +3 levels."));
-        l.Add(new CouncilLawDef("StrategicPresence", false, C, 1, "presence", false, "Программа стратегического присутствия", "Strategic Presence Program",
+        l.Add(new CouncilLawDef("StrategicPresence", false, C, 1, "presence", true, "Программа стратегического присутствия", "Strategic Presence Program",
             "Дополнительные голоса на следующем заседании за удержание заранее отмеченных систем.", "Extra votes at the next session for holding pre-marked systems."));
         l.Add(new CouncilLawDef(NoConfidence, false, I, 0, "noconf", true, "Вотум недоверия", "Vote of No Confidence",
             "Отзывает действующий победный мандат и прекращает его отсчёт.", "Revokes the active victory mandate and stops its countdown."));
@@ -161,11 +161,11 @@ public static class CouncilLaws
             "Существенное снижение цен на рынке при покупке стратегических ресурсов и роскоши.", "Large discount on strategic and luxury resources at the Market."));
         l.Add(new CouncilLawDef("Privateering", false, C, 1, "market2", true, "Разрешение на каперство", "Letters of Marque",
             "Существенное снижение цен на рынке при покупке военных кораблей.", "Large discount when buying warships at the Market."));
-        l.Add(new CouncilLawDef("TradeReinvest", false, C, 1, "tc", false, "Реинвестиции торговых компаний", "Trading Company Reinvestment",
+        l.Add(new CouncilLawDef("TradeReinvest", false, C, 1, "tc", true, "Реинвестиции торговых компаний", "Trading Company Reinvestment",
             "Временный бонус к Промышленности в системах со штаб-квартирами или филиалами торговых компаний.", "Temporary Industry bonus in systems with trading company HQs or subsidiaries."));
 
         // ---------------- aimed at one empire (vote for an empire) ----------------
-        l.Add(new CouncilLawDef("DamageDown", true, C, -1, "dmg", false, "Ограничение вооружений", "Arms Limitation",
+        l.Add(new CouncilLawDef("DamageDown", true, C, -1, "dmg", true, "Ограничение вооружений", "Arms Limitation",
             "Урон корабельного вооружения империи снижается на 20%.", "The empire's ship weapon damage is reduced by 20%."));
         l.Add(new CouncilLawDef(DustPayout, true, I, 1, "payout", true, "Выплата Академии", "Academy Payout",
             "Разовая выплата Пыли за каждую контролируемую колонизированную систему. Размер выплаты растёт с этапом партии.",
@@ -174,12 +174,12 @@ public static class CouncilLaws
             "Расходы на содержание кораблей в Пыли снижаются на 50%.", "Ship upkeep in Dust is reduced by 50%."));
         l.Add(new CouncilLawDef("PillageX2", true, C, 1, "pillage", true, "Право на разграбление", "Right of Plunder",
             "Добыча от действия «Разграбить систему» повышена в 2 раза.", "Loot from the 'Pillage System' action is doubled."));
-        l.Add(new CouncilLawDef("FortInspection", true, C, -1, "fort", false, "Инспекция укреплений", "Fortification Inspection",
+        l.Add(new CouncilLawDef("FortInspection", true, C, -1, "fort", true, "Инспекция укреплений", "Fortification Inspection",
             "Ослабление обороняющихся наземных войск и увеличение потерь гарнизона от осады на 50%.", "Defending ground troops are weakened and siege garrison losses are +50%."));
         l.Add(new CouncilLawDef("TradeRestrictions", true, C, -1, "trade", true, "Торговые ограничения", "Trade Restrictions",
             "Покупки и продажи ресурсов на Рынке для выбранной империи в 2 раза менее выгодны.", "Market purchases and sales are twice as unfavourable for the chosen empire."));
-        l.Add(new CouncilLawDef("Truce", true, I, 1, "truce", false, "Академическое перемирие", "Academic Truce",
-            "Автоматически прекращает войны фракции с другими членами Совета.", "Automatically ends the faction's wars with other council members."));
+        l.Add(new CouncilLawDef("Truce", true, I, 1, "truce", true, "Академическое перемирие", "Academic Truce",
+            "Принудительно заключает мир со всеми, с кем фракция сейчас воюет (устанавливается перемирие).", "Forces peace (a truce) with everyone the faction is currently at war with."));
         l.Add(new CouncilLawDef(Replenishment, true, C, 1, "replen", true, "Программа пополнения", "Replenishment Program",
             "Увеличение производства людских ресурсов (+50%) на время действия закона.", "Manpower production is increased by 50% while the law is in force."));
         l.Add(new CouncilLawDef(ExpansionMandate, true, P, 1, "colony", true, "Мандат на экспансию", "Expansion Mandate",
@@ -188,7 +188,7 @@ public static class CouncilLaws
             "Снижение промышленной стоимости системных улучшений (кроме галактических чудес).", "Lower Industry cost of system improvements (except galactic wonders)."));
         l.Add(new CouncilLawDef("AcademySquad", true, C, 1, "squad", true, "Академическая эскадра", "Academy Squadron",
             "Временная академическая эскадра; состав зависит от этапа партии. Возвращается по окончании закона.", "A temporary Academy squadron scaled to the game stage. Returned when the law ends."));
-        l.Add(new CouncilLawDef("CapitalFortify", true, C, 1, "capital", false, "Укрепление столицы", "Capital Fortification",
+        l.Add(new CouncilLawDef("CapitalFortify", true, C, 1, "capital", true, "Укрепление столицы", "Capital Fortification",
             "Увеличение живучести защитников домашней системы и ускоренное восстановление гарнизона вне осады.", "Home-system defenders are tougher and recover faster outside of sieges."));
         l.Add(new CouncilLawDef(ExpansionLimit, true, P, -1, "colony", true, "Ограничение экспансии", "Expansion Restriction",
             "Империя навсегда теряет 1 колонизационный лимит, пока состоит в Совете.", "The empire permanently loses 1 colonization limit while in the council."));
@@ -196,8 +196,8 @@ public static class CouncilLaws
             "Небольшая специализированная рейдерская группа с маскировкой.", "A small specialized cloaked raider group."));
         l.Add(new CouncilLawDef(Merit, true, P, 1, "votes", true, "Признание заслуг", "Recognition of Merit",
             "Выбранная фракция навсегда получает +30 голосов.", "The chosen faction permanently gains +30 votes."));
-        l.Add(new CouncilLawDef("Antimonopoly", true, C, -1, "tcT", false, "Антимонопольный надзор", "Antitrust Oversight",
-            "Временный штраф к доходам торговых компаний выбранной фракции (или отключение компании и филиалов).", "Temporary income penalty to the chosen faction's trading companies."));
+        l.Add(new CouncilLawDef("Antimonopoly", true, C, -1, "tcT", true, "Антимонопольный надзор", "Antitrust Oversight",
+            "Доходы торговых компаний выбранной фракции снижаются вдвое на время действия закона.", "Trading company income of the chosen faction is halved while the law is in force."));
         for (int i = 0; i < Mandates.Count; i++)
         {
             var md = Mandates[i];

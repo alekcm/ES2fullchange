@@ -199,6 +199,7 @@ public static partial class CouncilGame
     static void DoOpen(AcademyRequestsManager mgr, Game game, int turn)
     {
         var expired = Core.ExpireLaws();
+        try { ApplyPresence(game); } catch (Exception e) { Fail("ApplyPresence", e); }
         int seed = unchecked(turn * 1103515245 + Core.VoteIndex * 12345 + mgr.AcademyEmpire.Index * 31 + 7);
         var props = Core.BuildProposals(seed, CouncilCore.MaxQuestions);
         if (props.Count == 0) { Core.NextVoteTurn = turn + Core.IntervalTurns; return; }
@@ -233,6 +234,8 @@ public static partial class CouncilGame
     static void ApplyInstant(Game game, CouncilActiveLaw law)
     {
         if (law.Id == "Mentoring") { ApplyMentoring(game); return; }
+        if (law.Id == LawTruce) { ForcePeace(game, law.Target); return; }
+        if (law.Id == LawPresence) { MarkPresenceSystems(game, game.Turn); return; }
         if (law.Id == CouncilCore.LawEscort || law.Id == CouncilCore.LawAcademySquad || law.Id == CouncilCore.LawStealth) { SpawnForLaw(game, law); return; }
         if (law.Id == CouncilLaws.DustPayout)
         {
@@ -310,6 +313,7 @@ public static partial class CouncilGame
 
     static void ClearEffects(Game game)
     {
+        try { ClearReinvest(); } catch (Exception) { }
         for (int i = 0; i < appliedDescriptors.Count; i++)
         {
             try { appliedTargets[i].RemoveDescriptor(appliedDescriptors[i]); } catch (Exception) { }

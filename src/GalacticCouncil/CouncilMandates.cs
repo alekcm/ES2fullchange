@@ -32,6 +32,7 @@ public sealed partial class CouncilCore
     {
         Holders.Clear(); Tasks.Clear(); PendingMandate = ""; MandateCandidates.Clear();
         SupremeSince = -1; Outcasts.Clear(); ChairmanUsedVote = -1; LastSupplyTurn.Clear(); MarshalHired.Clear();
+        ResetPresence();
     }
 
     // ------------------------------------------------------------------ tasks (stub for the future Academy assignment system)
@@ -290,6 +291,7 @@ public sealed partial class CouncilCore
         sb.Append(string.Join(";", parts.ToArray())).Append('|');
         sb.Append(IntList(MarshalHired)).Append('|');
         AppendSquadState(sb);
+        AppendPresenceState(sb);
     }
 
     static string IntList(List<int> l)
@@ -336,5 +338,6 @@ public sealed partial class CouncilCore
         }
         MarshalHired = ParseIntList(f[26]);
         if (f.Length > 27) ReadSquadState(f[27]);
+        if (f.Length > 29) ReadPresenceState(f[28], f[29]);
     }
 }

@@ -73,6 +73,7 @@ public sealed partial class CouncilCore
         int b = BaseVotes;
         int bonus;
         if (VoteBonus.TryGetValue(emp, out bonus)) b += bonus;
+        b += PresenceBonusOf(emp);
         if (Holds(emp, CouncilLaws.Supreme)) b *= 2;      // supreme mandate doubles the votes
         return b;
     }
@@ -139,6 +140,7 @@ public sealed partial class CouncilCore
         Members.Remove(emp);
         Ballots.Remove(emp);
         VoteBonus.Remove(emp);
+        PresenceBonus.Remove(emp);
         ColonyDelta.Remove(emp);
         for (int i = Active.Count - 1; i >= 0; i--) if (Active[i].Target == emp) Active.RemoveAt(i);
         RemoveHoldsOf(emp);
@@ -323,6 +325,7 @@ public sealed partial class CouncilCore
         Phase = PhaseIdle;
         Proposals.Clear();
         Ballots.Clear();
+        PresenceBonus.Clear();
         MandateCandidates.Clear();
         return enacted;
     }

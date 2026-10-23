@@ -215,6 +215,25 @@ static class M
             q.Leave(1);
             Check(!q.SquadNeeded("M", 1), "leaving the council ends squads");
         }
+
+        {
+            var q = new CouncilCore(); q.Found(0, new[] { 0, 1, 2 }, 20);
+            var idx = CouncilCore.PickPresenceIndices(40, 3, 123);
+            var idx2 = CouncilCore.PickPresenceIndices(40, 3, 123);
+            bool same = idx.Count == idx2.Count; for (int i = 0; same && i < idx.Count; i++) same = idx[i] == idx2[i];
+            Check(idx.Count == 6 && same, "presence: 6 marks for 3 members, deterministic");
+            Check(CouncilCore.PickPresenceIndices(3, 3, 1).Count == 3, "presence: never more marks than systems");
+            q.SetPresenceMarks(new ulong[] { 10, 11, 12, 13, 14, 15, 16, 17 });
+            q.ApplyPresenceBonus(delegate (ulong g) { return g < 15 ? 0 : (g < 17 ? 1 : -1); });
+            Check(q.PresenceBonusOf(0) == 50 && q.PresenceBonusOf(1) == 20 && q.PresenceBonusOf(2) == 0, "presence: +10 per held system, capped at +50");
+            Check(q.Budget(0) == 150 && q.Budget(1) == 120, "presence: bonus is part of the vote budget");
+            Check(q.PresenceMarks.Count == 0, "presence: marks are consumed when the session opens");
+            q.SetPresenceMarks(new ulong[] { 5, 6 });
+            var rp = CouncilCore.Deserialize(q.Serialize());
+            Check(rp.PresenceMarks.Count == 2 && rp.PresenceBonusOf(0) == 50 && rp.Budget(1) == 120, "presence survives serialization");
+            q.RemoveMember(0);
+            Check(q.PresenceBonusOf(0) == 0, "leaving the council drops the presence bonus");
+        }
         Console.WriteLine(fails == 0 ? "ALL PASSED" : (fails + " FAILED"));
         return fails == 0 ? 0 : 1;
     }

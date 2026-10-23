@@ -49,6 +49,9 @@ public static class Patcher
         HookLoot(game);
         HookShipBlocks(game);
         HookProductionCost(game);
+        HookBattleLaws(game);
+        HookCompany(game);
+        HookDecolonize(game);
 
         Console.WriteLine("publicized members: " + cl.PublicizedLog.Count);
         foreach (var s in cl.PublicizedLog.OrderBy(x => x)) Console.WriteLine("  + " + s);
@@ -278,6 +281,75 @@ public static class Patcher
         if (m.Count != 1 || !m[0].IsStatic) throw new Exception("GetProductionCostWithBonus(float) not found/static");
         int n = WrapReturns(m[0], GameMethod(game, "AdjustProductionCost"), new[] { OpCodes.Ldarg_0, OpCodes.Ldarg_1, OpCodes.Ldarg_2 });
         Console.WriteLine("hook: production cost returns wrapped: " + n);
+    }
+
+
+    // WrapReturns with arbitrary argument slots (0 = this, n = parameter n-1); the first slot reuses the original ret.
+    static int WrapReturnsSlots(MethodDefinition m, MethodDefinition hook, int[] slots)
+    {
+        LengthenBranches(m);
+        var il = m.Body.GetILProcessor();
+        var rets = m.Body.Instructions.Where(i => i.OpCode == OpCodes.Ret).ToList();
+        Func<int, Instruction> load = s => s == 0 ? il.Create(OpCodes.Ldarg_0) : il.Create(OpCodes.Ldarg, m.Parameters[s - 1]);
+        foreach (var r in rets)
+        {
+            var first = load(slots[0]);
+            var seq = new List<Instruction>();
+            for (int k = 1; k < slots.Length; k++) seq.Add(load(slots[k]));
+            seq.Add(il.Create(OpCodes.Call, hook));
+            seq.Add(il.Create(OpCodes.Ret));
+            r.OpCode = first.OpCode; r.Operand = first.Operand;
+            var at = r;
+            foreach (var x in seq) { il.InsertAfter(at, x); at = x; }
+        }
+        return rets.Count;
+    }
+
+    // Simplified battle damage (-20% law), ground battle modifiers (Fortification Inspection / Capital Reinforcement)
+    static void HookBattleLaws(TypeDefinition game)
+    {
+        var m = Method("ServerEncounterState_RunSimpleBattle", "ComputeSimplifiedEffectiveDamagePercentage");
+        int n = WrapReturnsSlots(m, GameMethod(game, "AdjustSimplifiedDamage"), new[] { 1, 4, 7, 8 });
+        Console.WriteLine("hook: simplified battle damage returns wrapped: " + n);
+        var g = Method("ServerGroundBattle", "GetColonizedStarSystemOpponentPropertyValue");
+        n = WrapReturns(g, GameMethod(game, "AdjustOpponentProp"), new[] { OpCodes.Ldarg_1, OpCodes.Ldarg_2, OpCodes.Ldarg_3 });
+        Console.WriteLine("hook: ground battle opponent property returns wrapped: " + n);
+    }
+
+    // Antitrust Oversight: DepartmentOfCommerce.GetTradingCompanyIncomeMultiplier(company)
+    static void HookCompany(TypeDefinition game)
+    {
+        var m = Method("DepartmentOfCommerce", "GetTradingCompanyIncomeMultiplier");
+        int n = WrapReturns(m, GameMethod(game, "AdjustCompanyIncome"), new[] { OpCodes.Ldarg_1 });
+        Console.WriteLine("hook: trading company income multiplier returns wrapped: " + n);
+    }
+
+    // Evacuation compensation: DecolonizeProcessor calls RemoveColonizedStarSystemAndPlanets; call OnDecolonize(order, system) first.
+    static void HookDecolonize(TypeDefinition game)
+    {
+        var it = mod.GetType("DepartmentOfTheInterior").NestedTypes.First(t => t.Name == "<DecolonizeProcessor>c__Iterator1B");
+        var mv = it.Methods.First(x => x.Name == "MoveNext");
+        var orderField = it.Fields.First(f => f.Name == "order");
+        var calls = mv.Body.Instructions.Where(i => i.OpCode.Code == Code.Call && ((MethodReference)i.Operand).Name == "RemoveColonizedStarSystemAndPlanets").ToList();
+        if (calls.Count != 1) throw new Exception("expected 1 RemoveColonizedStarSystemAndPlanets call, found " + calls.Count);
+        var call = calls[0];
+        var sysType = ((MethodReference)call.Operand).Parameters[0].ParameterType;
+        var intType = ((MethodReference)call.Operand).DeclaringType;
+        var vSys = new VariableDefinition(sysType);
+        var vInt = new VariableDefinition(intType);
+        mv.Body.Variables.Add(vSys);
+        mv.Body.Variables.Add(vInt);
+        mv.Body.InitLocals = true;
+        var il = mv.Body.GetILProcessor();
+        il.InsertBefore(call, il.Create(OpCodes.Stloc, vSys));
+        il.InsertBefore(call, il.Create(OpCodes.Stloc, vInt));
+        il.InsertBefore(call, il.Create(OpCodes.Ldarg_0));
+        il.InsertBefore(call, il.Create(OpCodes.Ldfld, orderField));
+        il.InsertBefore(call, il.Create(OpCodes.Ldloc, vSys));
+        il.InsertBefore(call, il.Create(OpCodes.Call, GameMethod(game, "OnDecolonize")));
+        il.InsertBefore(call, il.Create(OpCodes.Ldloc, vInt));
+        il.InsertBefore(call, il.Create(OpCodes.Ldloc, vSys));
+        Console.WriteLine("hook: DecolonizeProcessor calls OnDecolonize before removing the system");
     }
 
     // H3: GroundBattleOutcomeLootDefinition.FillLoot(battle, loot, populations) => ...; AdjustLoot(battle, loot)

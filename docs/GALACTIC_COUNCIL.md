@@ -59,11 +59,27 @@ Not verified in game: that the heuristic finds a design, that the fleet name is 
 * Warship upkeep +100% / ship upkeep -50%: an `Addition` modifier on `EmpireMoneyUpkeep` (class `ClassEmpire`), recomputed each turn from
   `Ship.GarrisonMoneyUpkeep` over all fleets (warship = not civilian, not academy), rounded to 5.
 
-Still not implemented (registered, `Implemented=false`, never offered): weapon damage -20% (only the simplified-battle path
-`ComputeSimplifiedEffectiveDamagePercentage` was found, not the tactical one), evacuation compensation (no evacuation mechanic in the code),
-Strategic Presence (the "pre-marked systems" are undefined), Fortification Inspection, Capital Reinforcement, Antitrust,
-Trade Company Reinvestment, Academic Truce, Academy-home-world 50% capital rule.
-Academic Truce: `SetDiplomaticRelationState` handles the relation, but nothing found destroys the `WarInstance`, so it was left out.
+## Stage 5: battle, economy, diplomacy laws
+* Ship weapon damage -20%: the game only has automatic battles. `ServerEncounterState_RunSimpleBattle.ComputeSimplifiedEffectiveDamagePercentage`
+  (end) -> `CouncilGame.AdjustSimplifiedDamage`: the target's effective damage percentage x0.8 (group leader's empire).
+* Fortification Inspection / Capital Reinforcement: `ServerGroundBattle.GetColonizedStarSystemOpponentPropertyValue` (return) ->
+  `AdjustOpponentProp`. For the defending opponent of the target's system: troop max health x0.75 (inspection) / x1.5 (capital, home system of the owner),
+  bombardment damage min/max x1.5 (inspection).
+* Antitrust Oversight: `DepartmentOfCommerce.GetTradingCompanyIncomeMultiplier` (return) -> `AdjustCompanyIncome`: x0.5 for the target's companies;
+  companies are marked `IncomeDirty` when the law set changes.
+* Trading Company Reinvestment: every turn the systems that hold a company HQ/subsidiary of a member get a descriptor
+  (`SystemProduction` x1.25, class `ClassColonizedStarSystem`); removed when the law ends.
+* Evacuation compensation: `DepartmentOfTheInterior.DecolonizeProcessor` calls `CouncilGame.OnDecolonize(order, system)` before the system is removed.
+  Voluntary evacuation into a colony ship pays an extra `3 x improvement costs + 250 x stage` Dust.
+* Academic Truce: forced peace with every war of the target (`SetDiplomaticRelationState(Truce)` both ways, then
+  `IDiplomaticWarRepositoryControl.DestroyWarInstance`, the same sequence as `ForceTruce.ClientAccept`, without tribute/war points).
+* Strategic Presence: when the law is enacted `PresenceMarks` are drawn (5..12 random systems, deterministic seed); when the next session opens
+  each member gets +10 votes per marked system it holds (colony or outpost), max +50; marks are consumed. Shown in the Laws tab. State is saved.
+
+Not implemented: the Academy home world counting as 50% of the capitals for a military victory. The victory formulas are XML
+(`InterpreterBasedVictoryConditionEvaluatorDefinition`); the code only exposes `NumberOfHealthyHomeSystems` to them, the property that counts captured
+capitals is defined in game data which this repository does not contain. "Faster garrison recovery outside sieges" (Capital Reinforcement) has no hook
+in code either (system garrison recovery is formula-driven).
 
 ## Hooks in the game assembly
 | Where | What |
@@ -78,6 +94,10 @@ Academic Truce: `SetDiplomaticRelationState` handles the relation, but nothing f
 | `Marketplace.ITradingManagementService.GetTradablePrice` (every `ret`) | price goes through `CouncilGame.AdjustTradePrice` |
 | `GroundBattleOutcomeLootDefinition.FillLoot` (end) | `CouncilGame.AdjustLoot` |
 | `DepartmentOfTheTreasury.GetProductionCostWithBonus(..., Single)` (every `ret`) | value goes through `CouncilGame.AdjustProductionCost` |
+| `ServerEncounterState_RunSimpleBattle.ComputeSimplifiedEffectiveDamagePercentage` (end) | `CouncilGame.AdjustSimplifiedDamage` |
+| `ServerGroundBattle.GetColonizedStarSystemOpponentPropertyValue` (every `ret`) | value goes through `CouncilGame.AdjustOpponentProp` |
+| `DepartmentOfCommerce.GetTradingCompanyIncomeMultiplier` (every `ret`) | value goes through `CouncilGame.AdjustCompanyIncome` |
+| `DepartmentOfTheInterior.<DecolonizeProcessor>.MoveNext` (before `RemoveColonizedStarSystemAndPlanets`) | `CouncilGame.OnDecolonize` |
 | `DepartmentOfDefense.ScrapShipsPreprocessor`, `DepartmentOfCommerce.SelloutTradableShipsPreprocessor` (start) | return false when a ship belongs to a council squad |
 
 ## UI

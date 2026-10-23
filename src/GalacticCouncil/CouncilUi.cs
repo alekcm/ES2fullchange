@@ -395,6 +395,15 @@ public static class CouncilUi
                 (cd != 0 ? CouncilGame.Tr(", колонизационный лимит ", ", colonization limit ") + (cd > 0 ? "+" : "") + cd : ""), wrapStyle);
         }
         if (!any) GUILayout.Label(CouncilGame.Tr("Нет.", "None."), wrapStyle);
+        var marks = CouncilGame.PresenceLines();
+        if (marks.Count > 0)
+        {
+            GUILayout.Space(8);
+            GUILayout.Label(CouncilGame.Tr("Отмеченные системы (стратегическое присутствие)", "Marked systems (Strategic Presence)"), titleStyle);
+            GUILayout.Label(CouncilGame.Tr("На следующем заседании каждая удерживаемая отмеченная система даёт +10 голосов (максимум +50).",
+                "At the next session every held marked system gives +10 votes (max +50)."), smallStyle);
+            for (int i = 0; i < marks.Count; i++) GUILayout.Label("• " + marks[i], wrapStyle);
+        }
         GUILayout.Space(8);
         DrawHistory();
     }

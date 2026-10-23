@@ -28,7 +28,7 @@ public static class Verify
         catch (ReflectionTypeLoadException e) { foreach (var x in e.LoaderExceptions) Console.WriteLine("LOAD " + x.Message); return 1; }
         string[] names = { "CouncilGame", "CouncilUi", "CouncilUiBehaviour", "OrderCouncilVote", "CouncilCore", "CouncilLaws" };
         foreach (var t in types) if (t.Name.StartsWith("Council") || t.Name == "OrderCouncilVote") PrepType(t);
-        foreach (var n in new[] { "AcademyRequestsManager", "AcademyModalWindow", "DepartmentOfTheTreasury", "OverhaulOutcomeDefinition", "CustomHackingHelper", "Tradable", "TradableResource", "Marketplace", "GroundBattleOutcomeLootDefinition", "DepartmentOfDefense", "DepartmentOfCommerce", "DepartmentOfTheTreasury" })
+        foreach (var n in new[] { "AcademyRequestsManager", "AcademyModalWindow", "DepartmentOfTheTreasury", "OverhaulOutcomeDefinition", "CustomHackingHelper", "Tradable", "TradableResource", "Marketplace", "GroundBattleOutcomeLootDefinition", "DepartmentOfDefense", "DepartmentOfCommerce", "ServerEncounterState_RunSimpleBattle", "ServerGroundBattle", "DepartmentOfTheInterior" })
             PrepType(asm.GetType(n));
         PrepType(asm.GetType("GameClient").GetNestedTypes(BindingFlags.NonPublic | BindingFlags.Public).First(t => t.Name.StartsWith("<SpawnHackingOperationBackdoorProcessor>")));
         Console.WriteLine("jitted ok=" + ok + " fail=" + fail);
