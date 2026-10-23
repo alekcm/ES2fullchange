@@ -233,6 +233,7 @@ public static partial class CouncilGame
     static void ApplyInstant(Game game, CouncilActiveLaw law)
     {
         if (law.Id == "Mentoring") { ApplyMentoring(game); return; }
+        if (law.Id == CouncilCore.LawEscort || law.Id == CouncilCore.LawAcademySquad || law.Id == CouncilCore.LawStealth) { SpawnForLaw(game, law); return; }
         if (law.Id == CouncilLaws.DustPayout)
         {
             var emp = GetMajor(law.Target);

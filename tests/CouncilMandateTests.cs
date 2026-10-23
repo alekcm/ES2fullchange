@@ -200,6 +200,21 @@ static class M
         }
         Check(bad == 0, "300 random sessions with mandates: at most one mandate question, AI ballots valid");
 
+        {
+            var q = new CouncilCore(); q.Found(0, new[] { 0, 1 }, 20);
+            q.SetHolder(CouncilLaws.Marshal, 1, 0);
+            Check(q.SquadNeeded("M", 1) && !q.SquadNeeded("M", 0), "marshal squad needed only for the holder");
+            q.AddSquadShips("M", 1, new ulong[] { 5, 6, 7 });
+            q.AddSquadShips("E", 0, new ulong[] { 6, 8 });
+            Check(q.FindSquad("E", 0).Ships.Count == 1 && q.IsSquadShip(8) && !q.IsSquadShip(9), "ship belongs to one squad only");
+            var rs = CouncilCore.Deserialize(q.Serialize());
+            Check(rs.Squads.Count == 2 && rs.FindSquad("M", 1).Ships.Count == 3 && rs.IsSquadShip(7), "squads survive serialization");
+            Check(q.ExpiredSquads().Count == 1 && q.ExpiredSquads()[0].Tag == "E", "escort squad expires without the law");
+            q.RevokeMandate(CouncilLaws.Marshal);
+            Check(q.ExpiredSquads().Count == 2, "marshal squad expires with the mandate");
+            q.Leave(1);
+            Check(!q.SquadNeeded("M", 1), "leaving the council ends squads");
+        }
         Console.WriteLine(fails == 0 ? "ALL PASSED" : (fails + " FAILED"));
         return fails == 0 ? 0 : 1;
     }

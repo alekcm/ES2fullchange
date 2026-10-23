@@ -25,6 +25,7 @@ public static partial class CouncilGame
         try { CheckVictoryNow(game, turn); } catch (Exception e) { Fail("CheckVictory", e); }
         try { PressOutcasts(game); } catch (Exception e) { Fail("PressOutcasts", e); }
         try { EndMarshalContracts(); } catch (Exception e) { Fail("EndMarshalContracts", e); }
+        try { SyncSquads(game); } catch (Exception e) { Fail("SyncSquads", e); }
         try { AnnounceHolders(); } catch (Exception e) { Fail("AnnounceHolders", e); }
     }
 
@@ -194,38 +195,154 @@ public static partial class CouncilGame
         CouncilUi.Toast(EmpireName(empIndex) + Tr(": Интендант получил поставку от Академии", ": the Quartermaster received a delivery from the Academy"));
     }
 
-    static readonly string[] WarKeys = { "cruiser", "destroyer", "frigate", "corvette", "battle", "war", "combat", "attack", "line" };
+    static readonly string[] HeavyKeys = { "cruiser", "destroyer", "frigate", "corvette", "battle", "war", "combat", "attack", "line" };
+    static readonly string[] LightKeys = { "corvette", "frigate", "destroyer", "cruiser", "battle", "war", "combat", "attack", "line" };
     static readonly string[] NotWarKeys = { "scout", "colon", "outpost", "constr", "transport", "cargo", "mother", "explor", "probe", "settl", "trade", "hero", "builder", "miner" };
 
-    /// <summary>Marshal's limited service contingent: warships of the empire's own faction at the home system. Strength scales with the stage.
-    /// Only the host posts the creation order (all machines then receive it through the normal order pipeline).</summary>
-    static void SpawnContingent(int empIndex)
+    /// <summary>Warship design (by name) from the empire's faction table abstract -> design, or null.</summary>
+    static string PickWarDesign(Empire emp, bool heavy)
+    {
+        var map = emp.Faction.AbstractToShipDesignDictionary;
+        var keys = heavy ? HeavyKeys : LightKeys;
+        for (int pass = 0; pass < keys.Length; pass++)
+        {
+            foreach (var kv in map)
+            {
+                string k = kv.Key.ToLowerInvariant();
+                bool bad = false;
+                for (int n = 0; n < NotWarKeys.Length; n++) if (k.Contains(NotWarKeys[n])) { bad = true; break; }
+                if (!bad && k.Contains(keys[pass])) return kv.Value;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>The controller that may post server-side orders (only the host has one).</summary>
+    static PlayerController ServerController(Empire emp)
+    {
+        try { if (emp != null && emp.PlayerControllers != null && emp.PlayerControllers.Server != null) return emp.PlayerControllers.Server; } catch (Exception) { }
+        var g = GetGame();
+        if (g == null) return null;
+        foreach (MajorEmpire e in g.EnumerableMajorEmpires)
+            if (e.PlayerControllers != null && e.PlayerControllers.Server != null) return e.PlayerControllers.Server;
+        return null;
+    }
+
+    static string SquadMarker(string tag, int emp) { return " [GC" + tag + emp + "]"; }
+
+    static string SquadLabel(string tag)
+    {
+        switch (tag)
+        {
+            case CouncilCore.TagMarshal: return Tr("Контингент Маршала", "Marshal Contingent");
+            case CouncilCore.TagEscort: return Tr("Эскорт Совета", "Council Escort");
+            case CouncilCore.TagAcademy: return Tr("Эскадра Академии", "Academy Squadron");
+            default: return Tr("Скрытая группа", "Covert Group");
+        }
+    }
+
+    /// <summary>Creates a service squad at the empire's home system. Only the host actually posts the order.
+    /// The fleet carries a marker in its name so every machine can find (and later recall) the ships.</summary>
+    static void SpawnSquad(int empIndex, string tag, int count, bool heavy)
     {
         try
         {
             var emp = GetMajor(empIndex);
-            if (emp == null || emp.PlayerControllers == null || emp.PlayerControllers.Server == null) return;
+            var server = ServerController(emp);
+            if (emp == null || server == null) return;
             var interior = emp.GetAgency<DepartmentOfTheInterior>();
             if (interior == null || interior.HomeSystemNode == null) return;
-            var map = emp.Faction.AbstractToShipDesignDictionary;
-            string design = null;
-            for (int pass = 0; pass < WarKeys.Length && design == null; pass++)
-            {
-                foreach (var kv in map)
-                {
-                    string k = kv.Key.ToLowerInvariant();
-                    bool bad = false;
-                    for (int n = 0; n < NotWarKeys.Length; n++) if (k.Contains(NotWarKeys[n])) { bad = true; break; }
-                    if (!bad && k.Contains(WarKeys[pass])) { design = kv.Value; break; }
-                }
-            }
-            if (design == null) { Fail("SpawnContingent", new Exception("no warship design among " + map.Count + " abstract designs")); return; }
-            int count = Math.Min(8, 2 + GameStage(GetGame(), emp));
+            string design = PickWarDesign(emp, heavy);
+            if (design == null) { Fail("SpawnSquad", new Exception("no warship design among " + emp.Faction.AbstractToShipDesignDictionary.Count + " abstract designs")); return; }
             var dict = new Dictionary<StaticString, int>();
-            dict[new StaticString(design)] = count;
-            emp.PlayerControllers.Server.PostOrder(new OrderCreateFleetFromShipDesignName(empIndex, interior.HomeSystemNode.NodePosition, dict));
+            dict[new StaticString(design)] = Math.Max(1, count);
+            var order = new OrderCreateFleetFromShipDesignName(empIndex, interior.HomeSystemNode.NodePosition, dict);
+            order.FleetName = new StaticString(SquadLabel(tag) + SquadMarker(tag, empIndex));
+            server.PostOrder(order);
         }
-        catch (Exception e) { Fail("SpawnContingent", e); }
+        catch (Exception e) { Fail("SpawnSquad", e); }
+    }
+
+    static void SpawnContingent(int empIndex)
+    {
+        var emp = GetMajor(empIndex);
+        if (emp == null) return;
+        SpawnSquad(empIndex, CouncilCore.TagMarshal, Math.Min(8, 2 + GameStage(GetGame(), emp)), true);
+    }
+
+    static void SpawnForLaw(Game game, CouncilActiveLaw law)
+    {
+        Empire any = null;
+        foreach (MajorEmpire e in game.EnumerableMajorEmpires) { any = e; break; }
+        int stage = GameStage(game, any);
+        if (law.Id == CouncilCore.LawEscort)
+        {
+            for (int i = 0; i < Core.Members.Count; i++) SpawnSquad(Core.Members[i], CouncilCore.TagEscort, 1 + stage / 3, false);
+        }
+        else if (law.Id == CouncilCore.LawAcademySquad && law.Target >= 0)
+            SpawnSquad(law.Target, CouncilCore.TagAcademy, Math.Min(9, 3 + stage), true);
+        else if (law.Id == CouncilCore.LawStealth && law.Target >= 0)
+            SpawnSquad(law.Target, CouncilCore.TagStealth, 2 + stage / 3, false);
+    }
+
+    static bool TryParseMarker(string name, out string tag, out int emp)
+    {
+        tag = null; emp = -1;
+        if (string.IsNullOrEmpty(name) || !name.EndsWith("]")) return false;
+        int i = name.LastIndexOf("[GC");
+        if (i < 0 || name.Length - i < 6) return false;
+        tag = name.Substring(i + 3, 1);
+        return int.TryParse(name.Substring(i + 4, name.Length - i - 5), out emp);
+    }
+
+    /// <summary>Finds freshly created squad fleets by their name marker, and recalls squads whose contract/law has ended.</summary>
+    static void SyncSquads(Game game)
+    {
+        // 1. discovery
+        foreach (MajorEmpire e in game.EnumerableMajorEmpires)
+        {
+            var def = e.GetAgency<DepartmentOfDefense>();
+            if (def == null) continue;
+            foreach (Fleet f in def.Fleets)
+            {
+                string tag; int owner;
+                if (!TryParseMarker(f.LocalizedName, out tag, out owner)) continue;
+                if (owner != e.Index || !Core.IsMember(owner)) continue;
+                var ids = new List<ulong>();
+                foreach (Ship s in f.Ships) ids.Add(s.GUID);
+                if (ids.Count > 0) Core.AddSquadShips(tag, owner, ids);
+            }
+        }
+        // 2. recall
+        var expired = Core.ExpiredSquads();
+        for (int i = 0; i < expired.Count; i++)
+        {
+            var sq = expired[i];
+            var emp = GetMajor(sq.Emp);
+            var alive = new List<ulong>();
+            if (emp != null)
+            {
+                var def = emp.GetAgency<DepartmentOfDefense>();
+                if (def != null)
+                    foreach (Fleet f in def.Fleets)
+                        foreach (Ship s in f.Ships) if (sq.Ships.Contains(s.GUID)) alive.Add(s.GUID);
+            }
+            if (alive.Count == 0) { Core.RemoveSquad(sq); continue; }
+            var server = ServerController(emp);
+            if (server != null) server.PostOrder(new OrderDisbandShips(sq.Emp, alive.ToArray()));
+        }
+    }
+
+    /// <summary>True when any of the ships belongs to a council squad (such ships cannot be sold or scrapped).</summary>
+    public static bool BlocksShips(GameEntityGUID[] ships)
+    {
+        try
+        {
+            if (ships == null || Core.Squads.Count == 0) return false;
+            for (int i = 0; i < ships.Length; i++) if (Core.IsSquadShip(ships[i])) return true;
+        }
+        catch (Exception) { }
+        return false;
     }
 
     // ---------------------------------------------------------------- market and loot hooks

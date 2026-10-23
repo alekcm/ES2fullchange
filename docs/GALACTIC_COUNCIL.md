@@ -1,4 +1,4 @@
-# Galactic Council (Stages 1-2)
+# Galactic Council (Stages 1-3)
 
 Replaces the Academy "request resources" phase with a Council vote. Implemented as C# (`src/GalacticCouncil`),
 compiled with Mono/Roslyn and merged into `Managed/Assembly-CSharp.dll` with Cecil (`tools/Patcher`).
@@ -41,10 +41,19 @@ Mandates (`CouncilMandates.cs`, state saved as `GC2`): Chairman, Marshal, Quarte
 * Leaving the Council: the Academy relation is pinned to -100 every turn (static `AcademyDiplomaticRelation.SetRelationPoints`).
 * Assignments are a **stub**: six buttons in the Mandates tab count one finished assignment of a category.
 
+## Stage 3 (added): service squads
+Marshal contingent, Council Escort (all members), Academy Squadron (target) and Covert Group (target; **not cloaked**) are
+created with `OrderCreateFleetFromShipDesignName` at the home system (design = a warship picked from the faction's
+`AbstractToShipDesignDictionary` by name heuristics; heavy for Marshal/Academy, light for Escort/Covert; size scales with the stage).
+The fleet name carries a marker `[GC<tag><empire>]`; every turn `SyncSquads` records the ship GUIDs of marked fleets in the
+Council state (`CouncilSquads.cs`, saved) and, when the mandate/law ended or the empire left, posts `OrderDisbandShips` (host only).
+`ScrapShipsPreprocessor` and `SelloutTradableShipsPreprocessor` refuse orders that contain a squad ship.
+Not verified in game: that the heuristic finds a design, that the fleet name is kept, that the host may post orders for AI empires.
+
 Still not implemented (registered, `Implemented=false`, never offered): research +-50%, warship upkeep laws, weapon damage -20%,
 evacuation compensation, escort/Academy squadrons, Strategic Presence, Fortification Inspection, Capital Reinforcement,
-Infrastructure, Covert Operations, Antitrust, Trade Company Reinvestment, Academic Truce, Academy-home-world 50% capital rule.
-Marshal contingent: no automatic recall at the end of the contract and no sell/scrap block yet.
+Infrastructure, Antitrust, Trade Company Reinvestment, Academic Truce, Academy-home-world 50% capital rule.
+Academic Truce: `SetDiplomaticRelationState` handles the relation, but nothing found destroys the `WarInstance`, so it was left out.
 
 ## Hooks in the game assembly
 | Where | What |
@@ -58,6 +67,7 @@ Marshal contingent: no automatic recall at the end of the contract and no sell/s
 | `Tradable.GetValue`, `TradableResource.GetValue` (every `ret`) | value goes through `CouncilGame.AdjustTradableValue` |
 | `Marketplace.ITradingManagementService.GetTradablePrice` (every `ret`) | price goes through `CouncilGame.AdjustTradePrice` |
 | `GroundBattleOutcomeLootDefinition.FillLoot` (end) | `CouncilGame.AdjustLoot` |
+| `DepartmentOfDefense.ScrapShipsPreprocessor`, `DepartmentOfCommerce.SelloutTradableShipsPreprocessor` (start) | return false when a ship belongs to a council squad |
 
 ## UI
 An IMGUI window (no Unity prefabs exist in this repo): a "Council" button appears while the Academy window is open;

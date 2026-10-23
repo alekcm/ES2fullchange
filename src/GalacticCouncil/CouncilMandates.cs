@@ -288,7 +288,8 @@ public sealed partial class CouncilCore
         parts.Clear();
         foreach (var kv in LastSupplyTurn) parts.Add(Iv(kv.Key) + ":" + Iv(kv.Value));
         sb.Append(string.Join(";", parts.ToArray())).Append('|');
-        sb.Append(IntList(MarshalHired));
+        sb.Append(IntList(MarshalHired)).Append('|');
+        AppendSquadState(sb);
     }
 
     static string IntList(List<int> l)
@@ -334,5 +335,6 @@ public sealed partial class CouncilCore
             LastSupplyTurn[int.Parse(t[0], CultureInfo.InvariantCulture)] = int.Parse(t[1], CultureInfo.InvariantCulture);
         }
         MarshalHired = ParseIntList(f[26]);
+        if (f.Length > 27) ReadSquadState(f[27]);
     }
 }

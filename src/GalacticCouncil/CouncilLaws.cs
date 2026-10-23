@@ -143,7 +143,7 @@ public static class CouncilLaws
             "Содержание боевых кораблей в Пыли повышается на 100%.", "Warship upkeep in Dust is +100%."));
         l.Add(new CouncilLawDef("EvacCompensation", false, C, 1, "evac", false, "Компенсация за эвакуацию", "Evacuation Compensation",
             "Сверхсущественное повышение компенсации Пылью за эвакуацию системы.", "Greatly increased Dust compensation for evacuating a system."));
-        l.Add(new CouncilLawDef("EscortSquads", false, C, 1, "squads", false, "Эскортные эскадры", "Escort Squadrons",
+        l.Add(new CouncilLawDef("EscortSquads", false, C, 1, "squads", true, "Эскортные эскадры", "Escort Squadrons",
             "Небольшие временные эскортные эскадры всем членам Совета.", "Small temporary escort squadrons for every council member."));
         l.Add(new CouncilLawDef("Mentoring", false, I, 1, "mentor", true, "Академическое менторство", "Academic Mentoring",
             "Все герои-губернаторы, не управляемые ИИ, моментально получают +3 уровня.", "All non-AI hero governors instantly gain +3 levels."));
@@ -186,13 +186,13 @@ public static class CouncilLaws
             "Навсегда даёт +1 к колонизационному лимиту, пока империя состоит в Совете.", "Permanently grants +1 colonization limit while the empire stays in the council."));
         l.Add(new CouncilLawDef("Infrastructure", true, C, 1, "infra", false, "Инфраструктурная программа", "Infrastructure Program",
             "Снижение промышленной стоимости системных улучшений (кроме галактических чудес).", "Lower Industry cost of system improvements (except galactic wonders)."));
-        l.Add(new CouncilLawDef("AcademySquad", true, C, 1, "squad", false, "Академическая эскадра", "Academy Squadron",
+        l.Add(new CouncilLawDef("AcademySquad", true, C, 1, "squad", true, "Академическая эскадра", "Academy Squadron",
             "Временная академическая эскадра; состав зависит от этапа партии. Возвращается по окончании закона.", "A temporary Academy squadron scaled to the game stage. Returned when the law ends."));
         l.Add(new CouncilLawDef("CapitalFortify", true, C, 1, "capital", false, "Укрепление столицы", "Capital Fortification",
             "Увеличение живучести защитников домашней системы и ускоренное восстановление гарнизона вне осады.", "Home-system defenders are tougher and recover faster outside of sieges."));
         l.Add(new CouncilLawDef(ExpansionLimit, true, P, -1, "colony", true, "Ограничение экспансии", "Expansion Restriction",
             "Империя навсегда теряет 1 колонизационный лимит, пока состоит в Совете.", "The empire permanently loses 1 colonization limit while in the council."));
-        l.Add(new CouncilLawDef("StealthOps", true, C, 1, "stealth", false, "Лицензия на скрытые операции", "Covert Operations License",
+        l.Add(new CouncilLawDef("StealthOps", true, C, 1, "stealth", true, "Лицензия на скрытые операции", "Covert Operations License",
             "Небольшая специализированная рейдерская группа с маскировкой.", "A small specialized cloaked raider group."));
         l.Add(new CouncilLawDef(Merit, true, P, 1, "votes", true, "Признание заслуг", "Recognition of Merit",
             "Выбранная фракция навсегда получает +30 голосов.", "The chosen faction permanently gains +30 votes."));

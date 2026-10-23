@@ -47,6 +47,7 @@ public static class Patcher
         HookAcademyWindow(ui);
         HookMarket(game);
         HookLoot(game);
+        HookShipBlocks(game);
 
         Console.WriteLine("publicized members: " + cl.PublicizedLog.Count);
         foreach (var s in cl.PublicizedLog.OrderBy(x => x)) Console.WriteLine("  + " + s);
@@ -245,6 +246,27 @@ public static class Patcher
         if (gp.Count != 1) throw new Exception("expected 1 GetTradablePrice, found " + gp.Count);
         int k = WrapReturns(gp[0], GameMethod(game, "AdjustTradePrice"), new[] { OpCodes.Ldarg_1, OpCodes.Ldarg_3 });
         Console.WriteLine("hook: GetTradablePrice returns wrapped: " + k);
+    }
+
+    // Scrap/sell preprocessors refuse orders that touch ships of a council squad.
+    static void HookShipBlocks(TypeDefinition game)
+    {
+        var block = GameMethod(game, "BlocksShips");
+        foreach (var spec in new[] { new[] { "DepartmentOfDefense", "ScrapShipsPreprocessor", "OrderScrapShips" },
+                                     new[] { "DepartmentOfCommerce", "SelloutTradableShipsPreprocessor", "OrderSelloutTradableShips" } })
+        {
+            var m = Method(spec[0], spec[1]);
+            var getter = mod.GetType(spec[2]).Methods.First(x => x.Name == "get_ShipsGUID");
+            var il = m.Body.GetILProcessor();
+            var first = m.Body.Instructions[0];
+            il.InsertBefore(first, il.Create(OpCodes.Ldarg_1));
+            il.InsertBefore(first, il.Create(OpCodes.Callvirt, getter));
+            il.InsertBefore(first, il.Create(OpCodes.Call, block));
+            il.InsertBefore(first, il.Create(OpCodes.Brfalse, first));
+            il.InsertBefore(first, il.Create(OpCodes.Ldc_I4_0));
+            il.InsertBefore(first, il.Create(OpCodes.Ret));
+            Console.WriteLine("hook: " + spec[1] + " blocks council ships");
+        }
     }
 
     // H3: GroundBattleOutcomeLootDefinition.FillLoot(battle, loot, populations) => ...; AdjustLoot(battle, loot)
