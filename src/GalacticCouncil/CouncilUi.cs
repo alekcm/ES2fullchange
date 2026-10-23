@@ -146,6 +146,11 @@ public static class CouncilUi
                 if (v > 0) pending[q * 1000 + opt] = v;
             }
         }
+        for (int m = 0; m < CouncilLaws.Mandates.Count; m++)
+        {
+            int v = c.GetVotes(emp, CouncilCore.MandateQBase + m, 0);
+            if (v > 0) pending[(CouncilCore.MandateQBase + m) * 1000] = v;
+        }
     }
 
     static int PendingTotal() { int s = 0; foreach (var kv in pending) s += kv.Value; return s; }
@@ -171,7 +176,7 @@ public static class CouncilUi
 
         if (tab == 0) DrawVoteTab(me);
         else if (tab == 1) DrawLawsTab(me);
-        else DrawMandatesTab();
+        else DrawMandatesTab(me);
 
         if (!string.IsNullOrEmpty(uiError)) GUILayout.Label("UI error: " + uiError, badStyle);
         GUI.DragWindow(new Rect(0, 0, 10000, 22));
@@ -209,7 +214,17 @@ public static class CouncilUi
                                        : CouncilGame.Tr("Закон для всех — «за» или «против»", "Applies to everyone - vote for or against"), smallStyle);
             GUILayout.Label(CouncilGame.LawDesc(d), wrapStyle);
             GUILayout.Space(6);
-            if (!d.Targeted)
+            if (d.Kind == CouncilLawDef.KindMandate)
+            {
+                GUILayout.Label(CouncilGame.Tr("Выберите империю, которая получит мандат (из соответствующих требованиям). Мандат действует до переизбрания, выхода из Совета или уничтожения Академии.",
+                                               "Choose the empire that gets the mandate (among those that qualify). It lasts until re-election, leaving the Council or the Academy's destruction."), smallStyle);
+                for (int i = 0; i < c.MandateCandidates.Count; i++)
+                {
+                    int e = c.MandateCandidates[i];
+                    DrawVoteRow(q, e, CouncilGame.EmpireName(e) + (e == me.Index ? CouncilGame.Tr(" (вы)", " (you)") : ""), ref left);
+                }
+            }
+            else if (!d.Targeted)
             {
                 DrawVoteRow(q, 0, CouncilGame.Tr("Принять закон", "Pass"), ref left);
                 DrawVoteRow(q, 1, CouncilGame.Tr("Не принимать", "Reject"), ref left);
@@ -226,6 +241,8 @@ public static class CouncilUi
             GUILayout.EndVertical();
         }
         GUILayout.EndHorizontal();
+
+        DrawChairmanPanel(me);
 
         GUILayout.FlexibleSpace();
         GUILayout.BeginHorizontal();
@@ -245,6 +262,53 @@ public static class CouncilUi
         if (c.HasVoted(me.Index))
             GUILayout.Label(CouncilGame.Tr("Ваши голоса приняты (потрачено " + c.Spent(me.Index) + "). Можно изменить до конца хода.",
                                            "Your votes are in (" + c.Spent(me.Index) + " spent). You can change them until the turn ends."), goodStyle);
+    }
+
+    static int chairQ = -1;
+    static Vector2 chairScroll;
+
+    /// <summary>Chairman of the Council: once per cycle replace one ordinary question before anybody has voted.</summary>
+    static void DrawChairmanPanel(Empire me)
+    {
+        var c = CouncilGame.Core;
+        if (!c.Holds(me.Index, CouncilLaws.Chairman)) return;
+        GUILayout.BeginVertical(boxStyle);
+        if (!c.CanChairmanReplace(me.Index))
+        {
+            GUILayout.Label(CouncilGame.Tr("Председатель Совета: право замены вопроса уже использовано или голосование началось.",
+                                           "Council Chairman: the replacement right is used up or voting has already started."), smallStyle);
+            GUILayout.EndVertical();
+            return;
+        }
+        GUILayout.Label(CouncilGame.Tr("Председатель Совета: можно один раз заменить обычный вопрос другим (пока никто не проголосовал).",
+                                       "Council Chairman: you may replace one ordinary question once (until anybody has voted)."), smallStyle);
+        GUILayout.BeginHorizontal();
+        for (int q = 0; q < c.Proposals.Count; q++)
+        {
+            var d = CouncilLaws.Get(c.Proposals[q]);
+            if (d == null || d.Kind == CouncilLawDef.KindMandate || d.Id == CouncilLaws.NoConfidence) continue;
+            bool on = chairQ == q;
+            if (GUILayout.Toggle(on, CouncilGame.Tr("Заменить вопрос ", "Replace question ") + (q + 1), GUI.skin.button, GUILayout.Width(180)) && !on) chairQ = q;
+        }
+        GUILayout.EndHorizontal();
+        if (chairQ >= 0 && chairQ < c.Proposals.Count)
+        {
+            chairScroll = GUILayout.BeginScrollView(chairScroll, GUILayout.Height(90));
+            for (int i = 0; i < CouncilLaws.All.Count; i++)
+            {
+                var nd = CouncilLaws.All[i];
+                if (!nd.Implemented || nd.Kind == CouncilLawDef.KindMandate || nd.Id == CouncilLaws.NoConfidence) continue;
+                if (c.Proposals.Contains(nd.Id)) continue;
+                if (GUILayout.Button(CouncilGame.LawName(nd) + (nd.Targeted ? CouncilGame.Tr("  [империя]", "  [empire]") : "")))
+                {
+                    CouncilGame.SendKind(me, OrderCouncilVote.KindChairmanReplace, chairQ, i);
+                    chairQ = -1;
+                    break;
+                }
+            }
+            GUILayout.EndScrollView();
+        }
+        GUILayout.EndVertical();
     }
 
     static void DrawVoteRow(int q, int opt, string label, ref int left)
@@ -267,8 +331,24 @@ public static class CouncilUi
         if (v <= 0) pending.Remove(q * 1000 + opt); else pending[q * 1000 + opt] = v;
     }
 
+    static string MandateName(string id)
+    {
+        var m = CouncilLaws.GetMandate(id);
+        return m == null ? id : (CouncilGame.IsRussian() ? m.Ru : m.En);
+    }
+
     static string DescribeResult(CouncilResult r)
     {
+        if (r.LawId.StartsWith("MV:"))
+            return "T" + r.Turn + ": " + CouncilGame.Tr("Мандат на следующее голосование: ", "Mandate on the next vote: ") + MandateName(r.LawId.Substring(3)) + " (" + r.Yes + ")";
+        if (r.LawId.StartsWith("CH:"))
+        {
+            string[] ids = r.LawId.Substring(3).Split('>');
+            var o = ids.Length > 1 ? CouncilLaws.Get(ids[0]) : null;
+            var n = ids.Length > 1 ? CouncilLaws.Get(ids[1]) : null;
+            return "T" + r.Turn + ": " + CouncilGame.Tr("Председатель (", "Chairman (") + CouncilGame.EmpireName(r.Target) + CouncilGame.Tr(") заменил «", ") replaced '") +
+                (o != null ? CouncilGame.LawName(o) : "?") + CouncilGame.Tr("» на «", "' with '") + (n != null ? CouncilGame.LawName(n) : "?") + "'";
+        }
         var d = CouncilLaws.Get(r.LawId);
         string name = d != null ? CouncilGame.LawName(d) : r.LawId;
         if (d != null && !d.Targeted)
@@ -319,11 +399,108 @@ public static class CouncilUi
         DrawHistory();
     }
 
-    static void DrawMandatesTab()
+    static bool confirmLeave;
+
+    static void DrawMandatesTab(Empire me)
     {
+        var c = CouncilGame.Core;
+        var game = CouncilGame.GetGame();
+        int turn = game != null ? game.Turn : 0;
+        int budget = c.Budget(me.Index);
+        int left = budget - PendingTotal();
+        bool member = c.IsMember(me.Index);
+        bool voting = c.Phase == CouncilCore.PhaseVoting && member;
+
         GUILayout.Label(CouncilGame.Tr("Мандаты Совета", "Council mandates"), titleStyle);
         GUILayout.Label(CouncilGame.Tr(
-            "Мандаты станут доступны вместе с системой поручений Академии (следующий этап). Планируются: Председатель Совета, Маршал Академии, Интендант Совета, Око Академии и Верховный легат Академии (победный мандат).",
-            "Mandates will arrive together with the Academy assignment system (next stage): Council Chairman, Academy Marshal, Council Quartermaster, Eye of the Academy and High Legate (victory mandate)."), wrapStyle);
+            "Голоса за мандат отдаются здесь, из того же запаса в 100 голосов. Мандат с наибольшим числом голосов попадёт в следующее голосование вместо одного закона; там выбирается его владелец. Мандат действует до переизбрания, выхода владельца из Совета или уничтожения Академии.",
+            "Votes for a mandate are cast here from the same pool of votes. The mandate with the most votes goes onto the next vote instead of one law, where its holder is chosen. A mandate lasts until re-election, the holder leaving the Council or the Academy's destruction."), smallStyle);
+        if (!string.IsNullOrEmpty(c.PendingMandate))
+            GUILayout.Label(CouncilGame.Tr("На следующем голосовании: ", "On the next vote: ") + MandateName(c.PendingMandate), goodStyle);
+        int vl = c.VictoryTurnsLeft(turn);
+        if (vl >= 0)
+            GUILayout.Label(CouncilGame.Tr("Верховный легат: ", "Supreme Legate: ") + CouncilGame.EmpireName(c.SupremeHolder) +
+                CouncilGame.Tr(" — до победы осталось ходов: ", " - turns to victory: ") + vl, vl <= 5 ? badStyle : goodStyle);
+        if (voting) GUILayout.Label(CouncilGame.Tr("Осталось голосов: ", "Votes left: ") + left + " / " + budget, wrapStyle);
+
+        scroll = GUILayout.BeginScrollView(scroll, GUILayout.Height(400));
+        for (int m = 0; m < CouncilLaws.Mandates.Count; m++)
+        {
+            var d = CouncilLaws.Mandates[m];
+            GUILayout.BeginVertical(boxStyle);
+            int holder = c.HolderOf(d.Id);
+            GUILayout.Label((CouncilGame.IsRussian() ? d.Ru : d.En) + "   [" + (holder >= 0 ? CouncilGame.EmpireName(holder) : CouncilGame.Tr("не назначен", "vacant")) + "]", titleStyle);
+            GUILayout.Label(CouncilGame.IsRussian() ? d.RuDesc : d.EnDesc, smallStyle);
+            bool q = member && c.Qualifies(me.Index, d.Id);
+            string prog = d.Victory ? "" : "  (" + c.TaskCount(me.Index, d.Categories) + "/" + d.Need + ")";
+            GUILayout.Label(CouncilGame.Tr("Требование: ", "Requirement: ") + (CouncilGame.IsRussian() ? d.RuNeed : d.EnNeed) + prog + " — " +
+                            (q ? CouncilGame.Tr("выполнено", "met") : CouncilGame.Tr("не выполнено", "not met")), q ? goodStyle : smallStyle);
+            if (voting && q)
+                DrawVoteRow(CouncilCore.MandateQBase + m, 0, CouncilGame.Tr("Голосов за мандат", "Votes for mandate"), ref left);
+
+            if (c.Holds(me.Index, d.Id))
+            {
+                if (d.Id == CouncilLaws.Chairman)
+                    GUILayout.Label(CouncilGame.Tr("Ваше право: заменить вопрос — на вкладке «Голосование».", "Your power: replace a question - see the Voting tab."), goodStyle);
+                else if (d.Id == CouncilLaws.Marshal)
+                {
+                    if (c.CanHireMarshal(me.Index))
+                    {
+                        if (GUILayout.Button(CouncilGame.Tr("Нанять контингент Академии (содержание за ваш счёт)", "Hire the Academy contingent (you pay the upkeep)"), GUILayout.Height(26)))
+                            CouncilGame.SendKind(me, OrderCouncilVote.KindMarshalHire, 0, 0);
+                    }
+                    else GUILayout.Label(CouncilGame.Tr("Контингент уже нанят на этот срок мандата.", "The contingent is already hired for this term."), smallStyle);
+                }
+                else if (d.Id == CouncilLaws.Quartermaster)
+                {
+                    if (c.CanUseQuartermaster(me.Index, turn))
+                    {
+                        if (GUILayout.Button(CouncilGame.Tr("Запросить поставку у Академии", "Request a delivery from the Academy"), GUILayout.Height(26)))
+                            CouncilGame.SendKind(me, OrderCouncilVote.KindQuartermaster, 0, 0);
+                    }
+                    else GUILayout.Label(CouncilGame.Tr("Следующая поставка через ходов: ", "Next delivery in turns: ") + c.TurnsToQuartermaster(me.Index, turn), smallStyle);
+                }
+                else if (d.Id == CouncilLaws.Eye)
+                    GUILayout.Label(CouncilGame.Tr("Действует: +1 одновременная операция взлома, +20 к лимиту вычислительной мощности.", "Active: +1 simultaneous hacking operation, +20 processing-power cap."), goodStyle);
+            }
+            GUILayout.EndVertical();
+        }
+        GUILayout.EndScrollView();
+
+        GUILayout.BeginVertical(boxStyle);
+        GUILayout.Label(CouncilGame.Tr("Поручения Академии (временная заглушка)", "Academy assignments (temporary stub)"), wrapStyle);
+        GUILayout.Label(CouncilGame.Tr("Система поручений ещё не реализована. Эти кнопки засчитывают одно выполненное поручение указанного вида, чтобы можно было пользоваться мандатами.",
+                                       "The assignment system is not implemented yet. These buttons count one completed assignment of that kind so the mandates can be used."), smallStyle);
+        GUILayout.BeginHorizontal();
+        string[] names = { CouncilGame.Tr("Дипломатия", "Diplomatic"), CouncilGame.Tr("Военное", "Military"), CouncilGame.Tr("Оборона", "Defense"),
+                           CouncilGame.Tr("Снабжение", "Supply"), CouncilGame.Tr("Разведка", "Intelligence"), CouncilGame.Tr("Исследования", "Research") };
+        GUI.enabled = member;
+        for (int i = 0; i < names.Length; i++)
+            if (GUILayout.Button("+ " + names[i] + " (" + c.TaskCount(me.Index, new[] { CouncilGame.TaskCategories[i] }) + ")"))
+            {
+                int next = c.TaskCount(me.Index, new[] { CouncilGame.TaskCategories[i] }) + 1;
+                CouncilGame.SendKind(me, OrderCouncilVote.KindReportTask, i, next);
+            }
+        GUI.enabled = true;
+        GUILayout.EndHorizontal();
+        GUILayout.EndVertical();
+
+        if (member)
+        {
+            GUILayout.BeginHorizontal();
+            if (!confirmLeave)
+            {
+                if (GUILayout.Button(CouncilGame.Tr("Выйти из Совета…", "Leave the Council..."), GUILayout.Width(220))) confirmLeave = true;
+            }
+            else
+            {
+                GUILayout.Label(CouncilGame.Tr("Выход необратим: Академия объявит вам войну, мандаты будут потеряны.", "Leaving is irreversible: the Academy declares war on you and your mandates are lost."), badStyle);
+                if (GUILayout.Button(CouncilGame.Tr("Подтвердить выход", "Confirm"), GUILayout.Width(180))) { CouncilGame.SendKind(me, OrderCouncilVote.KindLeave, 0, 0); confirmLeave = false; }
+                if (GUILayout.Button(CouncilGame.Tr("Отмена", "Cancel"), GUILayout.Width(100))) confirmLeave = false;
+            }
+            GUILayout.EndHorizontal();
+        }
+        else if (c.IsOutcast(me.Index))
+            GUILayout.Label(CouncilGame.Tr("Вы покинули Совет: Академия находится с вами в состоянии войны.", "You left the Council: the Academy is at war with you."), badStyle);
     }
 }

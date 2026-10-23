@@ -4,16 +4,37 @@ using System.IO;
 using Amplitude;
 using Amplitude.Unity.Game.Orders;
 
-/// <summary>Player order: replaces the whole council ballot of the issuing empire.</summary>
+/// <summary>
+/// Player order of the Galactic Council. Kind selects what it does:
+/// Ballot (replaces the whole ballot), ChairmanReplace, MarshalHire, QuartermasterRequest, ReportTask (stub), Leave.
+/// Orders are deserialized without running field initializers, so Unpack assigns every field.
+/// </summary>
 public class OrderCouncilVote : Order
 {
     public static readonly StaticString AuthenticationPath = "DepartmentOfTheTreasury/OrderCouncilVote";
 
+    public const int KindBallot = 0;
+    public const int KindChairmanReplace = 1;     // A = question index, B = index of the new law in CouncilLaws.All
+    public const int KindMarshalHire = 2;
+    public const int KindQuartermaster = 3;
+    public const int KindReportTask = 4;          // A = category index, B = task number (stub for the Academy assignments)
+    public const int KindLeave = 5;
+
     public List<int[]> Entries = new List<int[]>();
+    public int Kind;
+    public int A;
+    public int B;
 
     public OrderCouncilVote(int empireIndex, List<int[]> entries) : base(empireIndex)
     {
         Entries = entries ?? new List<int[]>();
+        Kind = KindBallot;
+    }
+
+    public OrderCouncilVote(int empireIndex, int kind, int a, int b) : base(empireIndex)
+    {
+        Entries = new List<int[]>();
+        Kind = kind; A = a; B = b;
     }
 
     public override StaticString Path { get { return AuthenticationPath; } }
@@ -21,6 +42,9 @@ public class OrderCouncilVote : Order
     public override void Pack(BinaryWriter writer)
     {
         base.Pack(writer);
+        writer.Write(Kind);
+        writer.Write(A);
+        writer.Write(B);
         writer.Write(Entries.Count);
         for (int i = 0; i < Entries.Count; i++)
         {
@@ -33,6 +57,9 @@ public class OrderCouncilVote : Order
     public override void Unpack(BinaryReader reader)
     {
         base.Unpack(reader);
+        Kind = reader.ReadInt32();
+        A = reader.ReadInt32();
+        B = reader.ReadInt32();
         int n = reader.ReadInt32();
         Entries = new List<int[]>();
         for (int i = 0; i < n && i < 64; i++)

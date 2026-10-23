@@ -45,6 +45,8 @@ public static class Patcher
         HookBackdoor(game);
         HookSleepers(game);
         HookAcademyWindow(ui);
+        HookMarket(game);
+        HookLoot(game);
 
         Console.WriteLine("publicized members: " + cl.PublicizedLog.Count);
         foreach (var s in cl.PublicizedLog.OrderBy(x => x)) Console.WriteLine("  + " + s);
@@ -180,6 +182,77 @@ public static class Patcher
             il.InsertBefore(m.Body.Instructions[0], il.Create(OpCodes.Call, GameMethod(ui, pair[1])));
         }
         Console.WriteLine("hook: AcademyModalWindow show/hide");
+    }
+
+    // Rewrites every `ret` of m in place into `<push extra args> call hook; ret`. The original ret instruction object is
+    // reused (opcode/operand rewritten) so that branches targeting it stay valid.
+    // Cecil without Rocks: turn short branch forms into long ones so that growing the method cannot overflow them.
+    static void LengthenBranches(MethodDefinition m)
+    {
+        foreach (var i in m.Body.Instructions)
+        {
+            if (i.OpCode == OpCodes.Br_S) i.OpCode = OpCodes.Br;
+            else if (i.OpCode == OpCodes.Brfalse_S) i.OpCode = OpCodes.Brfalse;
+            else if (i.OpCode == OpCodes.Brtrue_S) i.OpCode = OpCodes.Brtrue;
+            else if (i.OpCode == OpCodes.Beq_S) i.OpCode = OpCodes.Beq;
+            else if (i.OpCode == OpCodes.Bge_S) i.OpCode = OpCodes.Bge;
+            else if (i.OpCode == OpCodes.Bgt_S) i.OpCode = OpCodes.Bgt;
+            else if (i.OpCode == OpCodes.Ble_S) i.OpCode = OpCodes.Ble;
+            else if (i.OpCode == OpCodes.Blt_S) i.OpCode = OpCodes.Blt;
+            else if (i.OpCode == OpCodes.Bne_Un_S) i.OpCode = OpCodes.Bne_Un;
+            else if (i.OpCode == OpCodes.Bge_Un_S) i.OpCode = OpCodes.Bge_Un;
+            else if (i.OpCode == OpCodes.Bgt_Un_S) i.OpCode = OpCodes.Bgt_Un;
+            else if (i.OpCode == OpCodes.Ble_Un_S) i.OpCode = OpCodes.Ble_Un;
+            else if (i.OpCode == OpCodes.Blt_Un_S) i.OpCode = OpCodes.Blt_Un;
+            else if (i.OpCode == OpCodes.Leave_S) i.OpCode = OpCodes.Leave;
+        }
+    }
+
+    static int WrapReturns(MethodDefinition m, MethodDefinition hook, OpCode[] extraLoads)
+    {
+        LengthenBranches(m);
+        var il = m.Body.GetILProcessor();
+        var rets = m.Body.Instructions.Where(i => i.OpCode == OpCodes.Ret).ToList();
+        foreach (var r in rets)
+        {
+            var seq = new List<Instruction>();
+            for (int k = 1; k < extraLoads.Length; k++) seq.Add(il.Create(extraLoads[k]));
+            seq.Add(il.Create(OpCodes.Call, hook));
+            seq.Add(il.Create(OpCodes.Ret));
+            r.OpCode = extraLoads[0];
+            r.Operand = null;
+            var at = r;
+            foreach (var x in seq) { il.InsertAfter(at, x); at = x; }
+        }
+        return rets.Count;
+    }
+
+    // H1: Tradable.GetValue / TradableResource.GetValue(type, qty)    => AdjustTradableValue(value, this, type)
+    // H2: Marketplace ITradingManagementService.GetTradablePrice(...) => AdjustTradePrice(price, type, empire)
+    static void HookMarket(TypeDefinition game)
+    {
+        var adjValue = GameMethod(game, "AdjustTradableValue");
+        int n = 0;
+        foreach (var tn in new[] { "Tradable", "TradableResource" })
+        {
+            var m = Method(tn, "GetValue", 2);
+            n += WrapReturns(m, adjValue, new[] { OpCodes.Ldarg_0, OpCodes.Ldarg_1 });
+        }
+        Console.WriteLine("hook: tradable value returns wrapped: " + n);
+
+        var mp = mod.GetType("Marketplace");
+        var gp = mp.Methods.Where(x => x.Name.EndsWith("GetTradablePrice") && x.Parameters.Count == 4).ToList();
+        if (gp.Count != 1) throw new Exception("expected 1 GetTradablePrice, found " + gp.Count);
+        int k = WrapReturns(gp[0], GameMethod(game, "AdjustTradePrice"), new[] { OpCodes.Ldarg_1, OpCodes.Ldarg_3 });
+        Console.WriteLine("hook: GetTradablePrice returns wrapped: " + k);
+    }
+
+    // H3: GroundBattleOutcomeLootDefinition.FillLoot(battle, loot, populations) => ...; AdjustLoot(battle, loot)
+    static void HookLoot(TypeDefinition game)
+    {
+        var m = Method("GroundBattleOutcomeLootDefinition", "FillLoot");
+        int n = WrapReturns(m, GameMethod(game, "AdjustLoot"), new[] { OpCodes.Ldarg_1, OpCodes.Ldarg_2 });
+        Console.WriteLine("hook: FillLoot returns wrapped: " + n);
     }
 
     // The baseline assembly already carries some TypeRefs that point at "Assembly-CSharp" itself (this is known to load

@@ -7,6 +7,7 @@ public sealed class CouncilLawDef
     public const int KindCycle = 0;      // lasts until the next vote opens
     public const int KindInstant = 1;    // executed once when enacted
     public const int KindPermanent = 2;  // permanent stat change (while in the council)
+    public const int KindMandate = 3;    // "M:<id>" question: elects the holder of a mandate (lasts until re-election)
 
     public string Id;
     public bool Targeted;       // true = "against/for one empire", false = whole council yes/no
@@ -24,9 +25,84 @@ public sealed class CouncilLawDef
     }
 }
 
+public sealed class CouncilMandateDef
+{
+    public string Id;
+    public string[] Categories;   // any of these task categories counts
+    public int Need;              // number of DIFFERENT tasks needed
+    public bool Victory;          // the supreme (victory) mandate: special requirements
+    public string Ru, En, RuDesc, EnDesc, RuNeed, EnNeed;
+
+    public CouncilMandateDef(string id, string[] cats, int need, bool victory, string ru, string en, string ruDesc, string enDesc, string ruNeed, string enNeed)
+    {
+        Id = id; Categories = cats; Need = need; Victory = victory;
+        Ru = ru; En = en; RuDesc = ruDesc; EnDesc = enDesc; RuNeed = ruNeed; EnNeed = enNeed;
+    }
+}
+
 public static class CouncilLaws
 {
+    public static readonly List<CouncilMandateDef> Mandates = BuildMandates();   // must be initialised before All
     public static readonly List<CouncilLawDef> All = Build();
+
+    // Mandate ids (stable: stored in saves)
+    public const string Chairman = "Chairman";
+    public const string Marshal = "Marshal";
+    public const string Quartermaster = "Quartermaster";
+    public const string Eye = "Eye";
+    public const string Supreme = "Supreme";
+    public const string MandatePrefix = "M:";
+
+    // task categories (the Academy assignment system is a stub for now: see CouncilGame.ReportTask)
+    public const string CatDiplomatic = "diplomatic";
+    public const string CatMilitary = "military";
+    public const string CatDefense = "defense";
+    public const string CatSupply = "supply";
+    public const string CatIntel = "intelligence";
+    public const string CatResearch = "research";
+
+    public static CouncilMandateDef GetMandate(string id)
+    {
+        for (int i = 0; i < Mandates.Count; i++) if (Mandates[i].Id == id) return Mandates[i];
+        return null;
+    }
+
+    public static int MandateIndex(string id)
+    {
+        for (int i = 0; i < Mandates.Count; i++) if (Mandates[i].Id == id) return i;
+        return -1;
+    }
+
+    static List<CouncilMandateDef> BuildMandates()
+    {
+        var m = new List<CouncilMandateDef>();
+        m.Add(new CouncilMandateDef(Chairman, new[] { CatDiplomatic }, 2, false,
+            "Председатель Совета Академии", "Chairman of the Academy Council",
+            "Раз в цикл может заменить одно обычное постановление новым до начала голосования. Не накапливается; нельзя убрать выборы мандатов и вотум недоверия; после начала подачи голосов повестку менять нельзя.",
+            "Once per cycle may replace one ordinary resolution with a new one before voting starts. Does not accumulate; cannot remove mandate elections or the no-confidence vote; the agenda cannot change once votes are cast.",
+            "2 дипломатических поручения Академии", "2 diplomatic Academy tasks"));
+        m.Add(new CouncilMandateDef(Marshal, new[] { CatMilitary, CatDefense }, 2, false,
+            "Маршал Академии", "Marshal of the Academy",
+            "Позволяет нанять один ограниченный служебный контингент. Содержание оплачивает игрок, сила растёт с этапом партии; продать его или превратить в бесплатный постоянный флот нельзя; контракт заканчивается вместе с мандатом.",
+            "Allows hiring one limited service contingent. The player pays its upkeep, its strength scales with the game stage; it cannot be sold or turned into a free permanent fleet; the contract ends with the mandate.",
+            "2 военных или оборонительных поручения", "2 military or defense tasks"));
+        m.Add(new CouncilMandateDef(Quartermaster, new[] { CatSupply }, 3, false,
+            "Интендант Совета", "Council Quartermaster",
+            "Раз в цикл (20 ходов) позволяет запросить у Академии существенную поставку ресурсов. Размер растёт с этапом партии и длиной игры; возврат не требуется.",
+            "Once per cycle (20 turns) may request a substantial resource delivery from the Academy. Scales with game stage and game length; no repayment.",
+            "3 разных поручения по снабжению", "3 different supply tasks"));
+        m.Add(new CouncilMandateDef(Eye, new[] { CatIntel, CatResearch }, 2, false,
+            "Око Академии", "Eye of the Academy",
+            "+1 одновременная операция взлома и +20 к максимуму вычислительной мощности (ПВ).",
+            "+1 simultaneous hacking operation and +20 to maximum processing power.",
+            "2 разведывательных или исследовательских поручения", "2 intelligence or research tasks"));
+        m.Add(new CouncilMandateDef(Supreme, new string[0], 0, true,
+            "Верховный легат Академии", "Supreme Legate of the Academy",
+            "Победный мандат: удваивает голоса игрока. Удерживайте его 30 ходов (нормальная скорость) для победы. Следующее голосование гарантированно содержит вотум недоверия, а пока идёт отсчёт, один из вопросов — всегда вотум недоверия.",
+            "Victory mandate: doubles the holder's votes. Hold it for 30 turns (normal speed) to win. The next vote is guaranteed to contain a No-Confidence law, and while the countdown runs one question is always No-Confidence.",
+            "Допуск к 2 обычным мандатам и удержание одного обычного мандата в течение полного цикла", "Qualify for 2 ordinary mandates and hold one ordinary mandate for a full cycle"));
+        return m;
+    }
 
     // Law ids (stable: they are stored in saves)
     public const string Merit = "Merit";
@@ -69,11 +145,11 @@ public static class CouncilLaws
             "Сверхсущественное повышение компенсации Пылью за эвакуацию системы.", "Greatly increased Dust compensation for evacuating a system."));
         l.Add(new CouncilLawDef("EscortSquads", false, C, 1, "squads", false, "Эскортные эскадры", "Escort Squadrons",
             "Небольшие временные эскортные эскадры всем членам Совета.", "Small temporary escort squadrons for every council member."));
-        l.Add(new CouncilLawDef("Mentoring", false, I, 1, "mentor", false, "Академическое менторство", "Academic Mentoring",
+        l.Add(new CouncilLawDef("Mentoring", false, I, 1, "mentor", true, "Академическое менторство", "Academic Mentoring",
             "Все герои-губернаторы, не управляемые ИИ, моментально получают +3 уровня.", "All non-AI hero governors instantly gain +3 levels."));
         l.Add(new CouncilLawDef("StrategicPresence", false, C, 1, "presence", false, "Программа стратегического присутствия", "Strategic Presence Program",
             "Дополнительные голоса на следующем заседании за удержание заранее отмеченных систем.", "Extra votes at the next session for holding pre-marked systems."));
-        l.Add(new CouncilLawDef(NoConfidence, false, I, 0, "noconf", false, "Вотум недоверия", "Vote of No Confidence",
+        l.Add(new CouncilLawDef(NoConfidence, false, I, 0, "noconf", true, "Вотум недоверия", "Vote of No Confidence",
             "Отзывает действующий победный мандат и прекращает его отсчёт.", "Revokes the active victory mandate and stops its countdown."));
         l.Add(new CouncilLawDef(Counterintel, false, C, 0, "backdoor", true, "Контрразведка от Академии", "Academy Counter-Intelligence",
             "Запрещает установку новых бэкдоров.", "Installing new backdoors is forbidden."));
@@ -81,9 +157,9 @@ public static class CouncilLaws
             "Для всех взломов считается, что в системе на 4 спящих больше.", "For all hacks, the system counts as having 4 more sleepers."));
         l.Add(new CouncilLawDef(NoDestabilization, false, C, 0, "sleepers", true, "Пакт о недопустимости дестабилизации", "Anti-Destabilization Pact",
             "Любые взломы, требующие наличия спящих, недопустимы.", "Any hack that requires sleepers is forbidden."));
-        l.Add(new CouncilLawDef("Deregulation", false, C, 1, "market", false, "Дерегулирование рынка", "Market Deregulation",
+        l.Add(new CouncilLawDef("Deregulation", false, C, 1, "market", true, "Дерегулирование рынка", "Market Deregulation",
             "Существенное снижение цен на рынке при покупке стратегических ресурсов и роскоши.", "Large discount on strategic and luxury resources at the Market."));
-        l.Add(new CouncilLawDef("Privateering", false, C, 1, "market2", false, "Разрешение на каперство", "Letters of Marque",
+        l.Add(new CouncilLawDef("Privateering", false, C, 1, "market2", true, "Разрешение на каперство", "Letters of Marque",
             "Существенное снижение цен на рынке при покупке военных кораблей.", "Large discount when buying warships at the Market."));
         l.Add(new CouncilLawDef("TradeReinvest", false, C, 1, "tc", false, "Реинвестиции торговых компаний", "Trading Company Reinvestment",
             "Временный бонус к Промышленности в системах со штаб-квартирами или филиалами торговых компаний.", "Temporary Industry bonus in systems with trading company HQs or subsidiaries."));
@@ -96,11 +172,11 @@ public static class CouncilLaws
             "One-time Dust payment for every controlled colonized system. Scales with the stage of the game."));
         l.Add(new CouncilLawDef("UpkeepDown", true, C, 1, "upkeepT", false, "Льготы на содержание флота", "Fleet Upkeep Relief",
             "Расходы на содержание кораблей в Пыли снижаются на 50%.", "Ship upkeep in Dust is reduced by 50%."));
-        l.Add(new CouncilLawDef("PillageX2", true, C, 1, "pillage", false, "Право на разграбление", "Right of Plunder",
+        l.Add(new CouncilLawDef("PillageX2", true, C, 1, "pillage", true, "Право на разграбление", "Right of Plunder",
             "Добыча от действия «Разграбить систему» повышена в 2 раза.", "Loot from the 'Pillage System' action is doubled."));
         l.Add(new CouncilLawDef("FortInspection", true, C, -1, "fort", false, "Инспекция укреплений", "Fortification Inspection",
             "Ослабление обороняющихся наземных войск и увеличение потерь гарнизона от осады на 50%.", "Defending ground troops are weakened and siege garrison losses are +50%."));
-        l.Add(new CouncilLawDef("TradeRestrictions", true, C, -1, "trade", false, "Торговые ограничения", "Trade Restrictions",
+        l.Add(new CouncilLawDef("TradeRestrictions", true, C, -1, "trade", true, "Торговые ограничения", "Trade Restrictions",
             "Покупки и продажи ресурсов на Рынке для выбранной империи в 2 раза менее выгодны.", "Market purchases and sales are twice as unfavourable for the chosen empire."));
         l.Add(new CouncilLawDef("Truce", true, I, 1, "truce", false, "Академическое перемирие", "Academic Truce",
             "Автоматически прекращает войны фракции с другими членами Совета.", "Automatically ends the faction's wars with other council members."));
@@ -122,6 +198,13 @@ public static class CouncilLaws
             "Выбранная фракция навсегда получает +30 голосов.", "The chosen faction permanently gains +30 votes."));
         l.Add(new CouncilLawDef("Antimonopoly", true, C, -1, "tcT", false, "Антимонопольный надзор", "Antitrust Oversight",
             "Временный штраф к доходам торговых компаний выбранной фракции (или отключение компании и филиалов).", "Temporary income penalty to the chosen faction's trading companies."));
+        for (int i = 0; i < Mandates.Count; i++)
+        {
+            var md = Mandates[i];
+            l.Add(new CouncilLawDef(MandatePrefix + md.Id, true, KindMandateConst, 1, "mandate", false, md.Ru, md.En, md.RuDesc, md.EnDesc));
+        }
         return l;
     }
+
+    const int KindMandateConst = CouncilLawDef.KindMandate;
 }

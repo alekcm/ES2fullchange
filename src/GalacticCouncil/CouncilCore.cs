@@ -31,7 +31,7 @@ public sealed class CouncilRng
     public int Range(int n) { return n <= 0 ? 0 : (int)(Next() % (uint)n); }
 }
 
-public sealed class CouncilCore
+public sealed partial class CouncilCore
 {
     public const int BaseVotes = 100;
     public const int VoteStep = 10;
@@ -73,6 +73,7 @@ public sealed class CouncilCore
         int b = BaseVotes;
         int bonus;
         if (VoteBonus.TryGetValue(emp, out bonus)) b += bonus;
+        if (Holds(emp, CouncilLaws.Supreme)) b *= 2;      // supreme mandate doubles the votes
         return b;
     }
 
@@ -122,12 +123,15 @@ public sealed class CouncilCore
         Members.Clear(); for (int i = 0; i < members.Count; i++) Members.Add(members[i]);
         Proposals.Clear(); LastProposals.Clear(); Ballots.Clear(); Active.Clear();
         VoteBonus.Clear(); ColonyDelta.Clear(); History.Clear();
+        ResetMandates();
+        VictoryTurns = Math.Max(1, (int)Math.Round(VictoryBaseTurns * IntervalTurns / (double)BaseIntervalTurns));
     }
 
     public void Disband()
     {
         Enabled = false; Destroyed = true; Phase = PhaseIdle;
         Proposals.Clear(); Ballots.Clear(); Active.Clear();
+        ResetMandates();
     }
 
     public void RemoveMember(int emp)
@@ -137,6 +141,8 @@ public sealed class CouncilCore
         VoteBonus.Remove(emp);
         ColonyDelta.Remove(emp);
         for (int i = Active.Count - 1; i >= 0; i--) if (Active[i].Target == emp) Active.RemoveAt(i);
+        RemoveHoldsOf(emp);
+        MandateCandidates.Remove(emp);
     }
 
     /// <summary>What has to be done at the beginning of the given turn.</summary>
@@ -220,10 +226,23 @@ public sealed class CouncilCore
             int q = entries[i][0], opt = entries[i][1], v = entries[i][2];
             if (v == 0) continue;
             if (v < 0 || v % VoteStep != 0) return false;
+            if (q >= MandateQBase)
+            {
+                // votes for putting a mandate on the NEXT vote
+                if (opt != 0 || q - MandateQBase >= CouncilLaws.Mandates.Count) return false;
+                if (!Qualifies(emp, CouncilLaws.Mandates[q - MandateQBase].Id)) return false;
+                bool merged2 = false;
+                for (int j = 0; j < clean.Count; j++)
+                    if (clean[j][0] == q && clean[j][1] == opt) { clean[j][2] += v; merged2 = true; break; }
+                if (!merged2) clean.Add(new[] { q, opt, v });
+                sum += v;
+                continue;
+            }
             if (q < 0 || q >= Proposals.Count) return false;
             var d = CouncilLaws.Get(Proposals[q]);
             if (d == null) return false;
-            if (d.Targeted) { if (!IsMember(opt)) return false; }
+            if (d.Kind == CouncilLawDef.KindMandate) { if (!MandateCandidates.Contains(opt)) return false; }
+            else if (d.Targeted) { if (!IsMember(opt)) return false; }
             else if (opt != 0 && opt != 1) return false;
             bool merged = false;
             for (int j = 0; j < clean.Count; j++)
@@ -266,6 +285,7 @@ public sealed class CouncilCore
                         if (kv.Value[i][0] == q)
                         {
                             int t = kv.Value[i][1], cur;
+                            if (!IsMember(t) || !IsMember(kv.Key)) continue;
                             perTarget.TryGetValue(t, out cur);
                             perTarget[t] = cur + kv.Value[i][2];
                         }
@@ -278,10 +298,17 @@ public sealed class CouncilCore
                 bool tie = best >= 0 && second == bestV;
                 res.Yes = bestV; res.No = second;
                 res.Passed = best >= 0 && bestV > 0 && !tie;
-                if (res.Passed) { res.Target = best; enacted.Add(new CouncilActiveLaw { Id = d.Id, Target = best, StartTurn = turn }); }
+                if (res.Passed && d.Kind == CouncilLawDef.KindMandate)
+                {
+                    res.Target = best;
+                    SetHolder(d.Id.Substring(CouncilLaws.MandatePrefix.Length), best, turn);
+                    enacted.Add(new CouncilActiveLaw { Id = d.Id, Target = best, StartTurn = turn });
+                }
+                else if (res.Passed) { res.Target = best; enacted.Add(new CouncilActiveLaw { Id = d.Id, Target = best, StartTurn = turn }); }
             }
             History.Add(res);
         }
+        TallyMandateVotes(turn);
         while (History.Count > HistoryLimit) History.RemoveAt(0);
 
         // apply to state: cycle laws stay in Active, permanent ones change stats, instant ones are only reported
@@ -291,10 +318,12 @@ public sealed class CouncilCore
             if (d == null) continue;
             if (d.Kind == CouncilLawDef.KindCycle) Active.Add(enacted[i]);
             else if (d.Kind == CouncilLawDef.KindPermanent) ApplyPermanent(d.Id, enacted[i].Target);
+            else if (d.Id == CouncilLaws.NoConfidence) RevokeMandate(CouncilLaws.Supreme);
         }
         Phase = PhaseIdle;
         Proposals.Clear();
         Ballots.Clear();
+        MandateCandidates.Clear();
         return enacted;
     }
 
@@ -322,6 +351,16 @@ public sealed class CouncilCore
         // spend 70..100% of the budget in 10-vote chunks, weights pseudo-random
         int chunks = budget / VoteStep;
         chunks = (int)(chunks * (70 + rng.Range(31)) / 100);
+        // sometimes back a mandate the empire qualifies for (it goes to the NEXT vote)
+        var qualified = new List<int>();
+        for (int mi = 0; mi < CouncilLaws.Mandates.Count; mi++)
+            if (Qualifies(emp, CouncilLaws.Mandates[mi].Id)) qualified.Add(mi);
+        if (qualified.Count > 0 && rng.Range(100) < 70)
+        {
+            int mc = Math.Max(1, Math.Min(chunks / 3, 1 + rng.Range(3)));
+            list.Add(new[] { MandateQBase + qualified[rng.Range(qualified.Count)], 0, mc * VoteStep });
+            chunks -= mc;
+        }
         var weights = new int[n];
         for (int q = 0; q < n; q++) weights[q] = 1 + rng.Range(4);
         int wsum = 0; for (int q = 0; q < n; q++) wsum += weights[q];
@@ -332,7 +371,12 @@ public sealed class CouncilCore
             var d = CouncilLaws.Get(Proposals[q]);
             if (d == null) continue;
             int opt;
-            if (d.Targeted)
+            if (d.Kind == CouncilLawDef.KindMandate)
+            {
+                if (MandateCandidates.Count == 0) continue;
+                opt = MandateCandidates.Contains(emp) ? emp : MandateCandidates[rng.Range(MandateCandidates.Count)];
+            }
+            else if (d.Targeted)
             {
                 opt = emp;
                 if (d.Benefit < 0)
@@ -364,7 +408,7 @@ public sealed class CouncilCore
     public string Serialize()
     {
         var sb = new StringBuilder();
-        sb.Append("GC1|").Append(Enabled ? 1 : 0).Append('|').Append(Destroyed ? 1 : 0).Append('|')
+        sb.Append("GC2|").Append(Enabled ? 1 : 0).Append('|').Append(Destroyed ? 1 : 0).Append('|')
           .Append(I(FoundedTurn)).Append('|').Append(I(VoteIndex)).Append('|').Append(I(Phase)).Append('|')
           .Append(I(VoteOpenTurn)).Append('|').Append(I(NextVoteTurn)).Append('|').Append(I(IntervalTurns)).Append('|');
         sb.Append(string.Join(",", Proposals.ToArray())).Append('|');
@@ -393,9 +437,10 @@ public sealed class CouncilCore
         for (int i = 0; i < History.Count; i++)
         {
             var h = History[i];
-            parts.Add(I(h.Turn) + ":" + h.LawId + ":" + I(h.Target) + ":" + (h.Passed ? "1" : "0") + ":" + I(h.Yes) + ":" + I(h.No));
+            parts.Add(I(h.Turn) + ":" + h.LawId.Replace(':', '~') + ":" + I(h.Target) + ":" + (h.Passed ? "1" : "0") + ":" + I(h.Yes) + ":" + I(h.No));
         }
-        sb.Append(string.Join(";", parts.ToArray()));
+        sb.Append(string.Join(";", parts.ToArray())).Append('|');
+        AppendMandateState(sb);
         return sb.ToString();
     }
 
@@ -410,7 +455,7 @@ public sealed class CouncilCore
         try
         {
             var f = data.Split('|');
-            if (f.Length < 15 || f[0] != "GC1") return c;
+            if (f.Length < 15 || (f[0] != "GC1" && f[0] != "GC2")) return c;
             var n = new CouncilCore();
             n.Enabled = f[1] == "1"; n.Destroyed = f[2] == "1";
             n.FoundedTurn = P(f[3]); n.VoteIndex = P(f[4]); n.Phase = P(f[5]);
@@ -440,8 +485,10 @@ public sealed class CouncilCore
                 foreach (var rec in Split(f[16], ';'))
                 {
                     var t = rec.Split(':');
-                    n.History.Add(new CouncilResult { Turn = P(t[0]), LawId = t[1], Target = P(t[2]), Passed = t[3] == "1", Yes = P(t[4]), No = P(t[5]) });
+                    n.History.Add(new CouncilResult { Turn = P(t[0]), LawId = t[1].Replace('~', ':'), Target = P(t[2]), Passed = t[3] == "1", Yes = P(t[4]), No = P(t[5]) });
                 }
+            if (f[0] == "GC2") n.ReadMandateState(f);
+            else n.VictoryTurns = Math.Max(1, (int)Math.Round(VictoryBaseTurns * n.IntervalTurns / (double)BaseIntervalTurns));
             return n;
         }
         catch (Exception)

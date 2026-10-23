@@ -9,7 +9,7 @@ using Amplitude.Unity.Framework;
 using Amplitude.Unity.Game;
 using Amplitude.Unity.Simulation;
 
-public static class CouncilGame
+public static partial class CouncilGame
 {
     public static CouncilCore Core = new CouncilCore();
     public static string LastError = "";
@@ -141,6 +141,7 @@ public static class CouncilGame
             PruneMembers(game);
             if (Core.NextAction(turn) == CouncilCore.ActionTally) DoTally(game, turn);
             if (Core.NextAction(turn) == CouncilCore.ActionOpen) DoOpen(mgr, game, turn);
+            PerTurn(game, turn);
             RefreshEffects(game);
         }
         catch (Exception e) { Fail("ClientBeginTurn", e); }
@@ -199,17 +200,9 @@ public static class CouncilGame
     {
         var expired = Core.ExpireLaws();
         int seed = unchecked(turn * 1103515245 + Core.VoteIndex * 12345 + mgr.AcademyEmpire.Index * 31 + 7);
-        var props = Core.PickProposals(seed, CouncilCore.MaxQuestions, null);
+        var props = Core.BuildProposals(seed, CouncilCore.MaxQuestions);
         if (props.Count == 0) { Core.NextVoteTurn = turn + Core.IntervalTurns; return; }
         Core.OpenVote(turn, props);
-
-        // AI empires vote immediately and deterministically
-        foreach (MajorEmpire e in game.EnumerableMajorEmpires)
-        {
-            if (!Core.IsMember(e.Index) || !e.IsControlledByAI) continue;
-            var ballot = Core.BuildAiBallot(e.Index, seed, ScoreOf);
-            Core.TrySetBallot(e.Index, ballot);
-        }
         CouncilUi.OnVoteOpened(expired.Count);
     }
 
@@ -220,6 +213,13 @@ public static class CouncilGame
 
     static void DoTally(Game game, int turn)
     {
+        // AI empires vote at the end of the voting turn, deterministically (same result on every machine)
+        foreach (MajorEmpire e in game.EnumerableMajorEmpires)
+        {
+            if (!Core.IsMember(e.Index) || !e.IsControlledByAI || Core.HasVoted(e.Index)) continue;
+            int aiSeed = unchecked(Core.VoteOpenTurn * 1103515245 + Core.VoteIndex * 12345 + e.Index * 131 + 17);
+            Core.TrySetBallot(e.Index, Core.BuildAiBallot(e.Index, aiSeed, ScoreOf));
+        }
         var enacted = Core.Tally(turn);
         for (int i = 0; i < enacted.Count; i++)
         {
@@ -232,6 +232,7 @@ public static class CouncilGame
 
     static void ApplyInstant(Game game, CouncilActiveLaw law)
     {
+        if (law.Id == "Mentoring") { ApplyMentoring(game); return; }
         if (law.Id == CouncilLaws.DustPayout)
         {
             var emp = GetMajor(law.Target);
@@ -253,7 +254,8 @@ public static class CouncilGame
             int e = Core.Members[i];
             int colony = Core.GetColonyDelta(e);
             bool repl = Core.IsLawActiveFor(CouncilLaws.Replenishment, e) && !LawIsGlobal(CouncilLaws.Replenishment);
-            if (colony != 0 || repl) sb.Append(e).Append(':').Append(colony).Append(':').Append(repl ? 1 : 0).Append(';');
+            bool eye = Core.Holds(e, CouncilLaws.Eye);
+            if (colony != 0 || repl || eye) sb.Append(e).Append(':').Append(colony).Append(':').Append(repl ? 1 : 0).Append(':').Append(eye ? 1 : 0).Append(';');
         }
         return sb.ToString();
     }
@@ -280,6 +282,14 @@ public static class CouncilGame
             if (Core.IsLawActiveFor(CouncilLaws.Replenishment, idx))
                 mods.Add(CustomHackingHelper.MakeModifier(SimulationProperties.Empire.NetEmpireManpower.ToString(),
                     SimulationModifierDescriptor.ModifierOperation.Multiplication, 1.5f, "ClassEmpire"));
+            if (Core.Holds(idx, CouncilLaws.Eye))
+            {
+                // Eye of the Academy: +1 simultaneous hacking operation, +20 to the processing power cap
+                mods.Add(CustomHackingHelper.MakeModifier(SimulationProperties.Empire.MaximumHackingOperationsCount.ToString(),
+                    SimulationModifierDescriptor.ModifierOperation.Addition, 1f, "ClassEmpire"));
+                mods.Add(CustomHackingHelper.MakeModifier(SimulationProperties.Empire.MaximumEmpireProcessingPowerStock.ToString(),
+                    SimulationModifierDescriptor.ModifierOperation.Addition, 20f, "ClassEmpire"));
+            }
             if (mods.Count == 0) continue;
             var desc = CustomHackingHelper.CreateAndRegisterDescriptor(null, "GalacticCouncil_" + idx + "_" + (++descSeq), "ClassEmpire", null, mods.ToArray());
             emp.SimulationObject.AddDescriptor(desc);
@@ -347,13 +357,29 @@ public static class CouncilGame
 
     public static bool VotePreprocessor(OrderCouncilVote order)
     {
-        return order != null && Core.Enabled && Core.Phase == CouncilCore.PhaseVoting;
+        try { return ActionPreprocessor(order); } catch (Exception e) { Fail("VotePreprocessor", e); return false; }
     }
 
     public static System.Collections.IEnumerator VoteProcessor(OrderCouncilVote order)
     {
-        try { Core.TrySetBallot(order.EmpireIndex, order.Entries); }
+        try { ActionProcess(order); }
         catch (Exception e) { Fail("VoteProcessor", e); }
         yield break;
+    }
+
+    static void ApplyMentoring(Game game)
+    {
+        var guids = new List<GameEntityGUID>();
+        PlayerController server = null;
+        foreach (MajorEmpire e in game.EnumerableMajorEmpires)
+        {
+            if (!Core.IsMember(e.Index) || e.IsControlledByAI) continue;
+            if (server == null && e.PlayerControllers != null) server = e.PlayerControllers.Server;
+            var edu = e.GetAgency<DepartmentOfEducation>();
+            if (edu == null) continue;
+            foreach (Hero h in edu.ActiveHeroes) guids.Add(h.GUID);
+        }
+        if (server == null || guids.Count == 0) return;
+        server.PostOrder(new OrderAddLevelsToHeroes(guids.ToArray(), 3f));
     }
 }

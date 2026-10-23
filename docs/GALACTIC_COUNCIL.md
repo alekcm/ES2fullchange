@@ -1,4 +1,4 @@
-# Galactic Council (Stage 1)
+# Galactic Council (Stages 1-2)
 
 Replaces the Academy "request resources" phase with a Council vote. Implemented as C# (`src/GalacticCouncil`),
 compiled with Mono/Roslyn and merged into `Managed/Assembly-CSharp.dll` with Cecil (`tools/Patcher`).
@@ -22,8 +22,29 @@ Replenishment (manpower x1.5), Exchange of Intelligence Methods (+4 sleepers), N
 (no sleeper-based hacks), Academy Counterintelligence (no new backdoors).
 
 Other laws from the spec are registered in `CouncilLaws` but `Implemented=false`, so they are never offered yet.
-Not done yet (Stage 2): research +-50%, Mentorship, mandates (+ their votes/UI), victory by Supreme Legate,
-leaving the Council, squadrons, market/trading laws, etc.
+
+## Stage 2 (added)
+Laws: Academic Mentoring (+3 levels to all active heroes of non-AI members, posted by the host), Market Deregulation
+(x0.5 buy price of Strategic/Luxury resources), Letters of Marque (x0.5 buy price of ships), Right of Plunder (x2 loot of
+`GroundBattleOutcomeLootDefinition.FillLoot`), Trade Restrictions (buy x2 / sell x0.5 for the target).
+
+Mandates (`CouncilMandates.cs`, state saved as `GC2`): Chairman, Marshal, Quartermaster, Eye, Supreme Legate.
+* Votes for a mandate (Mandates tab) come out of the same 100 votes; the winner replaces one law question of the next vote
+  (at most one mandate question per vote) and the holder is chosen among the empires that qualify. Holding lasts until
+  re-election, leaving the Council or the Academy's destruction.
+* Chairman: replace one ordinary question once per cycle before anybody voted (Voting tab).
+* Marshal: hires a warship group of the empire's own faction at the home system (upkeep paid by the empire).
+* Quartermaster: once per cycle Dust + Science delivery scaled by stage and game length.
+* Eye: +1 simultaneous hacking operation, +20 `MaximumEmpireProcessingPowerStock` (the "ПВ" reading is a guess).
+* Supreme Legate: x2 votes, No-Confidence forced on the next vote and while the countdown runs; after 30 turns (scaled)
+  `IVictoryManagementService.ForceRiseVictory` is called with the victory condition whose name contains `diplomat`/`senate`/...
+* Leaving the Council: the Academy relation is pinned to -100 every turn (static `AcademyDiplomaticRelation.SetRelationPoints`).
+* Assignments are a **stub**: six buttons in the Mandates tab count one finished assignment of a category.
+
+Still not implemented (registered, `Implemented=false`, never offered): research +-50%, warship upkeep laws, weapon damage -20%,
+evacuation compensation, escort/Academy squadrons, Strategic Presence, Fortification Inspection, Capital Reinforcement,
+Infrastructure, Covert Operations, Antitrust, Trade Company Reinvestment, Academic Truce, Academy-home-world 50% capital rule.
+Marshal contingent: no automatic recall at the end of the contract and no sell/scrap block yet.
 
 ## Hooks in the game assembly
 | Where | What |
@@ -34,7 +55,10 @@ leaving the Council, squadrons, market/trading laws, etc.
 | `GameClient.SpawnHackingOperationBackdoorProcessor` | exits early while Counterintel is active |
 | `OverhaulOutcomeDefinition.CheckHackingEmpireAndTarget`, `CustomHackingHelper.BuildPromptElement` | sleeper count goes through `CouncilGame.SleepersForHack` |
 | `AcademyModalWindow.OnBeginShow/OnBeginHide` | shows/hides the "Council" launcher button |
+| `Tradable.GetValue`, `TradableResource.GetValue` (every `ret`) | value goes through `CouncilGame.AdjustTradableValue` |
+| `Marketplace.ITradingManagementService.GetTradablePrice` (every `ret`) | price goes through `CouncilGame.AdjustTradePrice` |
+| `GroundBattleOutcomeLootDefinition.FillLoot` (end) | `CouncilGame.AdjustLoot` |
 
 ## UI
 An IMGUI window (no Unity prefabs exist in this repo): a "Council" button appears while the Academy window is open;
-tabs Vote / Laws / Mandates (stub). Toasts announce vote start and results.
+tabs Vote / Laws / Mandates. Toasts announce vote start and results.
