@@ -256,7 +256,9 @@ public static partial class CouncilGame
             int colony = Core.GetColonyDelta(e);
             bool repl = Core.IsLawActiveFor(CouncilLaws.Replenishment, e) && !LawIsGlobal(CouncilLaws.Replenishment);
             bool eye = Core.Holds(e, CouncilLaws.Eye);
-            if (colony != 0 || repl || eye) sb.Append(e).Append(':').Append(colony).Append(':').Append(repl ? 1 : 0).Append(':').Append(eye ? 1 : 0).Append(';');
+            float upk = 0f;
+            try { var me = GetMajor(e); if (me != null) upk = UpkeepDelta(me); } catch (Exception) { }
+            if (colony != 0 || repl || eye || upk != 0f) sb.Append(e).Append(':').Append(colony).Append(':').Append(repl ? 1 : 0).Append(':').Append(eye ? 1 : 0).Append(':').Append(upk).Append(';');
         }
         return sb.ToString();
     }
@@ -283,6 +285,10 @@ public static partial class CouncilGame
             if (Core.IsLawActiveFor(CouncilLaws.Replenishment, idx))
                 mods.Add(CustomHackingHelper.MakeModifier(SimulationProperties.Empire.NetEmpireManpower.ToString(),
                     SimulationModifierDescriptor.ModifierOperation.Multiplication, 1.5f, "ClassEmpire"));
+            float upkeep = UpkeepDelta(emp);
+            if (upkeep != 0f)
+                mods.Add(CustomHackingHelper.MakeModifier(SimulationProperties.Empire.EmpireMoneyUpkeep.ToString(),
+                    SimulationModifierDescriptor.ModifierOperation.Addition, upkeep, "ClassEmpire"));
             if (Core.Holds(idx, CouncilLaws.Eye))
             {
                 // Eye of the Academy: +1 simultaneous hacking operation, +20 to the processing power cap

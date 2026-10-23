@@ -127,19 +127,19 @@ public static class CouncilLaws
         const int C = CouncilLawDef.KindCycle, I = CouncilLawDef.KindInstant, P = CouncilLawDef.KindPermanent;
 
         // ---------------- applies to everyone (yes / no) ----------------
-        l.Add(new CouncilLawDef("ResearchDevUp", false, C, 1, "resDev", false, "Ускоренное развитие империи", "Accelerated Empire Development",
+        l.Add(new CouncilLawDef("ResearchDevUp", false, C, 1, "resDev", true, "Ускоренное развитие империи", "Accelerated Empire Development",
             "Исследования ветки «Развитие империи» ускоряются на 50%.", "Empire Development research is 50% faster."));
-        l.Add(new CouncilLawDef("ResearchDevDown", false, C, -1, "resDev", false, "Замедленное развитие империи", "Stalled Empire Development",
+        l.Add(new CouncilLawDef("ResearchDevDown", false, C, -1, "resDev", true, "Замедленное развитие империи", "Stalled Empire Development",
             "Исследования ветки «Развитие империи» замедляются на 50%.", "Empire Development research is 50% slower."));
-        l.Add(new CouncilLawDef("ResearchEcoUp", false, C, 1, "resEco", false, "Ускоренная экономика и торговля", "Accelerated Economy & Trade",
+        l.Add(new CouncilLawDef("ResearchEcoUp", false, C, 1, "resEco", true, "Ускоренная экономика и торговля", "Accelerated Economy & Trade",
             "Исследования ветки «Экономика и торговля» ускоряются на 50%.", "Economy & Trade research is 50% faster."));
-        l.Add(new CouncilLawDef("ResearchEcoDown", false, C, -1, "resEco", false, "Замедленная экономика и торговля", "Stalled Economy & Trade",
+        l.Add(new CouncilLawDef("ResearchEcoDown", false, C, -1, "resEco", true, "Замедленная экономика и торговля", "Stalled Economy & Trade",
             "Исследования ветки «Экономика и торговля» замедляются на 50%.", "Economy & Trade research is 50% slower."));
-        l.Add(new CouncilLawDef("ResearchMilUp", false, C, 1, "resMil", false, "Ускоренные военные исследования", "Accelerated Military Research",
+        l.Add(new CouncilLawDef("ResearchMilUp", false, C, 1, "resMil", true, "Ускоренные военные исследования", "Accelerated Military Research",
             "Исследования военной ветки ускоряются на 50%.", "Military research is 50% faster."));
-        l.Add(new CouncilLawDef("ResearchMilDown", false, C, -1, "resMil", false, "Замедленные военные исследования", "Stalled Military Research",
+        l.Add(new CouncilLawDef("ResearchMilDown", false, C, -1, "resMil", true, "Замедленные военные исследования", "Stalled Military Research",
             "Исследования военной ветки замедляются на 50%.", "Military research is 50% slower."));
-        l.Add(new CouncilLawDef("WarshipUpkeepUp", false, C, -1, "upkeep", false, "Военные расходы", "War Expenditure",
+        l.Add(new CouncilLawDef("WarshipUpkeepUp", false, C, -1, "upkeep", true, "Военные расходы", "War Expenditure",
             "Содержание боевых кораблей в Пыли повышается на 100%.", "Warship upkeep in Dust is +100%."));
         l.Add(new CouncilLawDef("EvacCompensation", false, C, 1, "evac", false, "Компенсация за эвакуацию", "Evacuation Compensation",
             "Сверхсущественное повышение компенсации Пылью за эвакуацию системы.", "Greatly increased Dust compensation for evacuating a system."));
@@ -170,7 +170,7 @@ public static class CouncilLaws
         l.Add(new CouncilLawDef(DustPayout, true, I, 1, "payout", true, "Выплата Академии", "Academy Payout",
             "Разовая выплата Пыли за каждую контролируемую колонизированную систему. Размер выплаты растёт с этапом партии.",
             "One-time Dust payment for every controlled colonized system. Scales with the stage of the game."));
-        l.Add(new CouncilLawDef("UpkeepDown", true, C, 1, "upkeepT", false, "Льготы на содержание флота", "Fleet Upkeep Relief",
+        l.Add(new CouncilLawDef("UpkeepDown", true, C, 1, "upkeepT", true, "Льготы на содержание флота", "Fleet Upkeep Relief",
             "Расходы на содержание кораблей в Пыли снижаются на 50%.", "Ship upkeep in Dust is reduced by 50%."));
         l.Add(new CouncilLawDef("PillageX2", true, C, 1, "pillage", true, "Право на разграбление", "Right of Plunder",
             "Добыча от действия «Разграбить систему» повышена в 2 раза.", "Loot from the 'Pillage System' action is doubled."));
@@ -184,7 +184,7 @@ public static class CouncilLaws
             "Увеличение производства людских ресурсов (+50%) на время действия закона.", "Manpower production is increased by 50% while the law is in force."));
         l.Add(new CouncilLawDef(ExpansionMandate, true, P, 1, "colony", true, "Мандат на экспансию", "Expansion Mandate",
             "Навсегда даёт +1 к колонизационному лимиту, пока империя состоит в Совете.", "Permanently grants +1 colonization limit while the empire stays in the council."));
-        l.Add(new CouncilLawDef("Infrastructure", true, C, 1, "infra", false, "Инфраструктурная программа", "Infrastructure Program",
+        l.Add(new CouncilLawDef("Infrastructure", true, C, 1, "infra", true, "Инфраструктурная программа", "Infrastructure Program",
             "Снижение промышленной стоимости системных улучшений (кроме галактических чудес).", "Lower Industry cost of system improvements (except galactic wonders)."));
         l.Add(new CouncilLawDef("AcademySquad", true, C, 1, "squad", true, "Академическая эскадра", "Academy Squadron",
             "Временная академическая эскадра; состав зависит от этапа партии. Возвращается по окончании закона.", "A temporary Academy squadron scaled to the game stage. Returned when the law ends."));

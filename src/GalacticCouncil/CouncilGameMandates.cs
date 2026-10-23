@@ -403,4 +403,87 @@ public static partial class CouncilGame
         }
         catch (Exception) { }
     }
+
+    // ---------------------------------------------------------------- research speed and improvement cost (cost hook)
+
+    static readonly Dictionary<TechnologyDefinition, string> quadrantCache = new Dictionary<TechnologyDefinition, string>();
+
+    /// <summary>dev / eco / mil / "" - the research branch (quadrant) of a technology.</summary>
+    static string QuadrantOf(TechnologyDefinition td)
+    {
+        string q;
+        if (quadrantCache.TryGetValue(td, out q)) return q;
+        q = "";
+        try
+        {
+            var stage = td.TechnologyStage;
+            string n = (stage != null && stage.TechnologyQuadrant != null) ? stage.TechnologyQuadrant.Name.ToString() : "";
+            if (n.IndexOf("EmpireDevelopment", StringComparison.OrdinalIgnoreCase) >= 0) q = "dev";
+            else if (n.IndexOf("Economy", StringComparison.OrdinalIgnoreCase) >= 0) q = "eco";
+            else if (n.IndexOf("Military", StringComparison.OrdinalIgnoreCase) >= 0) q = "mil";
+            else if (n.Length == 0)
+            {
+                // fallback: the helper the hacking code already uses to classify technologies
+                if (CustomHackingHelper.MatchesQuadrant(td, "EmpireDevelopment")) q = "dev";
+                else if (CustomHackingHelper.MatchesQuadrant(td, "Economy")) q = "eco";
+                else if (CustomHackingHelper.MatchesQuadrant(td, "Military")) q = "mil";
+            }
+        }
+        catch (Exception) { }
+        quadrantCache[td] = q;
+        return q;
+    }
+
+    /// <summary>Return hook of DepartmentOfTheTreasury.GetProductionCostWithBonus(context, provider, cost, float):
+    /// research +-50% speed per branch (as a cost factor) and the Infrastructure Program (cheaper improvements).</summary>
+    public static float AdjustProductionCost(float value, ICostResolutionContext context, ICostProvider provider, ICost cost)
+    {
+        try
+        {
+            if (!Core.Enabled || provider == null || cost == null) return value;
+            var td = provider as TechnologyDefinition;
+            if (td != null)
+            {
+                if (cost.ResourceName != DepartmentOfTheTreasury.Resources.EmpireResearch) return value;
+                string q = QuadrantOf(td);
+                if (q.Length == 0) return value;
+                string up = q == "dev" ? "ResearchDevUp" : q == "eco" ? "ResearchEcoUp" : "ResearchMilUp";
+                string down = q == "dev" ? "ResearchDevDown" : q == "eco" ? "ResearchEcoDown" : "ResearchMilDown";
+                if (Core.IsLawActive(up)) return value / 1.5f;      // +50% speed
+                if (Core.IsLawActive(down)) return value * 2f;      // -50% speed
+                return value;
+            }
+            var imp = provider as StarSystemImprovementDefinition;
+            if (imp != null && !imp.IsWonder && context != null && context.Empire != null
+                && cost.ResourceName == DepartmentOfTheTreasury.Resources.SystemProduction
+                && Core.IsLawActiveFor("Infrastructure", context.Empire.Index))
+                return value * 0.75f;
+        }
+        catch (Exception) { }
+        return value;
+    }
+
+    // ---------------------------------------------------------------- fleet upkeep laws
+
+    /// <summary>Dust change of EmpireMoneyUpkeep caused by the upkeep laws (rounded to 5 to avoid constant re-registration).</summary>
+    static float UpkeepDelta(MajorEmpire emp)
+    {
+        bool up = Core.IsLawActive("WarshipUpkeepUp");
+        bool down = Core.IsLawActiveFor("UpkeepDown", emp.Index);
+        if (!up && !down) return 0f;
+        var def = emp.GetAgency<DepartmentOfDefense>();
+        if (def == null) return 0f;
+        float war = 0f, all = 0f;
+        foreach (Fleet f in def.Fleets)
+            foreach (Ship s in f.Ships)
+            {
+                float u = s.GarrisonMoneyUpkeep;
+                all += u;
+                if (!s.IsCivilianShip && !s.IsAcademyShip) war += u;
+            }
+        float d = 0f;
+        if (up) d += war;              // warship upkeep +100%
+        if (down) d -= 0.5f * all;     // ship upkeep -50%
+        return (float)Math.Round(d / 5f) * 5f;
+    }
 }

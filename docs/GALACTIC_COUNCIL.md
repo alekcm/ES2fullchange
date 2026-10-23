@@ -50,9 +50,19 @@ Council state (`CouncilSquads.cs`, saved) and, when the mandate/law ended or the
 `ScrapShipsPreprocessor` and `SelloutTradableShipsPreprocessor` refuse orders that contain a squad ship.
 Not verified in game: that the heuristic finds a design, that the fleet name is kept, that the host may post orders for AI empires.
 
-Still not implemented (registered, `Implemented=false`, never offered): research +-50%, warship upkeep laws, weapon damage -20%,
-evacuation compensation, escort/Academy squadrons, Strategic Presence, Fortification Inspection, Capital Reinforcement,
-Infrastructure, Antitrust, Trade Company Reinvestment, Academic Truce, Academy-home-world 50% capital rule.
+## Stage 4: research, upkeep, infrastructure
+* Research +-50% (Development / Economy & Trade / Military): `DepartmentOfTheTreasury.GetProductionCostWithBonus(context, provider, cost, float)`
+  is the sink of all cost overloads; its returns go through `CouncilGame.AdjustProductionCost`. For a `TechnologyDefinition` paid in `EmpireResearch`
+  the cost is divided by 1.5 (+50% speed) or multiplied by 2 (-50%). The branch comes from `TechnologyStage.TechnologyQuadrant`
+  (fallback `CustomHackingHelper.MatchesQuadrant`).
+* Infrastructure Program: same hook, `StarSystemImprovementDefinition` that is not a wonder, paid in `SystemProduction`, target empire: cost x0.75.
+* Warship upkeep +100% / ship upkeep -50%: an `Addition` modifier on `EmpireMoneyUpkeep` (class `ClassEmpire`), recomputed each turn from
+  `Ship.GarrisonMoneyUpkeep` over all fleets (warship = not civilian, not academy), rounded to 5.
+
+Still not implemented (registered, `Implemented=false`, never offered): weapon damage -20% (only the simplified-battle path
+`ComputeSimplifiedEffectiveDamagePercentage` was found, not the tactical one), evacuation compensation (no evacuation mechanic in the code),
+Strategic Presence (the "pre-marked systems" are undefined), Fortification Inspection, Capital Reinforcement, Antitrust,
+Trade Company Reinvestment, Academic Truce, Academy-home-world 50% capital rule.
 Academic Truce: `SetDiplomaticRelationState` handles the relation, but nothing found destroys the `WarInstance`, so it was left out.
 
 ## Hooks in the game assembly
@@ -67,6 +77,7 @@ Academic Truce: `SetDiplomaticRelationState` handles the relation, but nothing f
 | `Tradable.GetValue`, `TradableResource.GetValue` (every `ret`) | value goes through `CouncilGame.AdjustTradableValue` |
 | `Marketplace.ITradingManagementService.GetTradablePrice` (every `ret`) | price goes through `CouncilGame.AdjustTradePrice` |
 | `GroundBattleOutcomeLootDefinition.FillLoot` (end) | `CouncilGame.AdjustLoot` |
+| `DepartmentOfTheTreasury.GetProductionCostWithBonus(..., Single)` (every `ret`) | value goes through `CouncilGame.AdjustProductionCost` |
 | `DepartmentOfDefense.ScrapShipsPreprocessor`, `DepartmentOfCommerce.SelloutTradableShipsPreprocessor` (start) | return false when a ship belongs to a council squad |
 
 ## UI

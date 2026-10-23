@@ -48,6 +48,7 @@ public static class Patcher
         HookMarket(game);
         HookLoot(game);
         HookShipBlocks(game);
+        HookProductionCost(game);
 
         Console.WriteLine("publicized members: " + cl.PublicizedLog.Count);
         foreach (var s in cl.PublicizedLog.OrderBy(x => x)) Console.WriteLine("  + " + s);
@@ -267,6 +268,16 @@ public static class Patcher
             il.InsertBefore(first, il.Create(OpCodes.Ret));
             Console.WriteLine("hook: " + spec[1] + " blocks council ships");
         }
+    }
+
+    // H4: DepartmentOfTheTreasury.GetProductionCostWithBonus(context, provider, cost, float) - the sink all cost overloads call
+    static void HookProductionCost(TypeDefinition game)
+    {
+        var t = mod.GetType("DepartmentOfTheTreasury");
+        var m = t.Methods.Where(x => x.Name == "GetProductionCostWithBonus" && x.Parameters.Count == 4 && x.Parameters[3].ParameterType.Name == "Single").ToList();
+        if (m.Count != 1 || !m[0].IsStatic) throw new Exception("GetProductionCostWithBonus(float) not found/static");
+        int n = WrapReturns(m[0], GameMethod(game, "AdjustProductionCost"), new[] { OpCodes.Ldarg_0, OpCodes.Ldarg_1, OpCodes.Ldarg_2 });
+        Console.WriteLine("hook: production cost returns wrapped: " + n);
     }
 
     // H3: GroundBattleOutcomeLootDefinition.FillLoot(battle, loot, populations) => ...; AdjustLoot(battle, loot)
