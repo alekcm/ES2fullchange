@@ -29,6 +29,8 @@ public static class Patcher
         int selfRefsBefore = CountSelfReferences();
         if (mod.GetType("CouncilGame") != null) throw new Exception("base assembly already contains the Council; start from the baseline assembly");
 
+        RepairHackingModes();
+
         var council = AssemblyDefinition.ReadAssembly(councilPath, new ReaderParameters { AssemblyResolver = resolver });
         cl = new Cloner(council.MainModule, mod);
         cl.CloneAll();
@@ -53,6 +55,7 @@ public static class Patcher
         HookCompany(game);
         HookDecolonize(game);
         HookWarCreated(game);
+        HookBeforeTurnEnd(game);
         HookVictoryContext(game);
         HookDebugTabs(cl.Mapped("CouncilDebug"));
         var hero = cl.Mapped("HeroRework");
@@ -63,8 +66,68 @@ public static class Patcher
         foreach (var s in cl.PublicizedLog.OrderBy(x => x)) Console.WriteLine("  + " + s);
 
         CheckSelfReferences(selfRefsBefore);
+        CheckBranches();
         asm.Write(outPath);
         Console.WriteLine("written " + outPath);
+    }
+
+    // The baseline (hacking fixes commit 6ae43ff) contains CustomHackingHelper.GetValidModesForTarget with a broken
+    // branch: `brfalse.s` at IL_0075 has an unresolved target (the real target, the final `ldloc.0; ret`, is more than
+    // 127 bytes away). The JIT throws InvalidProgramException, which made the hack target un-pickable in the UI
+    // (a system could only be chosen as a route node). Point the branch at the final `ldloc.0` and use the long form.
+    static void RepairHackingModes()
+    {
+        var m = Method("CustomHackingHelper", "GetValidModesForTarget");
+        var ins = m.Body.Instructions;
+        var last = ins[ins.Count - 1];
+        var tail = ins[ins.Count - 2];
+        if (last.OpCode != OpCodes.Ret || tail.OpCode != OpCodes.Ldloc_0) throw new Exception("GetValidModesForTarget: unexpected tail");
+        int fixedCount = 0;
+        foreach (var i in ins)
+        {
+            bool isBr = i.OpCode.OperandType == OperandType.ShortInlineBrTarget || i.OpCode.OperandType == OperandType.InlineBrTarget;
+            if (!isBr || i.Operand != null) continue;
+            if (i.OpCode == OpCodes.Brfalse_S || i.OpCode == OpCodes.Brfalse) i.OpCode = OpCodes.Brfalse;
+            else throw new Exception("GetValidModesForTarget: unexpected broken branch " + i.OpCode);
+            i.Operand = tail;
+            fixedCount++;
+        }
+        LengthenBranches(m);
+        Console.WriteLine("repair: GetValidModesForTarget broken branches fixed: " + fixedCount);
+    }
+
+    // Every branch/switch operand must resolve to an instruction of the same method (Mono 6 JIT tolerates some broken
+    // branches that the game's older Mono rejects with InvalidProgramException).
+    static void CheckBranches()
+    {
+        int bad = 0;
+        Action<TypeDefinition> walk = null;
+        walk = t =>
+        {
+            foreach (var md in t.Methods)
+            {
+                if (!md.HasBody) continue;
+                var set = new HashSet<Instruction>(md.Body.Instructions);
+                foreach (var i in md.Body.Instructions)
+                {
+                    var ot = i.OpCode.OperandType;
+                    if (ot == OperandType.ShortInlineBrTarget || ot == OperandType.InlineBrTarget)
+                    {
+                        var target = i.Operand as Instruction;
+                        if (target == null || !set.Contains(target)) { bad++; Console.WriteLine("BAD BRANCH " + t.FullName + "::" + md.Name + " IL_" + i.Offset.ToString("x4")); }
+                    }
+                    else if (ot == OperandType.InlineSwitch)
+                    {
+                        foreach (var x in (Instruction[])i.Operand)
+                            if (x == null || !set.Contains(x)) { bad++; Console.WriteLine("BAD SWITCH " + t.FullName + "::" + md.Name); }
+                    }
+                }
+            }
+            foreach (var n in t.NestedTypes) walk(n);
+        };
+        foreach (var t in mod.Types) walk(t);
+        if (bad > 0) throw new Exception("broken branches: " + bad);
+        Console.WriteLine("branch check: ok");
     }
 
     static MethodDefinition Method(string type, string name, int paramCount = -1)
@@ -359,6 +422,43 @@ public static class Patcher
     }
 
     // GameClient.CreateWarInstanceProcessor: right after CreateWarInstance(...) returned the new WarInstance => CouncilGame.OnWarCreated(war)
+    // Council squads spawned during a turn must be known (and their upkeep waived) before the end-of-turn bailiff check.
+    // Both targets are iterator coroutines: the call is inserted at the start of state 0 of the compiler-generated MoveNext.
+    static void HookBeforeTurnEnd(TypeDefinition game)
+    {
+        var hook = GameMethod(game, "BeforeTurnEnd");
+        var treasury = mod.GetType("DepartmentOfTheTreasury");
+        foreach (var name in new[] { "GameServerState_ComputeBailiff", "GameClientState_Turn_End_CollectResources" })
+        {
+            var its = treasury.NestedTypes.Where(t => t.Name.StartsWith("<" + name + ">")).ToList();
+            if (its.Count != 1) throw new Exception("iterator of " + name + " not found/ambiguous: " + its.Count);
+            var mn = its[0].Methods.First(x => x.Name == "MoveNext");
+            var ins = mn.Body.Instructions;
+            Instruction first = null;
+            for (int i = 0; i < ins.Count && first == null; i++)
+            {
+                if (ins[i].OpCode == OpCodes.Switch) first = ((Instruction[])ins[i].Operand)[0];
+                else if (ins[i].OpCode == OpCodes.Brtrue || ins[i].OpCode == OpCodes.Brtrue_S) first = ins[i + 1];
+            }
+            if (first == null) throw new Exception("state 0 of " + name + " not found");
+            var call = Instruction.Create(OpCodes.Call, hook);
+            var il = mn.Body.GetILProcessor();
+            il.InsertBefore(first, call);
+            // branches that targeted the old first instruction must now enter through the hook call
+            foreach (var x in ins)
+            {
+                if (x == call) continue;
+                if (x.Operand == first) x.Operand = call;
+                else if (x.Operand is Instruction[])
+                {
+                    var arr = (Instruction[])x.Operand;
+                    for (int k = 0; k < arr.Length; k++) if (arr[k] == first) arr[k] = call;
+                }
+            }
+            Console.WriteLine("hook: " + its[0].Name + ".MoveNext state 0 calls BeforeTurnEnd");
+        }
+    }
+
     static void HookWarCreated(TypeDefinition game)
     {
         var it = mod.GetType("GameClient").NestedTypes.First(t => t.Name == "<CreateWarInstanceProcessor>c__Iterator29");

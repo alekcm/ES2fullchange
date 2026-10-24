@@ -38,6 +38,13 @@ public sealed partial class CouncilCore
         return false;
     }
 
+    /// <summary>A ship of a squad that was granted by a law (everything except the hired Marshal contingent): free of upkeep.</summary>
+    public bool IsGiftSquadShip(ulong guid)
+    {
+        for (int i = 0; i < Squads.Count; i++) if (Squads[i].Tag != TagMarshal && Squads[i].Ships.Contains(guid)) return true;
+        return false;
+    }
+
     public CouncilSquad FindSquad(string tag, int emp)
     {
         for (int i = 0; i < Squads.Count; i++) if (Squads[i].Tag == tag && Squads[i].Emp == emp) return Squads[i];

@@ -297,10 +297,8 @@ public static partial class CouncilGame
         return int.TryParse(name.Substring(i + 4, name.Length - i - 5), out emp);
     }
 
-    /// <summary>Finds freshly created squad fleets by their name marker, and recalls squads whose contract/law has ended.</summary>
-    static void SyncSquads(Game game)
+    static void DiscoverSquadShips(Game game)
     {
-        // 1. discovery
         foreach (MajorEmpire e in game.EnumerableMajorEmpires)
         {
             var def = e.GetAgency<DepartmentOfDefense>();
@@ -315,6 +313,28 @@ public static partial class CouncilGame
                 if (ids.Count > 0) Core.AddSquadShips(tag, owner, ids);
             }
         }
+    }
+
+    /// <summary>Called right before the end-of-turn bailiff check and resource collection (server bailiff state and the client
+    /// collect-resources state; idempotent). A squad that was spawned during this turn only becomes known now, so its upkeep
+    /// would otherwise be charged in full - bankrupting a small empire (the Bailiff defeat quest then eliminates it).</summary>
+    public static void BeforeTurnEnd()
+    {
+        try
+        {
+            if (!Core.Enabled) return;
+            var game = GetGame();
+            if (game == null) return;
+            DiscoverSquadShips(game);
+            RefreshEffects(game);
+        }
+        catch (Exception e) { Fail("BeforeTurnEnd", e); }
+    }
+
+    /// <summary>Finds freshly created squad fleets by their name marker, and recalls squads whose contract/law has ended.</summary>
+    static void SyncSquads(Game game)
+    {
+        DiscoverSquadShips(game);
         // 2. recall
         var expired = Core.ExpiredSquads();
         for (int i = 0; i < expired.Count; i++)
@@ -443,7 +463,12 @@ public static partial class CouncilGame
         try
         {
             if (!Core.Enabled || provider == null || cost == null) return value;
-            var td = provider as TechnologyDefinition;
+            // Items that are already in a queue are costed through their Construction wrapper (the research queue ETA,
+            // the production queue ETA); look through it, otherwise the queue estimates would ignore our adjustments.
+            object element = provider;
+            var wrapped = provider as Construction;
+            if (wrapped != null && wrapped.ConstructibleElement != null) element = wrapped.ConstructibleElement;
+            var td = element as TechnologyDefinition;
             if (td != null)
             {
                 if (cost.ResourceName != DepartmentOfTheTreasury.Resources.EmpireResearch) return value;
@@ -455,7 +480,7 @@ public static partial class CouncilGame
                 if (Core.IsLawActive(down)) return value * 2f;      // -50% speed
                 return value;
             }
-            var imp = provider as StarSystemImprovementDefinition;
+            var imp = element as StarSystemImprovementDefinition;
             if (imp != null && !imp.IsWonder && context != null && context.Empire != null
                 && cost.ResourceName == DepartmentOfTheTreasury.Resources.SystemProduction
                 && Core.IsLawActiveFor("Infrastructure", context.Empire.Index))
@@ -467,25 +492,28 @@ public static partial class CouncilGame
 
     // ---------------------------------------------------------------- fleet upkeep laws
 
-    /// <summary>Dust change of EmpireMoneyUpkeep caused by the upkeep laws (rounded to 5 to avoid constant re-registration).</summary>
+    /// <summary>Dust change of EmpireMoneyUpkeep caused by the upkeep laws (rounded to whole dust).</summary>
     static float UpkeepDelta(MajorEmpire emp)
     {
         bool up = Core.IsLawActive("WarshipUpkeepUp");
         bool down = Core.IsLawActiveFor("UpkeepDown", emp.Index);
-        if (!up && !down) return 0f;
+        bool squads = Core.Squads.Count > 0;
+        if (!up && !down && !squads) return 0f;
         var def = emp.GetAgency<DepartmentOfDefense>();
         if (def == null) return 0f;
-        float war = 0f, all = 0f;
+        float war = 0f, all = 0f, gift = 0f;
         foreach (Fleet f in def.Fleets)
             foreach (Ship s in f.Ships)
             {
                 float u = s.GarrisonMoneyUpkeep;
+                // ships granted by a law (escort, Academy squadron, covert group) cost the empire nothing
+                if (squads && Core.IsGiftSquadShip(s.GUID)) { gift += u; continue; }
                 all += u;
                 if (!s.IsCivilianShip && !s.IsAcademyShip) war += u;
             }
-        float d = 0f;
+        float d = -gift;
         if (up) d += war;              // warship upkeep +100%
         if (down) d -= 0.5f * all;     // ship upkeep -50%
-        return (float)Math.Round(d / 5f) * 5f;
+        return (float)Math.Round(d);
     }
 }

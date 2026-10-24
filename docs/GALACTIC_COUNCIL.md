@@ -182,3 +182,22 @@ Recipe for the keep-vote: "Give to me" on the Supreme Legate → "Open the vote 
 - hero gauge: pending hero choices, points per gauge and class, "+100 / +1000 / +10000" (the vanilla cheating order `OrderAddHeroUnlockGaugeClassPoints`; the choice appears at the end of the turn);
 - direct recruiting: filter by kind (by hero class), hire level 1 / 5 / 10 / 20, list of all definitions ("already in play" is disabled), "random free hero" (`OrderRecruitHero`, synchronized).
 Level, points and Mastery changes are applied to the local simulation (like the older God-Mod hero buttons), they are not orders.
+
+## Playtest fixes (log analysis, 2026-10-24)
+* **Hack target could not be chosen** — `CustomHackingHelper.GetValidModesForTarget` (from the hacking-fix baseline `6ae43ff`) had a
+  broken `brfalse.s` at IL_0075 (target >127 bytes away, unresolved), so the game's Mono threw `InvalidProgramException` whenever the
+  UI asked for the hack modes of a system: the system could only be used as a route node. `Patcher.RepairHackingModes` points the
+  branch at the final `ldloc.0; ret` and uses the long form. `Patcher.CheckBranches` now fails the build if any method in the
+  assembly has a branch/switch operand that does not resolve (Mono 6 in `verify.sh` does not notice that kind of damage).
+* **Research queue ETA ignored the research laws** — queued items are costed through their `Construction` wrapper
+  (`ICostProvider`), not through the `TechnologyDefinition`, so `AdjustProductionCost` did not recognise them. It now looks through
+  `Construction.ConstructibleElement` (also fixes the Infrastructure Program estimate for queued improvements).
+* **An AI empire died on turn 8 (bankruptcy)** — the vanilla quest `QuestDefeatByBailif` ("no money for the bailiff = defeat")
+  eliminates an empire whose dust is still <= 0 after the bailiff has sold everything. Log: a 4-ship heavy squad (`Juggernauts_Battleship`)
+  was created for the empire at the start of turn 7, then at the turn end the bailiff scrapped ships/improvements and
+  `OrderMarkEmpireForElimination` followed. Squads granted by laws (Escort, Academy Squadron, Covert Group) are now free of upkeep
+  (`CouncilCore.IsGiftSquadShip`, subtracted in `UpkeepDelta`); the hired Marshal contingent still costs upkeep.
+  A squad created during the turn is only discovered at the next `ClientBeginTurn`, so `CouncilGame.BeforeTurnEnd` (discover squads +
+  `RefreshEffects`) is called at the start of state 0 of `DepartmentOfTheTreasury.GameServerState_ComputeBailiff` and
+  `GameClientState_Turn_End_CollectResources` (iterator `MoveNext`), i.e. before the bailiff check and before resources are collected.
+  The same applies to the "Warship upkeep +100%" law: it can still push a poor AI empire into bankruptcy (not changed).

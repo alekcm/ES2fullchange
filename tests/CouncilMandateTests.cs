@@ -224,6 +224,7 @@ static class M
             q.AddSquadShips("M", 1, new ulong[] { 5, 6, 7 });
             q.AddSquadShips("E", 0, new ulong[] { 6, 8 });
             Check(q.FindSquad("E", 0).Ships.Count == 1 && q.IsSquadShip(8) && !q.IsSquadShip(9), "ship belongs to one squad only");
+            Check(q.IsGiftSquadShip(8) && !q.IsGiftSquadShip(5) && !q.IsGiftSquadShip(9), "law squads are free of upkeep, the hired Marshal contingent is not");
             var rs = CouncilCore.Deserialize(q.Serialize());
             Check(rs.Squads.Count == 2 && rs.FindSquad("M", 1).Ships.Count == 3 && rs.IsSquadShip(7), "squads survive serialization");
             Check(q.ExpiredSquads().Count == 1 && q.ExpiredSquads()[0].Tag == "E", "escort squad expires without the law");
