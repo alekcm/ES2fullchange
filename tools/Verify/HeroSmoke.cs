@@ -200,6 +200,7 @@ static class HeroSmoke
     static int ContentSmoke(Type rework)
     {
         int bad = 0;
+        asm.GetType("CouncilGame").GetField("LanguageOverride").SetValue(null, 1);   // the Unity language call cannot run outside the game
         var skillDb = Db("HeroSkillDefinition"); var treeDb = Db("HeroSkillTreeDefinition"); var guiDb = Db("Amplitude.Unity.Gui.GuiElement");
         object[] skills =
         {
@@ -257,6 +258,13 @@ static class HeroSmoke
             int last = PropArr(ps).Length - 1;
             Console.WriteLine(pn + " levels=" + (last + 1) + " ship[" + ModsOf(ps, last, "shipDescriptors") + "] system[" + ModsOf(ps, last, "systemDescriptors") + "] senate[" + ModsOf(ps, last, "senateDescriptors") + "]");
         }
+        // votes of the Council: a senator skill has no senate modifier, the governor version gets influence, the Council reads the name
+        object vS = DbGet(skillDb, "HRParty03S1@S"), vG = DbGet(skillDb, "HRParty03S1@G");
+        Console.WriteLine("HRParty03S1@S senate[" + ModsOf(vS, 0, "senateDescriptors") + "] @G system[" + ModsOf(vG, 1, "systemDescriptors") + "]");
+        if (ModsOf(vS, 0, "senateDescriptors").Length != 0) { Console.WriteLine("  votes skill has a senate modifier"); bad++; }
+        if (!ModsOf(vG, 1, "systemDescriptors").Contains("SystemEmpirePoint")) { Console.WriteLine("  governor version of a votes skill has no influence"); bad++; }
+        var votesOf = asm.GetType("HeroFlavors").GetMethod("VotesOfSkill");
+        if ((int)votesOf.Invoke(null, new object[] { "HRParty03S1@S", 1, 8 }) != 8) { Console.WriteLine("  votes of HRParty03S1@S"); bad++; }
         if (!ModsOf(sysG, 1, "systemDescriptors").Contains("SystemProduction=10")) { Console.WriteLine("  own channel changed"); bad++; }
         if (PropArr(sysS).Length != 1 || PropArr(sysD).Length != 3 || PropArr(sysA).Length != 2) { Console.WriteLine("  wrong level counts"); bad++; }
         if (!ModsOf(sysS, 0, "senateDescriptors").Contains("PlanetRawIndustry")) { Console.WriteLine("  senator version of a production skill has no industry"); bad++; }

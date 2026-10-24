@@ -132,7 +132,7 @@ public static partial class CouncilGame
             case OrderCouncilVote.KindChairmanReplace: return Core.CanChairmanReplace(emp);
             case OrderCouncilVote.KindMarshalHire: return Core.CanHireMarshal(emp);
             case OrderCouncilVote.KindQuartermaster: return Core.CanUseQuartermaster(emp, CurTurn());
-            case OrderCouncilVote.KindReportTask: return Core.IsMember(emp);
+            case OrderCouncilVote.KindReportTask: return false;     // the manual assignment stub is gone: conditions are read from the game
             case OrderCouncilVote.KindLeave: return Core.IsMember(emp);
         }
         return false;
@@ -156,9 +156,6 @@ public static partial class CouncilGame
             case OrderCouncilVote.KindQuartermaster:
                 if (Core.TryQuartermaster(emp, turn)) GrantSupply(emp);
                 break;
-            case OrderCouncilVote.KindReportTask:
-                if (o.A >= 0 && o.A < TaskCategories.Length) Core.ReportTask(emp, TaskCategories[o.A], "T" + o.B);
-                break;
             case OrderCouncilVote.KindLeave:
                 if (Core.Leave(emp))
                 {
@@ -170,9 +167,6 @@ public static partial class CouncilGame
         }
     }
 
-    public static readonly string[] TaskCategories = {
-        CouncilLaws.CatDiplomatic, CouncilLaws.CatMilitary, CouncilLaws.CatDefense,
-        CouncilLaws.CatSupply, CouncilLaws.CatIntel, CouncilLaws.CatResearch };
 
     // ---------------------------------------------------------------- mandate powers
 

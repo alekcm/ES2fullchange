@@ -6,7 +6,7 @@ using Amplitude.Unity.Game.Orders;
 
 /// <summary>
 /// Player order of the Galactic Council. Kind selects what it does:
-/// Ballot (replaces the whole ballot), ChairmanReplace, MarshalHire, QuartermasterRequest, ReportTask (stub), Leave.
+/// Ballot (replaces the whole ballot), ChairmanReplace, MarshalHire, QuartermasterRequest, ReportTask (unused), Leave.
 /// Orders are deserialized without running field initializers, so Unpack assigns every field.
 /// </summary>
 public class OrderCouncilVote : Order
@@ -17,7 +17,7 @@ public class OrderCouncilVote : Order
     public const int KindChairmanReplace = 1;     // A = question index, B = index of the new law in CouncilLaws.All
     public const int KindMarshalHire = 2;
     public const int KindQuartermaster = 3;
-    public const int KindReportTask = 4;          // A = category index, B = task number (stub for the Academy assignments)
+    public const int KindReportTask = 4;          // unused (the manual assignment stub was removed; conditions are read from the game)
     public const int KindLeave = 5;
 
     public List<int[]> Entries = new List<int[]>();

@@ -474,6 +474,18 @@ public static partial class HeroRework
                     string desc = CouncilGame.Tr(
                         (faction != null ? "Диктатура, " : "Партия, ") + tag + ". Особый навык роли «" + (dictator ? "Диктатор" : HeroKinds.Name(kind, true)) + "».",
                         (faction != null ? "Dictatorship, " : "Party, ") + tag + ". A skill of the role \"" + (dictator ? "Dictator" : HeroKinds.Name(kind, false)) + "\".");
+                    float[] vm = HeroFlavors.VoteMagnitudes(name);
+                    if (vm != null)
+                    {
+                        string ru = "", en = "";
+                        for (int l = 0; l < vm.Length; l++)
+                        {
+                            string part = "+" + Math.Round(vm[l] * HeroFlavors.VotesFlatPerMagnitude) + " (+" + HeroFlavors.Round(vm[l] * HeroFlavors.VotesPerFourSystems) + ")";
+                            ru += (l > 0 ? ", " : "") + part; en += (l > 0 ? ", " : "") + part;
+                        }
+                        desc += CouncilGame.Tr(" Голоса в Галактическом Совете по уровням: " + ru + " (в скобках — за каждые 4 колонизированные системы). Действует, пока герой представляет партию в Сенате.",
+                                               " Galactic Council votes by level: " + en + " (in brackets: per every 4 colonized systems). Works while the hero represents his party in the Senate.");
+                    }
                     string icon = IconTemplateFor(ps.Flavors[0]);
                     RegisterGui(name, icon, title, desc);
                 }
@@ -630,5 +642,36 @@ public static partial class HeroRework
             if (authoredTrees.TryGetValue(DictatorTreeName(faction), out own)) result.Add(own);
         }
         return result.Count == 0 ? null : result.ToArray();
+    }
+
+    // ---------------------------------------------------------------- votes of the Galactic Council
+
+    /// <summary>Council votes of one hero (the sum of his learned skills that give votes).</summary>
+    public static int CouncilVotesOf(Hero hero, int systems)
+    {
+        int total = 0;
+        var skills = hero == null ? null : hero.UnlockedSkills;
+        if (skills == null) return 0;
+        for (int i = 0; i < skills.Count; i++)
+        {
+            HeroSkill sk = skills[i];
+            if (sk == null || sk.Definition == null) continue;
+            total += HeroFlavors.VotesOfSkill(sk.Definition.Name.ToString(), sk.Level, systems);
+        }
+        return total;
+    }
+
+    /// <summary>Council votes an empire gets from the heroes that represent its political parties in the senate.</summary>
+    public static int CouncilVotesOf(Empire empire)
+    {
+        if (!Enabled || empire == null) return 0;
+        Senate senate = SenateOf(empire);
+        if (senate == null || senate.Senators == null) return 0;
+        var interior = empire.GetAgency<DepartmentOfTheInterior>();
+        int systems = interior == null || interior.ColonizedStarSystems == null ? 0 : interior.ColonizedStarSystems.Count;
+        int total = 0;
+        foreach (Senator s in senate.Senators)
+            if (s != null && s.RepresentativeHero != null) total += CouncilVotesOf(s.RepresentativeHero, systems);
+        return total;
     }
 }

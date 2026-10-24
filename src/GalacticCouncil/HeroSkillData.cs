@@ -10,7 +10,8 @@ using System.Collections.Generic;
 
 public enum Flavor
 {
-    Offense = 0, Defense, Mobility, Sustain, Upkeep, Production, Growth, Science, Money, Influence, Happiness, Manpower, Deposit, Experience, Diplomacy
+    Offense = 0, Defense, Mobility, Sustain, Upkeep, Production, Growth, Science, Money, Influence, Happiness, Manpower, Deposit, Experience, Diplomacy,
+    Votes     // votes in the Galactic Council: a senator skill without a senate modifier (the Council reads it), a governor/admiral gets influence instead
 }
 
 public sealed class FlavorTarget
@@ -53,7 +54,7 @@ public static class HeroFlavors
 
     const int Add = 1, Sub = 2, Mul = 3, Pct = 6;
 
-    public const int FlavorCount = 15;
+    public const int FlavorCount = 16;
 
     // ---------------------------------------------------------------- targets
 
@@ -72,7 +73,7 @@ public static class HeroFlavors
             case Flavor.Growth: return new[] { T("FleetManpowerRefillRateModifier", Add, ShipPath, 0.4f) };
             case Flavor.Science: return new[] { T("VisionRange", Add, ShipPath, 2f) };
             case Flavor.Money: return new[] { T("GarrisonMoneyUpkeep", Pct, ShipPath, -0.3f) };
-            case Flavor.Influence: return new[] { T("SiegePower", Pct, ShipPath, 0.2f) };
+            case Flavor.Influence: case Flavor.Votes: return new[] { T("SiegePower", Pct, ShipPath, 0.2f) };
             case Flavor.Experience: return new[] { T("ExperiencePerTurn", Add, ShipPath, 8f) };
             case Flavor.Happiness: return new[] { T("FleetMaximumShield", Add, ShipPath, 0.25f) };
             case Flavor.Manpower: return new[] { T("MaximumShipManpower", Pct, ShipCrewPath, 0.25f) };
@@ -94,7 +95,7 @@ public static class HeroFlavors
             case Flavor.Growth: return new[] { T("SystemGrowth", Add, SystemPath, 20f) };
             case Flavor.Science: return new[] { T("SystemResearch", Add, SystemPath, 40f) };
             case Flavor.Money: return new[] { T("SystemMoney", Add, SystemPath, 10f) };
-            case Flavor.Influence: return new[] { T("SystemEmpirePoint", Add, SystemPath, 20f) };
+            case Flavor.Influence: case Flavor.Votes: return new[] { T("SystemEmpirePoint", Add, SystemPath, 20f) };
             case Flavor.Experience: return new[] { T("SystemResearch", Pct, SystemPath, 0.2f) };
             case Flavor.Happiness: return new[] { T("Happiness", Add, SystemPath, 10f) };
             case Flavor.Manpower: return new[] { T("NetSystemManpower", Add, SystemPath, 10f) };
@@ -122,6 +123,7 @@ public static class HeroFlavors
             case Flavor.Happiness: return new[] { T("Happiness", Add, SenateSystem, 5f) };
             case Flavor.Manpower: return new[] { T("MaximumEmpireManpowerStock", Pct, SenateEmpire, 0.25f) };
             case Flavor.Deposit: return new[] { T("DepositValue", Add, SenateDeposit, 0.5f) };
+            case Flavor.Votes: return new FlavorTarget[0];   // no senate modifier: the votes are read by the Council (see VotesOfSkill)
             default: return new[] { T("PeacefulTreatyCostReduction", Add, SenateEmpire, -0.5f), T("AggressiveTreatyCostReduction", Add, SenateEmpire, -0.5f) };
         }
     }
@@ -158,8 +160,8 @@ public static class HeroFlavors
 
     // ---------------------------------------------------------------- classification of vanilla modifiers
 
-    static readonly float[] defaultAdd = { 0.2f, 0.2f, 2f, 0.2f, 0.2f, 10f, 20f, 40f, 10f, 20f, 10f, 100f, 1f, 8f, 0.5f };
-    static readonly float[] defaultPercent = { 0.2f, 0.2f, 0.2f, 0.4f, 0.2f, 0.15f, 0.15f, 0.2f, 0.15f, 0.1f, 0.1f, 0.4f, 0.33f, 0.2f, 0.5f };
+    static readonly float[] defaultAdd = { 0.2f, 0.2f, 2f, 0.2f, 0.2f, 10f, 20f, 40f, 10f, 20f, 10f, 100f, 1f, 8f, 0.5f, 20f };
+    static readonly float[] defaultPercent = { 0.2f, 0.2f, 0.2f, 0.4f, 0.2f, 0.15f, 0.15f, 0.2f, 0.15f, 0.1f, 0.1f, 0.4f, 0.33f, 0.2f, 0.5f, 0.1f };
 
     static bool Has(string s, string part) { return s.IndexOf(part, StringComparison.OrdinalIgnoreCase) >= 0; }
 
@@ -231,7 +233,7 @@ public static class HeroFlavors
         switch (f)
         {
             case Flavor.Production: case Flavor.Growth: case Flavor.Manpower: case Flavor.Deposit: return "HeroMasteryLabour";
-            case Flavor.Science: case Flavor.Money: case Flavor.Influence: case Flavor.Happiness: case Flavor.Diplomacy: return "HeroMasteryWit";
+            case Flavor.Science: case Flavor.Money: case Flavor.Influence: case Flavor.Happiness: case Flavor.Diplomacy: case Flavor.Votes: return "HeroMasteryWit";
             case Flavor.Offense: case Flavor.Defense: return "HeroMasteryCommand";
             default: return "HeroMasteryCuriosity";
         }
@@ -244,21 +246,21 @@ public static class HeroFlavors
         "Огневая мощь|Firepower", "Крепкие корпуса|Hardened Hulls", "Манёвренность|Maneuverability", "Полевой ремонт|Field Repairs",
         "Экономия флота|Fleet Economy", "Бронепластины|Plating", "Резервные экипажи|Reserve Crews", "Дальняя разведка|Long-Range Scouting",
         "Бережливое снабжение|Frugal Supply", "Осадное мастерство|Siegecraft", "Усиленные щиты|Reinforced Shields", "Набор экипажей|Crew Recruitment",
-        "Уклонение|Evasive Tactics", "Боевой опыт|Combat Experience", "Пробивание щитов|Shield Breaking"
+        "Уклонение|Evasive Tactics", "Боевой опыт|Combat Experience", "Пробивание щитов|Shield Breaking", "Влияние в Совете|Council Clout"
     };
     static readonly string[] systemNouns =
     {
         "Гарнизонная выучка|Garrison Training", "Укреплённые гарнизоны|Fortified Garrisons", "Торговые пути|Trade Routes", "Пополнение войск|Troop Replenishment",
         "Бережливое управление|Frugal Administration", "Индустриальный рост|Industrial Drive", "Агрокультура|Agriculture", "Научные центры|Research Centers",
         "Торговля и налоги|Commerce and Taxes", "Престиж колоний|Colonial Prestige", "Общественный порядок|Public Order", "Мобилизация|Mobilization",
-        "Добыча ресурсов|Resource Extraction", "Академические программы|Academic Programs", "Торговые связи|Trade Ties"
+        "Добыча ресурсов|Resource Extraction", "Академические программы|Academic Programs", "Торговые связи|Trade Ties", "Голос системы|System Voice"
     };
     static readonly string[] senateNouns =
     {
         "Военные ассигнования|Military Appropriations", "Бронирование флотов|Fleet Armor Programs", "Имперская навигация|Imperial Navigation", "Службы ремонта|Repair Corps",
         "Режим экономии|Austerity", "Государственная индустрия|State Industry", "Аграрная реформа|Agrarian Reform", "Научный комитет|Science Committee",
         "Казначейство|Treasury", "Имперская идеология|Imperial Ideology", "Всеобщее благополучие|General Welfare", "Всеобщая мобилизация|National Mobilization",
-        "Ресурсная политика|Resource Policy", "Образовательная реформа|Education Reform", "Дипломатический корпус|Diplomatic Corps"
+        "Ресурсная политика|Resource Policy", "Образовательная реформа|Education Reform", "Дипломатический корпус|Diplomatic Corps", "Голоса в Совете|Council Votes"
     };
 
     // the three arrays above are written in the order of the Flavor enum
@@ -302,9 +304,9 @@ public static class HeroFlavors
     {
         new[] { Flavor.Production, Flavor.Money, Flavor.Manpower },
         new[] { Flavor.Science, Flavor.Experience, Flavor.Influence },
-        new[] { Flavor.Happiness, Flavor.Diplomacy, Flavor.Growth },
+        new[] { Flavor.Happiness, Flavor.Votes, Flavor.Growth },       // pacifists: votes in the Council
         new[] { Flavor.Growth, Flavor.Deposit, Flavor.Sustain },
-        new[] { Flavor.Happiness, Flavor.Influence, Flavor.Defense },
+        new[] { Flavor.Happiness, Flavor.Influence, Flavor.Votes },    // religious: votes in the Council
         new[] { Flavor.Offense, Flavor.Defense, Flavor.Manpower }
     };
 
@@ -328,7 +330,7 @@ public static class HeroFlavors
         new[] { Flavor.Science, Flavor.Growth, Flavor.Influence },          // Sophons: science, food
         new[] { Flavor.Offense, Flavor.Manpower, Flavor.Production },       // Cravers: war
         new[] { Flavor.Production, Flavor.Money, Flavor.Influence },        // Terrans
-        new[] { Flavor.Money, Flavor.Influence, Flavor.Diplomacy },         // Venetians: trade
+        new[] { Flavor.Money, Flavor.Influence, Flavor.Votes },            // Venetians: trade and the votes of the Council
         new[] { Flavor.Influence, Flavor.Offense, Flavor.Sustain },         // Vampirilis
         new[] { Flavor.Science, Flavor.Mobility, Flavor.Experience },       // Time Lords
         new[] { Flavor.Defense, Flavor.Growth, Flavor.Happiness },          // Unfallen
@@ -436,6 +438,78 @@ public static class HeroFlavors
             case "D": dictator = true; return true;
         }
         return false;
+    }
+
+    // ---------------------------------------------------------------- votes of the Galactic Council
+
+    public const float VotesFlatPerMagnitude = 6f;        // votes of a skill of magnitude 1 ...
+    public const float VotesPerFourSystems = 1f;          // ... plus this many for every four colonized systems
+
+    static readonly Dictionary<string, float[]> voteCache = new Dictionary<string, float[]>();
+
+    /// <summary>
+    /// Magnitude of the Council votes of a senator or dictator skill by level (null: the skill gives no votes).
+    /// Everything is derived from the name of the generated skill (HRParty01S0@S, HRDictSophonsS6), so it works for saved games.
+    /// </summary>
+    public static float[] VoteMagnitudes(string skillName)
+    {
+        float[] r;
+        if (skillName == null) return null;
+        if (voteCache.TryGetValue(skillName, out r)) return r;
+        r = ParseVotes(skillName);
+        voteCache[skillName] = r;
+        return r;
+    }
+
+    static float[] ParseVotes(string name)
+    {
+        Flavor[] theme; HeroKind kind = HeroKind.Senator; bool dictator = false, authority = false;
+        string sid;
+        if (name.StartsWith("HRParty", StringComparison.Ordinal))
+        {
+            int party, at = name.IndexOf('@');
+            if (name.Length < 12 || at < 10 || !int.TryParse(name.Substring(7, 2), out party) || party < 1 || party > 6) return null;
+            sid = name.Substring(9, at - 9);
+            if (!TryParseKindCode(name.Substring(at + 1), out kind, out dictator)) return null;
+            theme = PartyTheme(party);
+        }
+        else if (name.StartsWith("HRDict", StringComparison.Ordinal))
+        {
+            string rest = name.Substring(6);
+            int s = rest.LastIndexOf('S');
+            if (s < 1) return null;
+            sid = rest.Substring(s);
+            theme = FactionTheme(rest.Substring(0, s));
+            dictator = true; authority = true;
+        }
+        else return null;
+        if (kind != HeroKind.Senator) return null;           // only senators and dictators sit in the senate
+        var plan = PlanTree(theme, kind, dictator, authority);
+        float power = PowerOf(dictator);
+        for (int st = 0; st < plan.Count; st++)
+            for (int k = 0; k < plan[st].Skills.Count; k++)
+            {
+                PlannedSkill ps = plan[st].Skills[k];
+                if (ps.Id != sid) continue;
+                var res = new float[ps.Magnitudes.Length];
+                float total = 0f;
+                for (int l = 0; l < res.Length; l++)
+                {
+                    for (int f = 0; f < ps.Flavors.Length; f++) if (ps.Flavors[f] == Flavor.Votes) res[l] += ps.Magnitudes[l][f] * power;
+                    total += res[l];
+                }
+                return total > 0f ? res : null;
+            }
+        return null;
+    }
+
+    /// <summary>Votes of one learned skill level: a flat part plus a part per four colonized systems of the empire.</summary>
+    public static int VotesOfSkill(string skillName, int level, int systems)
+    {
+        float[] m = VoteMagnitudes(skillName);
+        if (m == null || m.Length == 0) return 0;
+        int idx = Math.Max(0, Math.Min(m.Length - 1, level - 1));
+        return (int)Math.Round(m[idx] * (VotesFlatPerMagnitude + VotesPerFourSystems * (systems / 4)));
     }
 
     /// <summary>Strength of the senate effects of the dictator compared with a senator: "stronger faction-specialised laws".</summary>

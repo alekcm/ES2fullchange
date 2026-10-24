@@ -52,6 +52,7 @@ public static class Patcher
         HookBattleLaws(game);
         HookCompany(game);
         HookDecolonize(game);
+        HookWarCreated(game);
         HookVictoryContext(game);
         var hero = cl.Mapped("HeroRework");
         if (hero == null) throw new Exception("HeroRework missing");
@@ -354,6 +355,31 @@ public static class Patcher
         il.InsertBefore(call, il.Create(OpCodes.Ldloc, vInt));
         il.InsertBefore(call, il.Create(OpCodes.Ldloc, vSys));
         Console.WriteLine("hook: DecolonizeProcessor calls OnDecolonize before removing the system");
+    }
+
+    // GameClient.CreateWarInstanceProcessor: right after CreateWarInstance(...) returned the new WarInstance => CouncilGame.OnWarCreated(war)
+    static void HookWarCreated(TypeDefinition game)
+    {
+        var it = mod.GetType("GameClient").NestedTypes.First(t => t.Name == "<CreateWarInstanceProcessor>c__Iterator29");
+        var mv = it.Methods.First(x => x.Name == "MoveNext");
+        var calls = mv.Body.Instructions.Where(i => (i.OpCode.Code == Code.Callvirt || i.OpCode.Code == Code.Call) && ((MethodReference)i.Operand).Name == "CreateWarInstance").ToList();
+        if (calls.Count != 1) throw new Exception("expected 1 CreateWarInstance call, found " + calls.Count);
+        var store = calls[0].Next;
+        VariableDefinition v;
+        switch (store.OpCode.Code)
+        {
+            case Code.Stloc_0: v = mv.Body.Variables[0]; break;
+            case Code.Stloc_1: v = mv.Body.Variables[1]; break;
+            case Code.Stloc_2: v = mv.Body.Variables[2]; break;
+            case Code.Stloc_3: v = mv.Body.Variables[3]; break;
+            case Code.Stloc: case Code.Stloc_S: v = (VariableDefinition)store.Operand; break;
+            default: throw new Exception("CreateWarInstance result is not stored in a local: " + store.OpCode);
+        }
+        var il = mv.Body.GetILProcessor();
+        var load = il.Create(OpCodes.Ldloc, v);
+        il.InsertAfter(store, load);
+        il.InsertAfter(load, il.Create(OpCodes.Call, GameMethod(game, "OnWarCreated")));
+        Console.WriteLine("hook: CreateWarInstanceProcessor calls OnWarCreated");
     }
 
     // VictoryManager.SetupInterpreterContextForContender(contender) end => AdjustVictoryContext(this, contender.Empires)

@@ -98,7 +98,7 @@ static class HeroKindsTests
             foreach (HeroChannel ch in new[] { HeroChannel.Ship, HeroChannel.System, HeroChannel.Senate })
             {
                 var targets = HeroFlavors.TargetsOf((Flavor)fi, ch);
-                Check(targets.Length >= 1, "target for " + (Flavor)fi + "/" + ch);
+                Check(targets.Length >= 1 || ((Flavor)fi == Flavor.Votes && ch == HeroChannel.Senate), "target for " + (Flavor)fi + "/" + ch);
                 foreach (var t in targets) Check(t.Prop.Length > 0 && t.Ref != 0f && (t.Op == 1 || t.Op == 6), "valid target " + t.Prop);
                 Check(HeroFlavors.Noun((Flavor)fi, ch, true).Length > 0 && HeroFlavors.Noun((Flavor)fi, ch, false).Length > 0, "noun " + (Flavor)fi + "/" + ch);
             }
@@ -140,6 +140,25 @@ static class HeroKindsTests
         HeroKind pk; bool pd;
         Check(HeroFlavors.TryParseKindCode("D", out pk, out pd) && pd && !HeroFlavors.TryParseKindCode("X", out pk, out pd), "parse kind code");
         Check(HeroFlavors.DictatorPower > 1f, "dictator is stronger");
+
+        // ---- votes of the Galactic Council given by senator skills
+        Check(HeroFlavors.TargetsOf(Flavor.Votes, HeroChannel.Senate).Length == 0, "votes have no senate modifier (the Council reads them)");
+        Check(HeroFlavors.TargetsOf(Flavor.Votes, HeroChannel.System).Length == 1 && HeroFlavors.TargetsOf(Flavor.Votes, HeroChannel.Ship).Length == 1, "governors and admirals get influence instead of votes");
+        float[] vm = HeroFlavors.VoteMagnitudes("HRParty03S1@S");
+        Check(vm != null && vm.Length == 1 && Math.Abs(vm[0] - 1f) < 1e-4f, "pacifist senator skill S1 is votes with magnitude 1");
+        Check(HeroFlavors.VotesOfSkill("HRParty03S1@S", 1, 0) == 6 && HeroFlavors.VotesOfSkill("HRParty03S1@S", 1, 8) == 8 && HeroFlavors.VotesOfSkill("HRParty03S1@S", 1, 3) == 6, "votes: 6 flat + 1 per four systems");
+        Check(HeroFlavors.VoteMagnitudes("HRParty03S0@S") == null && HeroFlavors.VoteMagnitudes("HRParty01S1@S") == null, "other skills and other parties give no votes");
+        Check(HeroFlavors.VoteMagnitudes("HRParty03S1@G") == null && HeroFlavors.VoteMagnitudes("HRParty03S1@A") == null, "governors and admirals give no council votes");
+        Check(HeroFlavors.VoteMagnitudes("HRParty05S2@S") != null, "religious party has a votes skill");
+        var dv = HeroFlavors.VoteMagnitudes("HRParty03S1@D");
+        Check(dv != null && dv.Length == 3 && HeroFlavors.VotesOfSkill("HRParty03S1@D", 3, 0) > HeroFlavors.VotesOfSkill("HRParty03S1@S", 1, 0) && HeroFlavors.VotesOfSkill("HRParty03S1@D", 9, 0) == HeroFlavors.VotesOfSkill("HRParty03S1@D", 3, 0), "dictator version is stronger and level is clamped");
+        Check(HeroFlavors.VoteMagnitudes("HRDictVenetiansS2") != null && HeroFlavors.VoteMagnitudes("HRDictVenetiansS6") != null && HeroFlavors.VoteMagnitudes("HRDictSophonsS0") == null, "venetian dictator skills give votes");
+        Check(HeroFlavors.VoteMagnitudes(null) == null && HeroFlavors.VoteMagnitudes("HeroSkillSomething") == null && HeroFlavors.VoteMagnitudes("HRParty") == null && HeroFlavors.VoteMagnitudes("HRPartyXXS0@S") == null && HeroFlavors.VoteMagnitudes("HRDict") == null, "garbage names give no votes");
+        Check(HeroFlavors.VotesOfSkill("HeroSkillSomething", 1, 100) == 0, "vanilla skills give no votes");
+        int voteSkills = 0;
+        for (int pi = 1; pi <= 6; pi++)
+            for (int si = 0; si < 7; si++) if (HeroFlavors.VoteMagnitudes("HRParty0" + pi + "S" + si + "@S") != null) voteSkills++;
+        Check(voteSkills >= 6, "at least some senator skills give votes (" + voteSkills + ")");
 
         Console.WriteLine(bad == 0 ? "ALL PASSED" : bad + " FAILED");
         return bad;

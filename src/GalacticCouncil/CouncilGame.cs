@@ -62,7 +62,17 @@ public static partial class CouncilGame
         catch (Exception) { return "#" + index; }
     }
 
+    /// <summary>Tests without the game engine set this (0 English, 1 Russian): the Unity call below cannot run outside the game.</summary>
+    public static int LanguageOverride = -1;
+
     public static bool IsRussian()
+    {
+        if (LanguageOverride >= 0) return LanguageOverride == 1;
+        return SystemIsRussian();
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    static bool SystemIsRussian()
     {
         try { return UnityEngine.Application.systemLanguage == SystemLanguage.Russian || UnityEngine.Application.systemLanguage == SystemLanguage.Ukrainian || UnityEngine.Application.systemLanguage == SystemLanguage.Belarusian; }
         catch (Exception) { return false; }
@@ -148,6 +158,7 @@ public static partial class CouncilGame
             lastHandledTurn = turn;
 
             PruneMembers(game);
+            DetectQualifications(game);
             if (Core.NextAction(turn) == CouncilCore.ActionTally) DoTally(game, turn);
             if (Core.NextAction(turn) == CouncilCore.ActionOpen) DoOpen(mgr, game, turn);
             PerTurn(game, turn);
@@ -209,6 +220,7 @@ public static partial class CouncilGame
     {
         var expired = Core.ExpireLaws();
         try { ApplyPresence(game); } catch (Exception e) { Fail("ApplyPresence", e); }
+        try { ApplySessionVotes(game, turn); } catch (Exception e) { Fail("ApplySessionVotes", e); }
         int seed = unchecked(turn * 1103515245 + Core.VoteIndex * 12345 + mgr.AcademyEmpire.Index * 31 + 7);
         var props = Core.BuildProposals(seed, CouncilCore.MaxQuestions);
         if (props.Count == 0) { Core.NextVoteTurn = turn + Core.IntervalTurns; return; }

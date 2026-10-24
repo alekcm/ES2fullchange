@@ -1,4 +1,4 @@
-# Galactic Council (Stages 1-6)
+# Galactic Council (Stages 1-6 + votes rework)
 
 Replaces the Academy "request resources" phase with a Council vote. Implemented as C# (`src/GalacticCouncil`),
 compiled with Mono/Roslyn and merged into `Managed/Assembly-CSharp.dll` with Cecil (`tools/Patcher`).
@@ -14,7 +14,7 @@ tools/Verify/Verify.cs         # loads the result in Mono and JIT-compiles every
 ## Rhythm
 Vote opens at the start of a turn, is tallied at the start of the next one, laws take effect that turn and last
 until the next vote. Interval: 20 turns on normal speed (scaled by game speed). Each empire gets 3 random laws and
-100 votes, spent in steps of 10. "All" laws: accept/reject. "One" laws: pick the target empire.
+votes (100 base plus the sources below), spent in steps of 10. "All" laws: accept/reject. "One" laws: pick the target empire.
 
 ## Stage 1 laws (functional)
 Merit (+30 votes), Expansion Mandate (+1 colony limit), Expansion Limit (-1), Dust payout per colony,
@@ -29,17 +29,17 @@ Laws: Academic Mentoring (+3 levels to all active heroes of non-AI members, post
 `GroundBattleOutcomeLootDefinition.FillLoot`), Trade Restrictions (buy x2 / sell x0.5 for the target).
 
 Mandates (`CouncilMandates.cs`, state saved as `GC2`): Chairman, Marshal, Quartermaster, Eye, Supreme Legate.
-* Votes for a mandate (Mandates tab) come out of the same 100 votes; the winner replaces one law question of the next vote
+* Votes for a mandate (Mandates tab) come out of the same pool of votes; the winner replaces one law question of the next vote
   (at most one mandate question per vote) and the holder is chosen among the empires that qualify. Holding lasts until
   re-election, leaving the Council or the Academy's destruction.
 * Chairman: replace one ordinary question once per cycle before anybody voted (Voting tab).
 * Marshal: hires a warship group of the empire's own faction at the home system (upkeep paid by the empire).
 * Quartermaster: once per cycle Dust + Science delivery scaled by stage and game length.
 * Eye: +1 simultaneous hacking operation, +20 `MaximumEmpireProcessingPowerStock` (the "ПВ" reading is a guess).
-* Supreme Legate: x2 votes, No-Confidence forced on the next vote and while the countdown runs; after 30 turns (scaled)
+* Supreme Legate: x2 votes and +100, No-Confidence forced on the next vote and while the countdown runs; after 30 turns (scaled)
   `IVictoryManagementService.ForceRiseVictory` is called with the victory condition whose name contains `diplomat`/`senate`/...
 * Leaving the Council: the Academy relation is pinned to -100 every turn (static `AcademyDiplomaticRelation.SetRelationPoints`).
-* Assignments are a **stub**: six buttons in the Mandates tab count one finished assignment of a category.
+* Qualification: see "Votes and qualification rework" below (the manual assignment stub was removed).
 
 ## Stage 3 (added): service squads
 Marshal contingent, Council Escort (all members), Academy Squadron (target) and Covert Group (target; **not cloaked**) are
@@ -90,6 +90,38 @@ Garrison = the system manpower (`SimulationProperties/StarSystem`: `SystemManpow
   at `Galaxy.AcademyHomePosition`) the value becomes `max(1, healthy - players / 2)`; for the others the true value is registered again (the context is shared).
   Assumption: the military victory formula uses `NumberOfHealthyHomeSystems` as the number of capitals that must be captured.
 
+## Votes and qualification rework
+**Sources of votes** (`CouncilVotes.cs`, pure; `CouncilGameVotes.cs`, game glue). `Budget(emp)` =
+(100 base + Merit law + Strategic Presence + *session votes*) + 50 per ordinary mandate held; the Supreme Legate doubles
+that sum and gets +100 (the victory mandate gives 100, not 50). The budget never goes below 0.
+* *Session votes* are read from the game when a vote opens (like Strategic Presence) and saved in `CouncilState`
+  (fields 30-31 of the `GC2` string, older saves load without them):
+  * every star system: level 2 -> +5, level 3 -> +10, level 4 -> +20 (one value per system, **not cumulative**;
+    summed over all systems; `ColonizedStarSystem.Level` = `SimulationProperties.StarSystem.SystemLevel`);
+  * Republic government: +40 (`Senate.Government.Definition.Name` contains `Republic`);
+  * skills of the heroes that represent the senators (see below);
+  * minus 20 for every war the empire declared during the last `IntervalTurns` turns (20 at normal speed).
+* **War penalty:** hook `GameClient.<CreateWarInstanceProcessor>.MoveNext`, right after `CreateWarInstance` returns,
+  calls `CouncilGame.OnWarCreated(war)`; the empire of `war.AttackerGroup.FirstWarEmpire` (the declarer; allies that join are
+  not punished) gets the war recorded with the turn. Wars of the AI count too. Penalties stack, each lasts one cycle.
+* **Senator skills** (`HeroFlavors.Flavor.Votes`): party themes 3 (Pacifists: happiness / **votes** / growth) and
+  5 (Religious: happiness / influence / **votes**) and the Venetian dictator tree have votes skills. A senator version has no
+  senate modifier; the Council reads the learned skills of every `Senator.RepresentativeHero`
+  (`HeroRework.CouncilVotesOf`): a skill of magnitude m gives `m * (6 + 1 per 4 colonized systems)` votes (the skill text
+  lists the numbers per level); the dictator version is 1.6x stronger. Admirals and governors get influence instead.
+* The vote tab shows where the votes come from (`BudgetText`).
+
+**Qualification of the mandates** (task categories are now achievements reported once by `CouncilGame.DetectQualifications`
+every turn, for every member; the progress is saved in the old `Tasks` field):
+| Mandate | Condition | How it is read |
+|---|---|---|
+| Eye of the Academy | 75% of the galaxy discovered | `DepartmentOfTheInterior.GetNodesExplorationProgressRatio(EntityExploration.State.Identified)` (the count the game uses for its discovery milestone) |
+| Council Quartermaster | a star system of level 4 | any owned `ColonizedStarSystem.Level >= 4` |
+| Marshal of the Academy | capture the capital of another player | an owned system whose `StarSystemNode.IsHomeSystem` with `HomeSystemEmpireIndex` of another major empire |
+| Chairman | 5 heroes of the Mastery rank | `HeroRework.IsFixed(hero)` (took the ultimate) for the empire's heroes; each hero counted once, even if he dies later |
+| Supreme Legate | unchanged: qualify for 2 ordinary mandates and hold one for a full cycle | |
+The achievements stay once earned. The UI shows the progress (for example `62% / 75%`).
+
 ## Hooks in the game assembly
 | Where | What |
 |---|---|
@@ -108,6 +140,7 @@ Garrison = the system manpower (`SimulationProperties/StarSystem`: `SystemManpow
 | `DepartmentOfCommerce.GetTradingCompanyIncomeMultiplier` (every `ret`) | value goes through `CouncilGame.AdjustCompanyIncome` |
 | `DepartmentOfTheInterior.<DecolonizeProcessor>.MoveNext` (before `RemoveColonizedStarSystemAndPlanets`) | `CouncilGame.OnDecolonize` |
 | `VictoryManager.SetupInterpreterContextForContender` (end) | `CouncilGame.AdjustVictoryContext` |
+| `GameClient.<CreateWarInstanceProcessor>.MoveNext` (after `CreateWarInstance`) | `CouncilGame.OnWarCreated` (war penalty) |
 | `DepartmentOfDefense.ScrapShipsPreprocessor`, `DepartmentOfCommerce.SelloutTradableShipsPreprocessor` (start) | return false when a ship belongs to a council squad |
 
 ## UI

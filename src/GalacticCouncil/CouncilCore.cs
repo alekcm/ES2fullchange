@@ -68,13 +68,17 @@ public sealed partial class CouncilCore
 
     public bool IsMember(int emp) { return Members.Contains(emp); }
 
+    /// <summary>Votes of an empire: see CouncilVotes.cs for the sources.</summary>
     public int Budget(int emp)
     {
         int b = BaseVotes;
         int bonus;
         if (VoteBonus.TryGetValue(emp, out bonus)) b += bonus;
         b += PresenceBonusOf(emp);
-        if (Holds(emp, CouncilLaws.Supreme)) b *= 2;      // supreme mandate doubles the votes
+        b += SessionVotesOf(emp);              // system levels, Republic, senator skills, minus the war penalty
+        b += MandateVotesOf(emp);              // +50 for every ordinary mandate
+        if (b < 0) b = 0;
+        if (Holds(emp, CouncilLaws.Supreme)) b = b * 2 + SupremeMandateVotes;   // supreme mandate: doubles the votes, +100
         return b;
     }
 

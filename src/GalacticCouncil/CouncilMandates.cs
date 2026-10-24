@@ -33,9 +33,10 @@ public sealed partial class CouncilCore
         Holders.Clear(); Tasks.Clear(); PendingMandate = ""; MandateCandidates.Clear();
         SupremeSince = -1; Outcasts.Clear(); ChairmanUsedVote = -1; LastSupplyTurn.Clear(); MarshalHired.Clear();
         ResetPresence();
+        ResetVotes();
     }
 
-    // ------------------------------------------------------------------ tasks (stub for the future Academy assignment system)
+    // ------------------------------------------------------------------ achievements: the game layer reports every qualification condition once it is seen in the game state
 
     public bool ReportTask(int emp, string category, string taskId)
     {
@@ -46,6 +47,12 @@ public sealed partial class CouncilCore
         if (l.Contains(key)) return false;
         l.Add(key);
         return true;
+    }
+
+    public bool HasTask(int emp, string category, string taskId)
+    {
+        List<string> l;
+        return Tasks.TryGetValue(emp, out l) && l.Contains(category + "~" + taskId);
     }
 
     public int TaskCount(int emp, string[] categories)
@@ -292,6 +299,7 @@ public sealed partial class CouncilCore
         sb.Append(IntList(MarshalHired)).Append('|');
         AppendSquadState(sb);
         AppendPresenceState(sb);
+        AppendVoteState(sb);
     }
 
     static string IntList(List<int> l)
@@ -339,5 +347,6 @@ public sealed partial class CouncilCore
         MarshalHired = ParseIntList(f[26]);
         if (f.Length > 27) ReadSquadState(f[27]);
         if (f.Length > 29) ReadPresenceState(f[28], f[29]);
+        if (f.Length > 31) ReadVoteState(f[30], f[31]);
     }
 }

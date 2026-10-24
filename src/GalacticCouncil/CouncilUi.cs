@@ -202,6 +202,7 @@ public static class CouncilUi
         int left = budget - PendingTotal();
         GUILayout.Label(CouncilGame.Tr("Голосование открыто. Итоги будут подведены в начале следующего хода; законы действуют до следующего голосования.",
             "Voting is open. Results are counted at the start of next turn; laws last until the next vote."), wrapStyle);
+        GUILayout.Label(CouncilGame.Tr("Ваши голоса: ", "Your votes: ") + budget + "  (" + c.BudgetText(me.Index, CouncilGame.CurTurn(), CouncilGame.IsRussian()) + ")", smallStyle);
 
         GUILayout.BeginHorizontal();
         for (int q = 0; q < c.Proposals.Count; q++)
@@ -422,7 +423,7 @@ public static class CouncilUi
 
         GUILayout.Label(CouncilGame.Tr("Мандаты Совета", "Council mandates"), titleStyle);
         GUILayout.Label(CouncilGame.Tr(
-            "Голоса за мандат отдаются здесь, из того же запаса в 100 голосов. Мандат с наибольшим числом голосов попадёт в следующее голосование вместо одного закона; там выбирается его владелец. Мандат действует до переизбрания, выхода владельца из Совета или уничтожения Академии.",
+            "Голоса за мандат отдаются здесь, из того же запаса голосов. Мандат с наибольшим числом голосов попадёт в следующее голосование вместо одного закона; там выбирается его владелец. Мандат действует до переизбрания, выхода владельца из Совета или уничтожения Академии.",
             "Votes for a mandate are cast here from the same pool of votes. The mandate with the most votes goes onto the next vote instead of one law, where its holder is chosen. A mandate lasts until re-election, the holder leaving the Council or the Academy's destruction."), smallStyle);
         if (!string.IsNullOrEmpty(c.PendingMandate))
             GUILayout.Label(CouncilGame.Tr("На следующем голосовании: ", "On the next vote: ") + MandateName(c.PendingMandate), goodStyle);
@@ -440,8 +441,10 @@ public static class CouncilUi
             int holder = c.HolderOf(d.Id);
             GUILayout.Label((CouncilGame.IsRussian() ? d.Ru : d.En) + "   [" + (holder >= 0 ? CouncilGame.EmpireName(holder) : CouncilGame.Tr("не назначен", "vacant")) + "]", titleStyle);
             GUILayout.Label(CouncilGame.IsRussian() ? d.RuDesc : d.EnDesc, smallStyle);
+            GUILayout.Label(d.Victory ? CouncilGame.Tr("Голоса: ×2 и ещё +" + CouncilCore.SupremeMandateVotes, "Votes: x2 and +" + CouncilCore.SupremeMandateVotes + " more")
+                                      : CouncilGame.Tr("Голоса: +" + CouncilCore.MandateVotes + " владельцу", "Votes: +" + CouncilCore.MandateVotes + " to the holder"), smallStyle);
             bool q = member && c.Qualifies(me.Index, d.Id);
-            string prog = d.Victory ? "" : "  (" + c.TaskCount(me.Index, d.Categories) + "/" + d.Need + ")";
+            string prog = d.Victory ? "" : "  (" + CouncilGame.ProgressText(me.Index, d) + ")";
             GUILayout.Label(CouncilGame.Tr("Требование: ", "Requirement: ") + (CouncilGame.IsRussian() ? d.RuNeed : d.EnNeed) + prog + " — " +
                             (q ? CouncilGame.Tr("выполнено", "met") : CouncilGame.Tr("не выполнено", "not met")), q ? goodStyle : smallStyle);
             if (voting && q)
@@ -476,23 +479,6 @@ public static class CouncilUi
         }
         GUILayout.EndScrollView();
 
-        GUILayout.BeginVertical(boxStyle);
-        GUILayout.Label(CouncilGame.Tr("Поручения Академии (временная заглушка)", "Academy assignments (temporary stub)"), wrapStyle);
-        GUILayout.Label(CouncilGame.Tr("Система поручений ещё не реализована. Эти кнопки засчитывают одно выполненное поручение указанного вида, чтобы можно было пользоваться мандатами.",
-                                       "The assignment system is not implemented yet. These buttons count one completed assignment of that kind so the mandates can be used."), smallStyle);
-        GUILayout.BeginHorizontal();
-        string[] names = { CouncilGame.Tr("Дипломатия", "Diplomatic"), CouncilGame.Tr("Военное", "Military"), CouncilGame.Tr("Оборона", "Defense"),
-                           CouncilGame.Tr("Снабжение", "Supply"), CouncilGame.Tr("Разведка", "Intelligence"), CouncilGame.Tr("Исследования", "Research") };
-        GUI.enabled = member;
-        for (int i = 0; i < names.Length; i++)
-            if (GUILayout.Button("+ " + names[i] + " (" + c.TaskCount(me.Index, new[] { CouncilGame.TaskCategories[i] }) + ")"))
-            {
-                int next = c.TaskCount(me.Index, new[] { CouncilGame.TaskCategories[i] }) + 1;
-                CouncilGame.SendKind(me, OrderCouncilVote.KindReportTask, i, next);
-            }
-        GUI.enabled = true;
-        GUILayout.EndHorizontal();
-        GUILayout.EndVertical();
 
         if (member)
         {

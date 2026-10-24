@@ -54,12 +54,14 @@ public static class CouncilLaws
     public const string MandatePrefix = "M:";
 
     // task categories (the Academy assignment system is a stub for now: see CouncilGame.ReportTask)
-    public const string CatDiplomatic = "diplomatic";
-    public const string CatMilitary = "military";
-    public const string CatDefense = "defense";
-    public const string CatSupply = "supply";
-    public const string CatIntel = "intelligence";
-    public const string CatResearch = "research";
+    // Qualification achievements (the game layer reports them once the condition is seen in the game state)
+    public const string CatCapital = "capital";        // Marshal: captured the capital of another player
+    public const string CatSystemLevel = "syslevel";   // Quartermaster: a star system of level 4
+    public const string CatExplore = "explore";        // Eye: 75% of the galaxy discovered
+    public const string CatMastery = "mastery";        // Chairman: heroes that reached the Mastery rank (took the ultimate)
+    public const int ExplorePercent = 75;
+    public const int SystemLevelNeeded = 4;
+    public const int MasteryHeroes = 5;
 
     public static CouncilMandateDef GetMandate(string id)
     {
@@ -76,30 +78,30 @@ public static class CouncilLaws
     static List<CouncilMandateDef> BuildMandates()
     {
         var m = new List<CouncilMandateDef>();
-        m.Add(new CouncilMandateDef(Chairman, new[] { CatDiplomatic }, 2, false,
+        m.Add(new CouncilMandateDef(Chairman, new[] { CatMastery }, MasteryHeroes, false,
             "Председатель Совета Академии", "Chairman of the Academy Council",
             "Раз в цикл может заменить одно обычное постановление новым до начала голосования. Не накапливается; нельзя убрать выборы мандатов и вотум недоверия; после начала подачи голосов повестку менять нельзя.",
             "Once per cycle may replace one ordinary resolution with a new one before voting starts. Does not accumulate; cannot remove mandate elections or the no-confidence vote; the agenda cannot change once votes are cast.",
-            "2 дипломатических поручения Академии", "2 diplomatic Academy tasks"));
-        m.Add(new CouncilMandateDef(Marshal, new[] { CatMilitary, CatDefense }, 2, false,
+            "Довести 5 героев до ранга Мастерства (взять ультимативный навык)", "Bring 5 heroes to the Mastery rank (take the ultimate skill)"));
+        m.Add(new CouncilMandateDef(Marshal, new[] { CatCapital }, 1, false,
             "Маршал Академии", "Marshal of the Academy",
             "Позволяет нанять один ограниченный служебный контингент. Содержание оплачивает игрок, сила растёт с этапом партии; продать его или превратить в бесплатный постоянный флот нельзя; контракт заканчивается вместе с мандатом.",
             "Allows hiring one limited service contingent. The player pays its upkeep, its strength scales with the game stage; it cannot be sold or turned into a free permanent fleet; the contract ends with the mandate.",
-            "2 военных или оборонительных поручения", "2 military or defense tasks"));
-        m.Add(new CouncilMandateDef(Quartermaster, new[] { CatSupply }, 3, false,
+            "Захватить столицу другого игрока", "Capture the capital of another player"));
+        m.Add(new CouncilMandateDef(Quartermaster, new[] { CatSystemLevel }, 1, false,
             "Интендант Совета", "Council Quartermaster",
             "Раз в цикл (20 ходов) позволяет запросить у Академии существенную поставку ресурсов. Размер растёт с этапом партии и длиной игры; возврат не требуется.",
             "Once per cycle (20 turns) may request a substantial resource delivery from the Academy. Scales with game stage and game length; no repayment.",
-            "3 разных поручения по снабжению", "3 different supply tasks"));
-        m.Add(new CouncilMandateDef(Eye, new[] { CatIntel, CatResearch }, 2, false,
+            "Улучшить звёздную систему до 4-го уровня", "Upgrade a star system to level 4"));
+        m.Add(new CouncilMandateDef(Eye, new[] { CatExplore }, 1, false,
             "Око Академии", "Eye of the Academy",
             "+1 одновременная операция взлома и +20 к максимуму вычислительной мощности (ПВ).",
             "+1 simultaneous hacking operation and +20 to maximum processing power.",
-            "2 разведывательных или исследовательских поручения", "2 intelligence or research tasks"));
+            "Открыть 75% галактики", "Discover 75% of the galaxy"));
         m.Add(new CouncilMandateDef(Supreme, new string[0], 0, true,
             "Верховный легат Академии", "Supreme Legate of the Academy",
-            "Победный мандат: удваивает голоса игрока. Удерживайте его 30 ходов (нормальная скорость) для победы. Следующее голосование гарантированно содержит вотум недоверия, а пока идёт отсчёт, один из вопросов — всегда вотум недоверия.",
-            "Victory mandate: doubles the holder's votes. Hold it for 30 turns (normal speed) to win. The next vote is guaranteed to contain a No-Confidence law, and while the countdown runs one question is always No-Confidence.",
+            "Победный мандат: удваивает голоса игрока и даёт ещё +100 голосов. Удерживайте его 30 ходов (нормальная скорость) для победы. Следующее голосование гарантированно содержит вотум недоверия, а пока идёт отсчёт, один из вопросов — всегда вотум недоверия.",
+            "Victory mandate: doubles the holder's votes and gives +100 more. Hold it for 30 turns (normal speed) to win. The next vote is guaranteed to contain a No-Confidence law, and while the countdown runs one question is always No-Confidence.",
             "Допуск к 2 обычным мандатам и удержание одного обычного мандата в течение полного цикла", "Qualify for 2 ordinary mandates and hold one ordinary mandate for a full cycle"));
         return m;
     }

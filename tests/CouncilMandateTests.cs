@@ -28,20 +28,24 @@ static class M
         Check(fast.VictoryTurns == 15, "victory countdown scales with game speed");
 
         // ---- qualification
-        Check(!c.Qualifies(0, CouncilLaws.Chairman), "no tasks -> no chairman candidacy");
-        Check(c.ReportTask(0, CouncilLaws.CatDiplomatic, "t1"), "task recorded");
-        Check(!c.ReportTask(0, CouncilLaws.CatDiplomatic, "t1"), "same task is not counted twice");
-        Check(!c.Qualifies(0, CouncilLaws.Chairman), "1 diplomatic task is not enough");
-        c.ReportTask(0, CouncilLaws.CatDiplomatic, "t2");
-        Check(c.Qualifies(0, CouncilLaws.Chairman), "2 diplomatic tasks -> chairman candidate");
-        c.ReportTask(1, CouncilLaws.CatMilitary, "m1"); c.ReportTask(1, CouncilLaws.CatDefense, "d1");
-        Check(c.Qualifies(1, CouncilLaws.Marshal), "military + defense task -> marshal candidate");
-        c.ReportTask(2, CouncilLaws.CatSupply, "s1"); c.ReportTask(2, CouncilLaws.CatSupply, "s2");
-        Check(!c.Qualifies(2, CouncilLaws.Quartermaster), "2 supply tasks are not enough for the quartermaster");
-        c.ReportTask(2, CouncilLaws.CatSupply, "s3");
-        Check(c.Qualifies(2, CouncilLaws.Quartermaster), "3 different supply tasks -> quartermaster candidate");
-        c.ReportTask(2, CouncilLaws.CatIntel, "i1"); c.ReportTask(2, CouncilLaws.CatResearch, "r1");
-        Check(c.Qualifies(2, CouncilLaws.Eye), "intelligence + research -> eye candidate");
+        Check(!c.Qualifies(0, CouncilLaws.Chairman), "no achievements -> no chairman candidacy");
+        Check(c.ReportTask(0, CouncilLaws.CatMastery, "H1"), "achievement recorded");
+        Check(!c.ReportTask(0, CouncilLaws.CatMastery, "H1"), "the same hero is not counted twice");
+        Check(c.HasTask(0, CouncilLaws.CatMastery, "H1") && !c.HasTask(0, CouncilLaws.CatMastery, "H2"), "HasTask");
+        for (int h = 2; h <= 4; h++) c.ReportTask(0, CouncilLaws.CatMastery, "H" + h);
+        Check(!c.Qualifies(0, CouncilLaws.Chairman), "4 heroes of the Mastery rank are not enough");
+        c.ReportTask(0, CouncilLaws.CatMastery, "H5");
+        Check(c.Qualifies(0, CouncilLaws.Chairman), "5 heroes of the Mastery rank -> chairman candidate");
+        Check(!c.Qualifies(1, CouncilLaws.Marshal), "no captured capital -> no marshal candidacy");
+        c.ReportTask(1, CouncilLaws.CatCapital, "any");
+        Check(c.Qualifies(1, CouncilLaws.Marshal), "captured capital -> marshal candidate");
+        Check(!c.Qualifies(2, CouncilLaws.Quartermaster), "no level-4 system -> no quartermaster candidacy");
+        c.ReportTask(2, CouncilLaws.CatSystemLevel, "L4");
+        Check(c.Qualifies(2, CouncilLaws.Quartermaster), "level-4 system -> quartermaster candidate");
+        Check(!c.Qualifies(2, CouncilLaws.Eye), "unexplored galaxy -> no eye candidacy");
+        c.ReportTask(2, CouncilLaws.CatExplore, "75");
+        Check(c.Qualifies(2, CouncilLaws.Eye), "75% explored -> eye candidate");
+        Check(!c.Qualifies(1, CouncilLaws.Chairman) && !c.Qualifies(0, CouncilLaws.Eye), "conditions are per empire and per mandate");
         Check(!c.Qualifies(0, CouncilLaws.Supreme), "supreme needs more");
 
         // ---- session 1: vote for mandates (goes to the NEXT vote)
@@ -100,7 +104,7 @@ static class M
         turn = 62; c.Tally(turn); turn = 81;
 
         // ---- supreme legate
-        c.ReportTask(0, CouncilLaws.CatMilitary, "m1"); c.ReportTask(0, CouncilLaws.CatDefense, "d1");
+        c.ReportTask(0, CouncilLaws.CatCapital, "any");
         Check(c.OrdinaryQualifiedCount(0) == 2, "empire 0 qualifies for 2 ordinary mandates");
         Check(c.HeldOrdinaryForFullCycle(0), "chairman held through a full cycle");
         Check(c.Qualifies(0, CouncilLaws.Supreme), "-> supreme candidate");
@@ -115,7 +119,7 @@ static class M
         c.TrySetBallot(0, new[] { new[] { Idx(c, "M:Supreme"), 0, 100 } });
         turn = 102; c.Tally(turn);
         Check(c.SupremeHolder == 0 && c.SupremeSince == 102, "empire 0 is the supreme legate");
-        Check(c.Budget(0) == 200 && c.Budget(1) == 100, "supreme mandate doubles the votes");
+        Check(c.Budget(0) == 400 && c.Budget(1) == 100, "supreme mandate: (100 + 50 for the chairman) x2 + 100");
         Check(c.VictoryTurnsLeft(102) == 30 && c.VictoryTurnsLeft(112) == 20, "countdown runs");
         Check(c.CheckVictory(131) == -1 && c.CheckVictory(132) == 0, "victory after 30 turns");
         turn = 121;
@@ -138,7 +142,7 @@ static class M
         c.TrySetBallot(0, new[] { new[] { nq, 1, 190 } });
         turn = 142; c.Tally(turn);
         Check(c.SupremeHolder == -1 && c.SupremeSince == -1, "no-confidence revoked the supreme mandate and stopped the countdown");
-        Check(c.Budget(0) == 100, "votes back to normal");
+        Check(c.Budget(0) == 150, "votes back to normal (the chairman mandate stays: +50)");
         Check(c.CheckVictory(500) == -1, "no victory without the mandate");
         Check(c.Holds(0, CouncilLaws.Chairman), "ordinary mandates stay");
 
@@ -181,8 +185,8 @@ static class M
             var rng = new CouncilRng(seed);
             for (int e = 0; e < 4; e++)
             {
-                z.ReportTask(e, CouncilLaws.CatDiplomatic, "a"); z.ReportTask(e, CouncilLaws.CatDiplomatic, "b");
-                if (rng.Range(2) == 0) { z.ReportTask(e, CouncilLaws.CatMilitary, "a"); z.ReportTask(e, CouncilLaws.CatDefense, "b"); }
+                for (int h = 0; h < 5; h++) z.ReportTask(e, CouncilLaws.CatMastery, "h" + h);
+                if (rng.Range(2) == 0) z.ReportTask(e, CouncilLaws.CatCapital, "any");
             }
             for (int v = 0; v < 8; v++)
             {
@@ -233,6 +237,47 @@ static class M
             Check(rp.PresenceMarks.Count == 2 && rp.PresenceBonusOf(0) == 50 && rp.Budget(1) == 120, "presence survives serialization");
             q.RemoveMember(0);
             Check(q.PresenceBonusOf(0) == 0, "leaving the council drops the presence bonus");
+        }
+        // ---- sources of votes: system levels, Republic, mandates, wars
+        {
+            Check(CouncilCore.SystemLevelVotes(1) == 0 && CouncilCore.SystemLevelVotes(2) == 5 && CouncilCore.SystemLevelVotes(3) == 10 && CouncilCore.SystemLevelVotes(4) == 20,
+                  "system level votes 0 / 5 / 10 / 20, not cumulative");
+            Check(CouncilCore.RepublicVotes == 40 && CouncilCore.MandateVotes == 50 && CouncilCore.SupremeMandateVotes == 100 && CouncilCore.WarPenaltyVotes == 20, "vote constants");
+            var v = new CouncilCore(); v.Found(0, new[] { 0, 1, 2 }, 20);
+            var game = new Dictionary<int, int>(); game[0] = 5 + 10 + 20 + CouncilCore.RepublicVotes; game[1] = 0; game[2] = 20;
+            v.ApplySessionVotes(game, 10);
+            Check(v.Budget(0) == 175 && v.Budget(1) == 100 && v.Budget(2) == 120, "session votes are part of the budget");
+            v.RecordWarDeclared(1, 10);
+            v.ApplySessionVotes(game, 12);
+            Check(v.RecentWars(1, 12) == 1 && v.SessionVotesOf(1) == -20 && v.Budget(1) == 80, "a declared war costs 20 votes");
+            v.RecordWarDeclared(1, 12); v.RecordWarDeclared(1, 12);
+            v.ApplySessionVotes(game, 13);
+            Check(v.Budget(1) == 100 - 60 && v.WarPenaltyOf(1, 13) == 60, "wars stack");
+            v.ApplySessionVotes(game, 31);
+            Check(v.RecentWars(1, 31) == 2 && v.Budget(1) == 60, "the penalty of the first war ends after 20 turns (2 wars of turn 12 remain)");
+            v.ApplySessionVotes(game, 40);
+            Check(v.RecentWars(1, 40) == 0 && v.Budget(1) == 100, "all penalties are over after 20 turns");
+            var huge = new Dictionary<int, int>();
+            for (int w = 0; w < 10; w++) v.RecordWarDeclared(2, 50);
+            v.ApplySessionVotes(huge, 50);
+            Check(v.Budget(2) == 0, "the budget never goes below zero");
+            // mandates: +50 each, supreme: x2 and +100
+            var m = new CouncilCore(); m.Found(0, new[] { 0, 1 }, 20);
+            m.SetHolder(CouncilLaws.Chairman, 0, 0); m.SetHolder(CouncilLaws.Eye, 0, 0);
+            Check(m.MandateVotesOf(0) == 100 && m.Budget(0) == 200 && m.Budget(1) == 100, "every mandate gives +50 votes");
+            m.SetHolder(CouncilLaws.Supreme, 0, 5);
+            Check(m.MandateVotesOf(0) == 100 && m.Budget(0) == 500, "supreme: (100 + 100) x2 + 100");
+            m.ApplySessionVotes(game, 10);
+            var rm = CouncilCore.Deserialize(m.Serialize());
+            Check(rm.Budget(0) == m.Budget(0) && rm.SessionVotesOf(0) == m.SessionVotesOf(0), "session votes survive serialization");
+            m.RecordWarDeclared(1, 7);
+            rm = CouncilCore.Deserialize(m.Serialize());
+            Check(rm.RecentWars(1, 8) == 1, "declared wars survive serialization");
+            Check(m.BudgetText(0, 10, true).Length > 0 && m.BudgetText(1, 8, false).Contains("war"), "budget explanation");
+            // older saves (without the vote fields) still load
+            string oldState = m.Serialize(); int cut = oldState.LastIndexOf("|", oldState.LastIndexOf("|") - 1); oldState = oldState.Substring(0, cut);
+            var ro = CouncilCore.Deserialize(oldState);
+            Check(ro.Enabled && ro.Holds(0, CouncilLaws.Supreme) && ro.SessionVotesOf(0) == 0, "state without vote fields loads");
         }
         Console.WriteLine(fails == 0 ? "ALL PASSED" : (fails + " FAILED"));
         return fails == 0 ? 0 : 1;
