@@ -53,6 +53,9 @@ public static class Patcher
         HookCompany(game);
         HookDecolonize(game);
         HookVictoryContext(game);
+        var hero = cl.Mapped("HeroRework");
+        if (hero == null) throw new Exception("HeroRework missing");
+        HookHeroRework(hero);
 
         Console.WriteLine("publicized members: " + cl.PublicizedLog.Count);
         foreach (var s in cl.PublicizedLog.OrderBy(x => x)) Console.WriteLine("  + " + s);
@@ -372,6 +375,57 @@ public static class Patcher
             foreach (var x in seq) { il.InsertAfter(at, x); at = x; }
         }
         Console.WriteLine("hook: victory interpreter context returns wrapped: " + rets.Count);
+    }
+
+    // Hero rework: effect channels per hero kind, assignment rules, senate representative, skill trees, window title
+    static void HookHeroRework(TypeDefinition hero)
+    {
+        int n = 0;
+        foreach (var spec in new[] {
+            new[] { "GetShipSkillDescriptors", "FilterShip" },
+            new[] { "GetOnOrbitSkillDescriptors", "FilterShip" },
+            new[] { "GetOnOwnedOrbitSkillDescriptors", "FilterShip" },
+            new[] { "GetOnHostileOrbitSkillDescriptors", "FilterShip" },
+            new[] { "GetOnNeutralOrbitSkillDescriptors", "FilterShip" },
+            new[] { "GetOnFriendlyOrbitSkillDescriptors", "FilterShip" },
+            new[] { "GetSystemSkillDescriptors", "FilterSystem" },
+            new[] { "GetSenateSkillDescriptors", "FilterSenate" } })
+            n += WrapReturns(Method("Hero", spec[0]), GameMethod(hero, spec[1]), new[] { OpCodes.Ldarg_0 });
+        Console.WriteLine("hook: hero skill descriptor returns wrapped: " + n);
+
+        n = WrapReturns(Method("Hero", "get_SkillTrees"), GameMethod(hero, "TreesFor"), new[] { OpCodes.Ldarg_0 });
+        Console.WriteLine("hook: Hero.get_SkillTrees returns wrapped: " + n);
+        n = WrapReturns(Method("GuiHero", "get_Title"), GameMethod(hero, "TitleWithKind"), new[] { OpCodes.Ldarg_0 });
+        Console.WriteLine("hook: GuiHero.get_Title returns wrapped: " + n);
+
+        // assignment rules: if (!HeroRework.AllowAssign(hero, ref info, toFleet)) return false;
+        var allow = GameMethod(hero, "AllowAssign");
+        foreach (var spec in new[] { new object[] { "CheckHeroAssignableToFleet", true }, new object[] { "CheckHeroAssignableToSystem", false } })
+        {
+            var m = Method("CustomHackingHelper", (string)spec[0]);
+            var il = m.Body.GetILProcessor();
+            var first = m.Body.Instructions[0];
+            il.InsertBefore(first, il.Create(OpCodes.Ldarg_0));
+            il.InsertBefore(first, il.Create(OpCodes.Ldarg_1));
+            il.InsertBefore(first, il.Create((bool)spec[1] ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0));
+            il.InsertBefore(first, il.Create(OpCodes.Call, allow));
+            il.InsertBefore(first, il.Create(OpCodes.Brtrue, first));
+            il.InsertBefore(first, il.Create(OpCodes.Ldc_I4_0));
+            il.InsertBefore(first, il.Create(OpCodes.Ret));
+            Console.WriteLine("hook: " + spec[0] + " checks the hero kind");
+        }
+
+        // Senator.UpdateRepresentativeHero: if (HeroRework.UpdateRepresentative(this)) return;
+        {
+            var m = Method("Senator", "UpdateRepresentativeHero");
+            var il = m.Body.GetILProcessor();
+            var first = m.Body.Instructions[0];
+            il.InsertBefore(first, il.Create(OpCodes.Ldarg_0));
+            il.InsertBefore(first, il.Create(OpCodes.Call, GameMethod(hero, "UpdateRepresentative")));
+            il.InsertBefore(first, il.Create(OpCodes.Brfalse, first));
+            il.InsertBefore(first, il.Create(OpCodes.Ret));
+            Console.WriteLine("hook: Senator.UpdateRepresentativeHero restricted to senator heroes");
+        }
     }
 
     // H3: GroundBattleOutcomeLootDefinition.FillLoot(battle, loot, populations) => ...; AdjustLoot(battle, loot)
