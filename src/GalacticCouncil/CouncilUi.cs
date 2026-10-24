@@ -227,8 +227,19 @@ public static class CouncilUi
             }
             else if (!d.Targeted)
             {
-                DrawVoteRow(q, 0, CouncilGame.Tr("Принять закон", "Pass"), ref left);
-                DrawVoteRow(q, 1, CouncilGame.Tr("Не принимать", "Reject"), ref left);
+                if (d.Id == CouncilLaws.NoConfidence)
+                {
+                    GUILayout.Label(CouncilGame.Tr("Верховный легат: ", "Supreme Legate: ") + CouncilGame.EmpireName(c.SupremeHolder) +
+                        CouncilGame.Tr(". Чтобы он остался, нужно голосов «за»: ", ". To keep him, the votes in favour must be at least: ") + c.KeepPercentNeeded + "%" +
+                        (c.SupremeInAlliance ? CouncilGame.Tr(" (владелец в альянсе)", " (the holder is in an alliance)") : ""), smallStyle);
+                    DrawVoteRow(q, 0, CouncilGame.Tr("Оставить легата", "Keep the Legate"), ref left);
+                    DrawVoteRow(q, 1, CouncilGame.Tr("Снять легата", "Remove the Legate"), ref left);
+                }
+                else
+                {
+                    DrawVoteRow(q, 0, CouncilGame.Tr("Принять закон", "Pass"), ref left);
+                    DrawVoteRow(q, 1, CouncilGame.Tr("Не принимать", "Reject"), ref left);
+                }
             }
             else
             {
@@ -353,7 +364,7 @@ public static class CouncilUi
         var d = CouncilLaws.Get(r.LawId);
         string name = d != null ? CouncilGame.LawName(d) : r.LawId;
         if (d != null && !d.Targeted)
-            return "T" + r.Turn + ": " + name + " — " + (r.Passed ? CouncilGame.Tr("принят", "passed") : CouncilGame.Tr("отклонён", "rejected")) + " (" + r.Yes + " : " + r.No + ")";
+            return "T" + r.Turn + ": " + name + " — " + (d.Id == CouncilLaws.NoConfidence ? (r.Passed ? CouncilGame.Tr("легат остаётся", "Legate kept") : CouncilGame.Tr("легат снят", "Legate removed")) : (r.Passed ? CouncilGame.Tr("принят", "passed") : CouncilGame.Tr("отклонён", "rejected"))) + " (" + r.Yes + " : " + r.No + ")";
         string tgt = r.Passed ? CouncilGame.EmpireName(r.Target) : CouncilGame.Tr("не выбрана (ничья или нет голосов)", "none (tie or no votes)");
         return "T" + r.Turn + ": " + name + " → " + tgt + " (" + r.Yes + " / " + r.No + ")";
     }

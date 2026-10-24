@@ -53,6 +53,27 @@ public static partial class CouncilGame
         Core.ApplySessionVotes(GameVotes(game), turn);
     }
 
+    // ---------------------------------------------------------------- alliance of the victory-mandate holder
+
+    /// <summary>The holder of the victory mandate needs 67% instead of 51% to stay when he is a member of an alliance (two or more empires).</summary>
+    static void RefreshAllianceFlag()
+    {
+        bool inAlliance = false;
+        try
+        {
+            int holder = Core.SupremeHolder;
+            var emp = holder >= 0 ? GetMajor(holder) : null;
+            var repo = emp == null ? null : Services.GetService<IAllianceRepositoryService>();
+            if (repo != null)
+            {
+                Alliance a = repo.FindAllianceOf(emp);
+                inAlliance = a != null && a.EmpireCount >= 2;
+            }
+        }
+        catch (Exception e) { Fail("RefreshAllianceFlag", e); }
+        Core.SupremeInAlliance = inAlliance;
+    }
+
     // ---------------------------------------------------------------- war declarations
 
     /// <summary>Hook: GameClient.CreateWarInstanceProcessor, right after the war instance has been created.</summary>

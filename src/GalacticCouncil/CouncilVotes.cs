@@ -2,7 +2,7 @@
 //   base 100 + Merit law + Strategic Presence                        (CouncilCore.Budget)
 //   + session snapshot of the game state taken when the vote opens:   star system levels, Republic, senator hero skills,
 //                                                                     minus the penalty for declared wars
-//   + 50 votes for every ordinary mandate held, 100 for the Supreme one (which also doubles everything else)
+//   + 50 votes for every ordinary mandate held, 100 for the Supreme one (and nothing is doubled)
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -13,6 +13,8 @@ public sealed partial class CouncilCore
     public const int RepublicVotes = 40;          // empire under the Republic government
     public const int MandateVotes = 50;           // each ordinary mandate
     public const int SupremeMandateVotes = 100;   // the victory mandate (on top of the doubling)
+    public const int KeepPercentSolo = 51;        // confirmation of the victory mandate: share of the votes needed to keep it
+    public const int KeepPercentAlliance = 67;    // the same when the holder is a member of an alliance
     public const int WarPenaltyVotes = 20;        // per declared war ...
     // ... for IntervalTurns turns (one vote cycle, 20 turns at normal speed)
 
@@ -20,6 +22,18 @@ public sealed partial class CouncilCore
     public Dictionary<int, int> SessionVotes = new Dictionary<int, int>();
     /// <summary>Turns at which the empire declared a war (empire -> turns), for the war penalty.</summary>
     public Dictionary<int, List<int>> WarsDeclared = new Dictionary<int, List<int>>();
+
+    /// <summary>Set by the game layer before the tally and every turn: the holder of the victory mandate is a member of an alliance.</summary>
+    public bool SupremeInAlliance;
+
+    public int KeepPercentNeeded { get { return SupremeInAlliance ? KeepPercentAlliance : KeepPercentSolo; } }
+
+    /// <summary>The victory mandate stays when the "keep" votes are at least 51% of all votes cast (67% for an allied holder). Nobody voted: it stays.</summary>
+    public bool MandateKept(int keep, int remove)
+    {
+        long total = (long)keep + remove;
+        return total == 0 || keep * 100L >= KeepPercentNeeded * total;
+    }
 
     /// <summary>Votes of one star system: level 2 gives 5, level 3 gives 10, level 4 gives 20. The levels do not add up.</summary>
     public static int SystemLevelVotes(int level)
@@ -89,7 +103,7 @@ public sealed partial class CouncilCore
         if (law != 0) sb.Append(ru ? "; законы и присутствие " : "; laws and presence ").Append(law > 0 ? "+" : "").Append(law);
         if (session != 0) sb.Append(ru ? "; системы, Республика, сенаторы, войны " : "; systems, Republic, senators, wars ").Append(session > 0 ? "+" : "").Append(session);
         if (mand != 0) sb.Append(ru ? "; мандаты +" : "; mandates +").Append(mand);
-        if (supreme) sb.Append(ru ? "; Верховный легат: ×2 и +" : "; Supreme Legate: x2 and +").Append(SupremeMandateVotes);
+        if (supreme) sb.Append(ru ? "; Верховный легат +" : "; Supreme Legate +").Append(SupremeMandateVotes);
         int wars = RecentWars(emp, turn);
         if (wars > 0) sb.Append(ru ? "; штраф за объявленные войны (" + wars + "): −" : "; penalty for declared wars (" + wars + "): -").Append(wars * WarPenaltyVotes);
         return sb.ToString();

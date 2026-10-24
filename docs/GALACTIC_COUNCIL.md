@@ -36,7 +36,7 @@ Mandates (`CouncilMandates.cs`, state saved as `GC2`): Chairman, Marshal, Quarte
 * Marshal: hires a warship group of the empire's own faction at the home system (upkeep paid by the empire).
 * Quartermaster: once per cycle Dust + Science delivery scaled by stage and game length.
 * Eye: +1 simultaneous hacking operation, +20 `MaximumEmpireProcessingPowerStock` (the "ПВ" reading is a guess).
-* Supreme Legate: x2 votes and +100, No-Confidence forced on the next vote and while the countdown runs; after 30 turns (scaled)
+* Supreme Legate: +100 votes (no doubling), the mandate confirmation is forced on the next vote and while the countdown runs; after 30 turns (scaled)
   `IVictoryManagementService.ForceRiseVictory` is called with the victory condition whose name contains `diplomat`/`senate`/...
 * Leaving the Council: the Academy relation is pinned to -100 every turn (static `AcademyDiplomaticRelation.SetRelationPoints`).
 * Qualification: see "Votes and qualification rework" below (the manual assignment stub was removed).
@@ -92,8 +92,8 @@ Garrison = the system manpower (`SimulationProperties/StarSystem`: `SystemManpow
 
 ## Votes and qualification rework
 **Sources of votes** (`CouncilVotes.cs`, pure; `CouncilGameVotes.cs`, game glue). `Budget(emp)` =
-(100 base + Merit law + Strategic Presence + *session votes*) + 50 per ordinary mandate held; the Supreme Legate doubles
-that sum and gets +100 (the victory mandate gives 100, not 50). The budget never goes below 0.
+(100 base + Merit law + Strategic Presence + *session votes*) + 50 per ordinary mandate held; the Supreme Legate simply gets +100 (the victory mandate gives 100, not 50; nothing is
+doubled). The budget never goes below 0.
 * *Session votes* are read from the game when a vote opens (like Strategic Presence) and saved in `CouncilState`
   (fields 30-31 of the `GC2` string, older saves load without them):
   * every star system: level 2 -> +5, level 3 -> +10, level 4 -> +20 (one value per system, **not cumulative**;
@@ -110,6 +110,12 @@ that sum and gets +100 (the victory mandate gives 100, not 50). The budget never
   (`HeroRework.CouncilVotesOf`): a skill of magnitude m gives `m * (6 + 1 per 4 colonized systems)` votes (the skill text
   lists the numbers per level); the dictator version is 1.6x stronger. Admirals and governors get influence instead.
 * The vote tab shows where the votes come from (`BudgetText`).
+
+**Confirmation of the victory mandate** (was "No Confidence", law id `NoConfidence` kept for saves): the vote is about
+*keeping* the Supreme Legate. "For" keeps him, "against" removes him; he stays with at least **51%** of the votes in favour
+(solo) or **67%** when he is a member of an alliance (the others need only 34% to remove him). Nobody voted: he stays.
+The alliance flag is read from `IAllianceRepositoryService.FindAllianceOf` (two or more empires) every turn and just before
+the tally. AI empires: the holder always votes to keep, the others vote to remove with 85% probability.
 
 **Qualification of the mandates** (task categories are now achievements reported once by `CouncilGame.DetectQualifications`
 every turn, for every member; the progress is saved in the old `Tasks` field):

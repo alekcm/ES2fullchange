@@ -78,7 +78,7 @@ public sealed partial class CouncilCore
         b += SessionVotesOf(emp);              // system levels, Republic, senator skills, minus the war penalty
         b += MandateVotesOf(emp);              // +50 for every ordinary mandate
         if (b < 0) b = 0;
-        if (Holds(emp, CouncilLaws.Supreme)) b = b * 2 + SupremeMandateVotes;   // supreme mandate: doubles the votes, +100
+        if (Holds(emp, CouncilLaws.Supreme)) b += SupremeMandateVotes;           // supreme (victory) mandate: simply +100 votes
         return b;
     }
 
@@ -280,6 +280,14 @@ public sealed partial class CouncilCore
                     for (int i = 0; i < kv.Value.Count; i++)
                         if (kv.Value[i][0] == q) { if (kv.Value[i][1] == 0) yes += kv.Value[i][2]; else no += kv.Value[i][2]; }
                 res.Yes = yes; res.No = no;
+                if (d.Id == CouncilLaws.NoConfidence)
+                {
+                    // the vote is about KEEPING the victory mandate: "yes" keeps it, it needs 51% (67% when the holder is in an alliance)
+                    res.Passed = MandateKept(yes, no);
+                    if (!res.Passed) enacted.Add(new CouncilActiveLaw { Id = d.Id, Target = -1, StartTurn = turn });   // the mandate is revoked below
+                    History.Add(res);
+                    continue;
+                }
                 res.Passed = yes > no;
                 if (res.Passed) enacted.Add(new CouncilActiveLaw { Id = d.Id, Target = -1, StartTurn = turn });
             }
@@ -401,6 +409,7 @@ public sealed partial class CouncilCore
             else
             {
                 int chanceYes = d.Benefit > 0 ? 80 : (d.Benefit < 0 ? 20 : 50);
+                if (d.Id == CouncilLaws.NoConfidence) chanceYes = SupremeHolder == emp ? 100 : 15;   // the holder keeps his mandate, the rest mostly want it gone
                 opt = rng.Range(100) < chanceYes ? 0 : 1;
             }
             list.Add(new[] { q, opt, c * VoteStep });

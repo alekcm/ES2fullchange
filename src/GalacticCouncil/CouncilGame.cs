@@ -158,6 +158,7 @@ public static partial class CouncilGame
             lastHandledTurn = turn;
 
             PruneMembers(game);
+            RefreshAllianceFlag();
             DetectQualifications(game);
             if (Core.NextAction(turn) == CouncilCore.ActionTally) DoTally(game, turn);
             if (Core.NextAction(turn) == CouncilCore.ActionOpen) DoOpen(mgr, game, turn);
@@ -242,6 +243,7 @@ public static partial class CouncilGame
             int aiSeed = unchecked(Core.VoteOpenTurn * 1103515245 + Core.VoteIndex * 12345 + e.Index * 131 + 17);
             Core.TrySetBallot(e.Index, Core.BuildAiBallot(e.Index, aiSeed, ScoreOf));
         }
+        RefreshAllianceFlag();
         var enacted = Core.Tally(turn);
         for (int i = 0; i < enacted.Count; i++)
         {
