@@ -11,7 +11,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
-static class HeroTreesDump
+static partial class HeroTreesDump
 {
     sealed class Mod { public string Prop, Op, Value, Path, Left, BinOp, Right; public bool Binary, Hidden; }
     sealed class Level { public string Name; public List<string> Hero = new List<string>(), System = new List<string>(), Ship = new List<string>(), Senate = new List<string>(); public List<string> Masteries = new List<string>(); }
@@ -211,7 +211,7 @@ static class HeroTreesDump
 
     // ---------------------------------------------------------------- role versions (copy of HeroContent.RegisterVariant)
 
-    sealed class Variant { public string Title, TitleEn; public List<List<string>> Levels = new List<List<string>>(); }
+    sealed class Variant { public string Title, TitleEn; public List<List<string>> Levels = new List<List<string>>(); public List<List<string>> HLevels = new List<List<string>>(); public List<Flavor> Top = new List<Flavor>(); }
 
     static void Accumulate(List<string> descriptors, HeroChannel channel, Dictionary<int, float> acc)
     {
@@ -297,9 +297,15 @@ static class HeroTreesDump
             foreach (string e in TargetsText(convScaled, channel, power)) eff.Add("converted: " + e);
             if (s.Hero.Any(h => h != "HeroSkillComplete")) foreach (string e in EffectsOf(s.Hero)) eff.Add("hero: " + e);
             v.Levels.Add(eff);
+            var heff = new List<string>();
+            heff.AddRange(HumanOwn(own, channel, factor));
+            heff.AddRange(HumanTargets(convScaled, channel, power));
+            if (s.Hero.Any(h => h != "HeroSkillComplete")) heff.AddRange(HumanOwn(s.Hero, HeroChannel.Hero, factor));
+            v.HLevels.Add(heff);
             if (j == count - 1) finalFlavors = all;
         }
         var top = TopFlavors(finalFlavors, 2);
+        v.Top = top;
         v.Title = top.Count == 0 ? "Навык" : HeroFlavors.SkillTitle(top.ToArray(), channel, true);
         v.TitleEn = top.Count == 0 ? "Skill" : HeroFlavors.SkillTitle(top.ToArray(), channel, false);
         return v;
@@ -521,6 +527,7 @@ static class HeroTreesDump
         Console.WriteLine("heroes " + heroes.Count + ", trees " + trees.Count + ", skills " + skills.Count + ", descriptors " + desc.Count + ", ru " + ru.Count + ", en " + en.Count);
         WriteVanilla(args[1]);
         WriteMod(args[2]);
+        if (args.Length > 3) WriteHtml(args[3]);
         return 0;
     }
 }
