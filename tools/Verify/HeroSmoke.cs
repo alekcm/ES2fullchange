@@ -70,6 +70,51 @@ static class HeroSmoke
         return n;
     }
 
+    // scaled copies of real SimulationDescriptor / modifier objects
+    static int ScalingSmoke(Type rework)
+    {
+        int bad = 0;
+        var helper = asm.GetType("CustomHackingHelper");
+        var make = helper.GetMethod("MakeModifier"); var create = helper.GetMethod("CreateAndRegisterDescriptor");
+        var ps = make.GetParameters();
+        var opType = ps[1].ParameterType;
+        object add = Enum.ToObject(opType, 1), mul = Enum.ToObject(opType, 3), force = Enum.ToObject(opType, 0);
+        object m1 = make.Invoke(null, new object[] { "SystemProduction", add, 10f, "ClassStarSystem" });
+        object m2 = make.Invoke(null, new object[] { "SystemFood", mul, 1.3f, "ClassStarSystem" });
+        object m3 = make.Invoke(null, new object[] { "SystemApproval", force, 5f, "ClassStarSystem" });
+        var modsType = ps[1].ParameterType; // placeholder to keep the compiler quiet
+        var cps = create.GetParameters();
+        var arrType = cps[cps.Length - 1].ParameterType;
+        var arr = Array.CreateInstance(arrType.GetElementType(), 3);
+        arr.SetValue(m1, 0); arr.SetValue(m2, 1); arr.SetValue(m3, 2);
+        object src = create.Invoke(null, new object[] { null, "SmokeSkill", "HeroSkillSystem", null, arr });
+        var scaled = rework.GetMethod("ScaledCopy", BindingFlags.Static | BindingFlags.NonPublic);
+        object copy = scaled.Invoke(null, new object[] { src, 0.5f, 500 });
+        if (copy == null) { Console.WriteLine("scaled copy is null"); return 1; }
+        var mods = (Array)copy.GetType().GetProperty("SimulationModifierDescriptors").GetValue(copy, null);
+        var vals = new List<float>(); var ids = new List<int>();
+        foreach (var m in mods)
+        {
+            vals.Add((float)m.GetType().GetProperty("ValueAsFloat").GetValue(m, null));
+            Type t = m.GetType(); while (t.GetField("<ModifierId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic) == null) t = t.BaseType;
+            ids.Add((int)t.GetField("<ModifierId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(m));
+        }
+        var srcMods = (Array)src.GetType().GetProperty("SimulationModifierDescriptors").GetValue(src, null);
+        float srcFirst = (float)srcMods.GetValue(0).GetType().GetProperty("ValueAsFloat").GetValue(srcMods.GetValue(0), null);
+        Console.WriteLine("scaled copy: modifiers=" + mods.Length + " values=" + string.Join(",", vals.ConvertAll(x => x.ToString()).ToArray()) + " ids=" + string.Join(",", ids.ConvertAll(x => x.ToString()).ToArray()));
+        if (mods.Length != 2) { Console.WriteLine("  expected 2 scaled modifiers (force skipped)"); bad++; }
+        else if (Math.Abs(vals[0] - 5f) > 1e-4f || Math.Abs(vals[1] - 1.15f) > 1e-4f) { Console.WriteLine("  wrong scaled values"); bad++; }
+        if (srcFirst != 10f) { Console.WriteLine("  source modifier was mutated"); bad++; }
+        if (ids.Count == 2 && ids[0] == ids[1]) { Console.WriteLine("  duplicate modifier ids"); bad++; }
+        foreach (var sm in srcMods) { Type t = sm.GetType(); while (t.GetField("<ModifierId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic) == null) t = t.BaseType;
+            int id = (int)t.GetField("<ModifierId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sm); if (ids.Contains(id)) { Console.WriteLine("  copy shares an id with the source"); bad++; } }
+        object again = scaled.Invoke(null, new object[] { src, 0.5f, 500 });
+        if (!ReferenceEquals(copy, again)) { Console.WriteLine("  cache miss"); bad++; }
+        string type = copy.GetType().GetProperty("Type").GetValue(copy, null).ToString();
+        if (type != "HeroSkillSystem") { Console.WriteLine("  copy type " + type); bad++; }
+        return bad;
+    }
+
     static int Main(string[] a)
     {
         asm = Assembly.LoadFrom(a[0]);
@@ -99,6 +144,7 @@ static class HeroSmoke
         // the original must be untouched
         int os; int on = Count(tree, out os);
         if (on != 6 || os != 4) { Console.WriteLine("original tree was modified"); bad++; }
+        bad += ScalingSmoke(rework);
         Console.WriteLine(bad == 0 ? "HERO SMOKE OK" : "HERO SMOKE FAILED");
         return bad;
     }

@@ -94,13 +94,21 @@ public static partial class CouncilGame
                 return;
             }
             string current = "";
-            if (serializer.Mode == Serializer.SerializationMode.Write) current = Core.Serialize();
+            if (serializer.Mode == Serializer.SerializationMode.Write) current = Core.Serialize() + HeroSeparator + HeroRework.Serialize();
             string loaded = serializer.SerializeAttribute<string>("CouncilState", current ?? "");
             if (serializer.Mode == Serializer.SerializationMode.Read)
+            {
+                string heroPart = "";
+                int cut = loaded == null ? -1 : loaded.IndexOf(HeroSeparator, StringComparison.Ordinal);
+                if (cut >= 0) { heroPart = loaded.Substring(cut + HeroSeparator.Length); loaded = loaded.Substring(0, cut); }
                 ResetRuntime(CouncilCore.Deserialize(loaded));
+                HeroRework.Deserialize(heroPart);
+            }
         }
         catch (Exception e) { Fail("SerializeAttributes", e); }
     }
+
+    const string HeroSeparator = "@@HR@@";
 
     static void ResetRuntime(CouncilCore fresh)
     {
@@ -122,6 +130,7 @@ public static partial class CouncilGame
             if (game == null) return;
             int turn = game.Turn;
             CouncilUi.EnsureHost();
+            HeroRework.PerTurn(game);
 
             if (Core.Enabled && AcademyIsGone(mgr))
             {

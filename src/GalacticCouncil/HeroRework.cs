@@ -6,6 +6,8 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.ComponentModel;
+using Amplitude.Unity.Simulation.SimulationModifierDescriptors;
 using UnityEngine;
 using Amplitude;
 using Amplitude.Unity.Framework;
@@ -41,8 +43,8 @@ public static class HeroRework
         try
         {
             if (list == null || list.Count == 0 || !IsRegular(hero)) return list;
-            if (HeroKinds.Allows(KindOf(hero), channel)) return list;
-            return new List<SimulationDescriptor>();
+            if (!HeroKinds.Allows(KindOf(hero), channel)) return new List<SimulationDescriptor>();
+            return WithAutoBonus(list, hero);
         }
         catch (Exception e) { Fail("Filter", e); return list; }
     }
@@ -266,5 +268,242 @@ public static class HeroRework
         }
         foreach (var kv in newLevels) kv.Key.RequiredLevel = kv.Value;
         return result.ToArray();
+    }
+
+    // ---------------------------------------------------------------- ultimate fixes the specialization (admirals and governors)
+    // The first skill taken from the last stage of any of the hero's trees is his ultimate: the hero stops choosing skills,
+    // and every hero level after it adds (100 / level the ultimate was taken at) percent to every skill he learned.
+
+    static Dictionary<ulong, int> ultimates = new Dictionary<ulong, int>();
+    static readonly Dictionary<ulong, int> appliedSteps = new Dictionary<ulong, int>();
+    static readonly Dictionary<string, HashSet<HeroSkillDefinition>> ultimateSets = new Dictionary<string, HashSet<HeroSkillDefinition>>();
+    static readonly Dictionary<string, SimulationDescriptor> bonusCache = new Dictionary<string, SimulationDescriptor>();
+    static int lastTurn = int.MinValue;
+    static int descriptorSeq;
+
+    public static bool Fixable(Hero hero)
+    {
+        return IsRegular(hero) && KindOf(hero) != HeroKind.Senator;
+    }
+
+    public static bool IsFixed(Hero hero)
+    {
+        try { return Fixable(hero) && ultimates.ContainsKey((ulong)hero.GUID); }
+        catch (Exception) { return false; }
+    }
+
+    public static int UltimateLevel(Hero hero)
+    {
+        int v;
+        return ultimates.TryGetValue((ulong)hero.GUID, out v) ? v : 0;
+    }
+
+    public static string Serialize() { return HeroKinds.SerializeUltimates(ultimates); }
+
+    public static void Deserialize(string text)
+    {
+        ultimates = HeroKinds.ParseUltimates(text);
+        appliedSteps.Clear();
+        bonusCache.Clear();
+        ultimateSets.Clear();
+        lastTurn = int.MinValue;
+    }
+
+    static HashSet<HeroSkillDefinition> UltimatesOf(HeroDefinition definition)
+    {
+        string key = definition.Name.ToString();
+        HashSet<HeroSkillDefinition> set;
+        if (ultimateSets.TryGetValue(key, out set)) return set;
+        set = new HashSet<HeroSkillDefinition>();
+        var trees = definition.GetSkillTrees();
+        if (trees != null)
+            foreach (var tree in trees)
+            {
+                if (tree == null || tree.Stages == null || tree.Stages.Length < 2) continue;
+                int top = 0;
+                foreach (var st in tree.Stages) if (st != null && st.RequiredLevel > top) top = st.RequiredLevel;
+                foreach (var st in tree.Stages)
+                {
+                    if (st == null || st.Skills == null || st.RequiredLevel != top) continue;
+                    foreach (var slot in st.Skills)
+                    {
+                        if (slot != null && slot.SkillDefinition != null) set.Add(slot.SkillDefinition);
+                        if (slot != null && slot.Alternatives != null)
+                            foreach (var alt in slot.Alternatives) if (alt != null && alt.SkillDefinition != null) set.Add(alt.SkillDefinition);
+                    }
+                }
+            }
+        ultimateSets[key] = set;
+        return set;
+    }
+
+    public static bool HoldsUltimate(Hero hero)
+    {
+        var set = UltimatesOf(hero.Definition);
+        if (set.Count == 0) return false;
+        var skills = hero.UnlockedSkills;
+        if (skills == null) return false;
+        for (int i = 0; i < skills.Count; i++)
+            if (skills[i] != null && skills[i].Definition != null && set.Contains(skills[i].Definition)) return true;
+        return false;
+    }
+
+    /// <summary>Dummy heroes are copies used by the skill editing window: only the entity the game really owns may fix a specialization.</summary>
+    static bool IsRealHero(Hero hero)
+    {
+        var repository = Services.GetService<IGameEntityRepositoryService>();
+        IGameEntity found;
+        return repository != null && repository.TryGetValue(hero.GUID, out found) && ReferenceEquals(found, hero);
+    }
+
+    /// <summary>End hook of Hero.ComputeAvailableSkills: detects the ultimate and, once taken, offers no more skills.</summary>
+    public static void AfterComputeAvailable(Hero hero)
+    {
+        try
+        {
+            if (!Fixable(hero)) return;
+            ulong id = (ulong)hero.GUID;
+            if (!ultimates.ContainsKey(id))
+            {
+                if (!HoldsUltimate(hero) || !IsRealHero(hero)) return;
+                ultimates[id] = Math.Max(1, hero.Level);
+                try { CouncilUi.Toast(CouncilGame.Tr("Герой " + hero.LocalizedName + " выбрал ультимативный навык: специализация закреплена на уровне " + ultimates[id] + ".",
+                                                     "Hero " + hero.LocalizedName + " took the ultimate skill: specialization fixed at level " + ultimates[id] + ".")); } catch (Exception) { }
+            }
+            hero.availableSkillDefinitionNames.Clear();
+        }
+        catch (Exception e) { Fail("AfterComputeAvailable", e); }
+    }
+
+    // ---- scaled copies of the descriptors of the learned skills
+
+    static List<SimulationDescriptor> WithAutoBonus(List<SimulationDescriptor> list, Hero hero)
+    {
+        if (!Fixable(hero)) return list;
+        int ult;
+        if (!ultimates.TryGetValue((ulong)hero.GUID, out ult)) return list;
+        float fraction = HeroKinds.AutoBonusFraction(ult, hero.Level);
+        if (fraction <= 0f) return list;
+        var result = new List<SimulationDescriptor>(list);
+        int percent = (int)Math.Round(fraction * 1000f);
+        for (int i = 0; i < list.Count; i++)
+        {
+            var copy = ScaledCopy(list[i], fraction, percent);
+            if (copy != null) result.Add(copy);
+        }
+        return result;
+    }
+
+    static SimulationDescriptor ScaledCopy(SimulationDescriptor source, float fraction, int key)
+    {
+        if (source == null || source.SimulationModifierDescriptors == null || source.SimulationModifierDescriptors.Length == 0) return null;
+        string cacheKey = source.Name.ToString() + "|" + key;
+        SimulationDescriptor cached;
+        if (bonusCache.TryGetValue(cacheKey, out cached)) return cached;
+        var mods = new List<SimulationModifierDescriptor>();
+        foreach (var m in source.SimulationModifierDescriptors)
+        {
+            var scaled = ScaledModifier(m, fraction);
+            if (scaled != null) mods.Add(scaled);
+        }
+        SimulationDescriptor result = null;
+        if (mods.Count > 0)
+            result = CustomHackingHelper.CreateAndRegisterDescriptor(null, source.Name.ToString() + "@HR" + key + "_" + (++descriptorSeq), source.Type.ToString(), null, mods.ToArray());
+        bonusCache[cacheKey] = result;
+        return result;
+    }
+
+    // fields of the Amplitude simulation classes are private and their assembly is not publicized: reflection, like CustomHackingHelper does
+    static void SetField(object target, string name, object value)
+    {
+        for (Type t = target.GetType(); t != null; t = t.BaseType)
+        {
+            FieldInfo f = t.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+            if (f != null) { f.SetValue(target, value); return; }
+        }
+        throw new MissingFieldException(target.GetType().Name, name);
+    }
+
+    /// <summary>The clone gets the id a freshly constructed modifier received, so the simulation never sees two modifiers with one id.</summary>
+    static void FreshId(SimulationModifierDescriptor clone, SimulationModifierDescriptor fresh)
+    {
+        FieldInfo f = typeof(SimulationModifierDescriptor).GetField("<ModifierId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+        f.SetValue(clone, f.GetValue(fresh));
+    }
+
+    static SimulationModifierDescriptor ScaledModifier(SimulationModifierDescriptor m, float fraction)
+    {
+        if (m == null) return null;
+        float scaled;
+        var single = m as SingleSimulationModifierDescriptor;
+        if (single != null)
+        {
+            if (!single.IsValueFloat || !HeroKinds.ScaleModifierValue((int)single.Operation, single.ValueAsFloat, fraction, out scaled)) return null;
+            var copy = (SingleSimulationModifierDescriptor)memberwiseClone.Invoke(single, null);
+            SetField(copy, "value", scaled);
+            FreshId(copy, new SingleSimulationModifierDescriptor());
+            return copy;
+        }
+        var count = m as CountSimulationModifierDescriptor;
+        if (count != null)
+        {
+            if (!count.IsValueFloat || !HeroKinds.ScaleModifierValue((int)count.Operation, count.ValueAsFloat, fraction, out scaled)) return null;
+            var copy = (CountSimulationModifierDescriptor)memberwiseClone.Invoke(count, null);
+            SetField(copy, "value", scaled);
+            FreshId(copy, new CountSimulationModifierDescriptor());
+            return copy;
+        }
+        var binary = m as BinarySimulationModifierDescriptor;
+        if (binary != null)
+        {
+            // property * constant: scale the constant; the operation of the whole modifier decides how
+            bool rightIsConstant = binary.IsRightValueFloat, leftIsConstant = binary.IsLeftValueFloat;
+            if (rightIsConstant == leftIsConstant || (int)binary.BinaryOperation != 3) return null;
+            int outer = (int)binary.Operation;
+            if (outer != 1 && outer != 2 && outer != 6) return null;
+            if (!HeroKinds.ScaleModifierValue((int)binary.Operation, rightIsConstant ? binary.RightValueAsFloat : binary.LeftValueAsFloat, fraction, out scaled)) return null;
+            var copy = (BinarySimulationModifierDescriptor)memberwiseClone.Invoke(binary, null);
+            SetField(copy, rightIsConstant ? "rightValue" : "leftValue", scaled);
+            FreshId(copy, new BinarySimulationModifierDescriptor());
+            return copy;
+        }
+        return null;
+    }
+
+    // ---------------------------------------------------------------- per turn
+
+    /// <summary>Turn pass: forget state of a finished game, refresh the effects of fixed heroes whose level changed.</summary>
+    public static void PerTurn(Game game)
+    {
+        try
+        {
+            if (!Enabled || game == null) return;
+            int turn = game.Turn;
+            if (turn < lastTurn) { ultimates.Clear(); appliedSteps.Clear(); bonusCache.Clear(); ultimateSets.Clear(); }
+            lastTurn = turn;
+            foreach (MajorEmpire empire in game.EnumerableMajorEmpires)
+            {
+                var education = empire.GetAgency<DepartmentOfEducation>();
+                if (education == null) continue;
+                var heroes = education.ActiveHeroes;
+                for (int i = 0; i < heroes.Count; i++)
+                {
+                    Hero hero = heroes[i];
+                    if (!Fixable(hero)) continue;
+                    AfterComputeAvailable(hero);
+                    ulong id = (ulong)hero.GUID;
+                    int ult;
+                    if (!ultimates.TryGetValue(id, out ult)) continue;
+                    int steps = Math.Max(0, hero.Level - ult);
+                    int before;
+                    appliedSteps.TryGetValue(id, out before);
+                    if (steps == before) continue;
+                    appliedSteps[id] = steps;
+                    var skills = hero.UnlockedSkills;
+                    if (skills != null && skills.Count > 0) hero.OnSkillsUpdated(CollectionChangeAction.Refresh, skills[0]);
+                }
+            }
+        }
+        catch (Exception e) { Fail("PerTurn", e); }
     }
 }

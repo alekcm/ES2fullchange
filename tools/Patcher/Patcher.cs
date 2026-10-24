@@ -415,6 +415,9 @@ public static class Patcher
             Console.WriteLine("hook: " + spec[0] + " checks the hero kind");
         }
 
+        n = WrapReturns(Method("Hero", "ComputeAvailableSkills"), GameMethod(hero, "AfterComputeAvailable"), new[] { OpCodes.Ldarg_0 });
+        Console.WriteLine("hook: Hero.ComputeAvailableSkills ends call AfterComputeAvailable: " + n);
+
         // Senator.UpdateRepresentativeHero: if (HeroRework.UpdateRepresentative(this)) return;
         {
             var m = Method("Senator", "UpdateRepresentativeHero");

@@ -44,4 +44,61 @@ public static class HeroKinds
         int v = (int)Math.Floor(availableBelow * 0.8);
         return v < 0 ? 0 : v;
     }
+
+    /// <summary>Fraction of its base effect every learned skill gains per hero level after the ultimate: (100 / level the ultimate was taken at) percent.</summary>
+    public static float AutoBonusFraction(int ultimateLevel, int heroLevel)
+    {
+        if (ultimateLevel < 1) ultimateLevel = 1;
+        int steps = heroLevel - ultimateLevel;
+        if (steps <= 0) return 0f;
+        return steps / (float)ultimateLevel;
+    }
+
+    /// <summary>Scales one modifier value for an operation. Returns false when the operation cannot be scaled (no bonus).</summary>
+    public static bool ScaleModifierValue(int operation, float value, float fraction, out float scaled)
+    {
+        // ModifierOperation: 1 Addition, 2 Subtraction, 3 Multiplication, 6 Percent
+        scaled = value;
+        switch (operation)
+        {
+            case 1:
+            case 2:
+            case 6:
+                scaled = value * fraction;
+                return true;
+            case 3:
+                scaled = 1f + (value - 1f) * fraction;
+                return true;
+        }
+        return false;
+    }
+
+    // ---- ultimate registry persistence: "guid:level,guid:level"
+
+    public static string SerializeUltimates(System.Collections.Generic.Dictionary<ulong, int> map)
+    {
+        var sb = new System.Text.StringBuilder();
+        var keys = new System.Collections.Generic.List<ulong>(map.Keys);
+        keys.Sort();
+        foreach (ulong k in keys)
+        {
+            if (sb.Length > 0) sb.Append(',');
+            sb.Append(k).Append(':').Append(map[k]);
+        }
+        return sb.ToString();
+    }
+
+    public static System.Collections.Generic.Dictionary<ulong, int> ParseUltimates(string text)
+    {
+        var map = new System.Collections.Generic.Dictionary<ulong, int>();
+        if (string.IsNullOrEmpty(text)) return map;
+        foreach (string part in text.Split(','))
+        {
+            int c = part.IndexOf(':');
+            if (c <= 0) continue;
+            ulong g; int lvl;
+            if (ulong.TryParse(part.Substring(0, c), out g) && int.TryParse(part.Substring(c + 1), out lvl) && lvl > 0) map[g] = lvl;
+        }
+        return map;
+    }
 }
