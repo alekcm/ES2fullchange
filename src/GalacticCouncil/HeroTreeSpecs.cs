@@ -100,10 +100,11 @@ public static partial class HeroDesign
 
         // ------------------------------------------------ classes
         // Guardian: the combat line of the hero's PERSONAL ship (empty path = the ship itself).
-        // Seeker: utility line - vision and movement (T1), electronic warfare (T2), fleet flak (T3);
-        // everything for the fleet travels through the hero's ship.
+        // Seeker: utility line - vision and movement (T1), fleet flak (T2), mirrored stealth and detection
+        // (T3, capped by the researched cloaking/detection technology); the ultimate rebuilds the ship into
+        // a mothership. Everything for the fleet travels through the hero's ship.
         Spec("ClassAdmiral", 'A', "T1:ShipDmg;T2:ShipHp;T3:ShipCrit;U:ShipDmg,ShipHp,ShipCrit,ShipCrewKill");
-        Spec("ClassAdventurer", 'A', "T1:Move,Vision;T2:Jammer;T3:Flak;U:Move,Vision,Jammer,Flak");
+        Spec("ClassAdventurer", 'A', "T1:Move,Vision;T2:Flak;T3:Stealth,Detect;U:Mothership");
         Spec("ClassAdministrator", 'G', "T1:Happy;T2:Prod;T3:Upkeep;U:Happy,Prod,Upkeep,Infl");
         Spec("ClassCorporate", 'S', "T1:Money;T2:Upkeep;T3:Prod;U:Money,Upkeep,Prod,Infl");
         Ult("ClassAdmiral", "Личный флагман", "Personal Flagship");

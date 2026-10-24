@@ -99,7 +99,7 @@ static class HeroClassTreeTests
         Check(cc2 != null && cc2.Ult >= 10, "the ultimate crit is at least +10%");
         Check(ck != null && ck.Ult >= 30, "the ultimate crew culling is at least +30%");
 
-        // ================= Seeker (ClassAdventurer@A): vision first, electronic warfare, fleet flak.
+        // ================= Seeker (ClassAdventurer@A): vision first, fleet flak, mirrored stealth and detection.
         DesignTree seeker = HeroDesign.Build("ClassAdventurer", 'A');
         Check(seeker != null, "ClassAdventurer@A builds");
         if (seeker != null)
@@ -108,15 +108,37 @@ static class HeroClassTreeTests
             Check(seeker.Stages[0].Skills.Count == 2, "stage 1 holds the movement and vision skills (got " + seeker.Stages[0].Skills.Count + ")");
             var tier1 = new List<string>(); foreach (DesignSkill sk in seeker.Stages[0].Skills) tier1.Add(sk.Concepts[0].Key);
             Check(tier1.Contains("A.Move") && tier1.Contains("A.Vision"), "stage 1 = movement + vision (got " + string.Join(",", tier1.ToArray()) + ")");
-            Check(TierOf(seeker, 2).Concepts[0].Key == "A.Jammer", "stage 2 is the jammer");
-            Check(TierOf(seeker, 3).Concepts[0].Key == "A.Flak", "stage 3 is the fleet flak");
+            Check(TierOf(seeker, 2).Concepts[0].Key == "A.Flak", "stage 2 is the fleet flak");
+            var tier3 = new List<string>(); foreach (DesignSkill sk in seeker.Stages[2].Skills) tier3.Add(sk.Concepts[0].Key);
+            Check(tier3.Count == 2 && tier3.Contains("A.Stealth") && tier3.Contains("A.Detect"),
+                "stage 3 = stealth + detection mirrors (got " + string.Join(",", tier3.ToArray()) + ")");
+
+            // no jammer anywhere in the tree (the concept stays in the library)
+            bool hasJammer = false;
+            foreach (DesignStage st in seeker.Stages)
+                foreach (DesignSkill sk in st.Skills)
+                    foreach (Concept c in sk.Concepts)
+                        if (c.Key == "A.Jammer") hasJammer = true;
+            Check(!hasJammer, "the Seeker tree no longer carries the jammer (flak displaced it)");
 
             DesignSkill u2 = UltOf(seeker);
-            var keys2 = new List<string>(); foreach (Concept cc in u2.Concepts) keys2.Add(cc.Key);
-            Check(keys2.Count == 4, "the Seeker ultimate combines four effects");
-            Check(keys2.Contains("A.Move") && keys2.Contains("A.Vision") && keys2.Contains("A.Jammer") && keys2.Contains("A.Flak"),
-                "the ultimate = movement + vision + jammer + flak (got " + string.Join(",", keys2.ToArray()) + ")");
+            Check(u2.Concepts.Length == 1 && u2.Concepts[0].Key == "A.Mothership",
+                "the Seeker ultimate is the mothership hull swap alone (got " + u2.Concepts.Length + " concepts)");
+            Check(u2.Concepts[0].Special == "Mothership" && u2.Concepts[0].Levels == 1,
+                "the mothership is a single-level special");
             Check(u2.TitleRu == "Материнский корабль" && u2.TitleEn == "Mothership", "the Seeker ultimate is the mothership");
+
+            // the mirrors: specials with no static modifiers, three levels, no cheap tech bypass
+            Concept stl = HeroDesign.Get(HeroChannel.Ship, "Stealth");
+            Concept dtc = HeroDesign.Get(HeroChannel.Ship, "Detect");
+            Check(stl != null && stl.Special == "Stealth" && stl.Levels == 3, "A.Stealth is a 3-level special");
+            Check(dtc != null && dtc.Special == "Detect" && dtc.Levels == 3, "A.Detect is a 3-level special");
+            Check((stl == null || stl.Mods == null || stl.Mods.Length == 0) && (dtc == null || dtc.Mods == null || dtc.Mods.Length == 0),
+                "the mirrors carry no static modifiers (the live level comes from the researched technology)");
+            DesignSkill stlSkill = null, dtcSkill = null;
+            foreach (DesignSkill sk in seeker.Stages[2].Skills) { if (sk.Concepts[0].Key == "A.Stealth") stlSkill = sk; if (sk.Concepts[0].Key == "A.Detect") dtcSkill = sk; }
+            if (stlSkill != null) Check(stlSkill.Values[stlSkill.Values.Length - 1][0] == 3, "stealth skill levels display up to 3");
+            if (dtcSkill != null) Check(dtcSkill.Values[dtcSkill.Values.Length - 1][0] == 3, "detection skill levels display up to 3");
 
             bool hasRepair = false;
             foreach (DesignStage st in seeker.Stages)
@@ -126,10 +148,50 @@ static class HeroClassTreeTests
             Check(!hasRepair, "the Seeker class tree has no hull repair (it stays in the party/race trees)");
         }
 
+        // ================= tech mirrors (HeroMirror): the skill level caps the best researched module
+        {
+            // module -> tech resolution as the game does it (TechnologyPrerequisite of the module)
+            var techOf = new Dictionary<string, string>();
+            techOf["ModuleSupportInvisibilityLevel1"] = "TechnologyArmyCap1";
+            techOf["ModuleSupportInvisibilityDetectionLevel1"] = "TechnologyPlayDeck2";
+            techOf["ModuleSupportInvisibilityDetectionLevel2"] = "TechnologyAntimatterChanneling";
+            Func<string, string> moduleTech = delegate(string m) { string t; return techOf.TryGetValue(m, out t) ? t : null; };
+            var researched = new List<string>();
+            Func<string, bool> isResearched = delegate(string t) { return researched.Contains(t); };
+
+            Check(HeroMirror.LevelOf(HeroMirror.Stealth, moduleTech, isResearched) == 0, "stealth mirror is 0 without the technology");
+            Check(HeroMirror.LevelOf(HeroMirror.Detect, moduleTech, isResearched) == 0, "detection mirror is 0 without the technology");
+            researched.Add("TechnologyArmyCap1");
+            Check(HeroMirror.LevelOf(HeroMirror.Stealth, moduleTech, isResearched) == 1, "cloaker I researched -> stealth mirror 1");
+            researched.Add("TechnologyPlayDeck1");
+            Check(HeroMirror.LevelOf(HeroMirror.Stealth, moduleTech, isResearched) == 2, "cloaker II researched -> stealth mirror 2");
+            researched.Add("TechnologyPlayDeck5");
+            Check(HeroMirror.LevelOf(HeroMirror.Stealth, moduleTech, isResearched) == 3, "full-combat cloak researched -> stealth mirror 3");
+            researched.Add("TechnologyPlayDeck2");
+            Check(HeroMirror.LevelOf(HeroMirror.Detect, moduleTech, isResearched) == 1, "anti-cloaker I researched -> detection mirror 1");
+            researched.Add("TechnologyAntimatterChanneling");
+            Check(HeroMirror.LevelOf(HeroMirror.Detect, moduleTech, isResearched) == 2, "anti-cloaker II researched -> detection mirror 2");
+
+            // fallback names are used when the module is not found at runtime (some game versions rename modules)
+            Func<string, string> noModule = delegate(string m) { return null; };
+            researched.Clear();
+            researched.Add("TechnologyPlayDeck3");
+            Check(HeroMirror.LevelOf(HeroMirror.Stealth, noModule, isResearched) == 3, "ambush cloak falls back to the verified tech name");
+            researched.Clear();
+            researched.Add("TechnologyAntimatterChanneling");
+            Check(HeroMirror.LevelOf(HeroMirror.Detect, noModule, isResearched) == 0, "no fallback tech name for anti-cloaker II - mirror stays 0 without the module");
+            Check(HeroMirror.LevelOf(null, noModule, isResearched) == 0, "unknown special mirrors nothing");
+
+            // the modifier pair of the vanilla module, on the hero ship
+            Check(string.Join(";", HeroMirror.ModifiersOf("Stealth", 3)) == "AntiVisionStrengthForModule +3", "stealth mirror = the cloak level on the ship");
+            Check(string.Join(";", HeroMirror.ModifiersOf("Detect", 1)) == "VisionStrength +1", "detection 1 = vision strength only");
+            Check(string.Join(";", HeroMirror.ModifiersOf("Detect", 2)) == "VisionStrength +2;MaximumShipDetectionProbeStock +2", "detection 2+ also carries probe stock");
+        }
+
         // the fleet effects resolve from the hero's ship: vanilla hero-skill paths (./ClassGarrisonFleet, +/ClassShip)
         CheckMod("Move", "ShipMaximumMovement", 1, HeroFlavors.ShipPath, 1f);
         CheckMod("Vision", "VisionRange", 1, HeroFlavors.ShipPath, 1f);
-        // the jammer: the vanilla ModuleSupportJammer mechanic, self-targeted on the hero's ship
+        // the jammer stays in the library (the vanilla ModuleSupportJammer mechanic, self-targeted on the hero's ship)
         CheckMod("Jammer", "TargetingWeightBonus", 1, "", -1f);
         // the flak: the vanilla Flak Enhancer pair - FlakEfficiency on the fleet's kinetic guns,
         // +4 damage per point on the fleet's flak guns

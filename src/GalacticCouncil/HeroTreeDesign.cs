@@ -198,15 +198,14 @@ public static partial class HeroDesign
             "Корабли флота героя берут на борт больше экипажа: больше солдат для абордажа, обороны и осады.",
             "The ships of the hero's fleet take more crew aboard: more soldiers for boarding, defense and sieges.",
             M("MaximumShipManpower", Pct, ShipCrewPath, 0.01f));
-        // Seeker T2: electronic warfare - the vanilla jammer mechanic (ModuleSupportJammer lowers the ship's
-        // TargetingWeightBonus, so enemy guns pick the hero's ship as a target less often). The attack EMP
-        // (disabling enemy weapons/shields) is bound to weapon modules with their own battle actions and is
-        // planned as a real module of the stage-3 hero hull.
+        // Library only (no tree references it): the vanilla jammer mechanic (ModuleSupportJammer lowers the
+        // ship's TargetingWeightBonus, so enemy guns pick the hero's ship as a target less often). It lost
+        // its Seeker slot to the flak barrage; the concept stays available for later designs.
         Def(A, "Jammer", "Генератор помех", "Jammer", " к весу цели", " target weight", true, Flavor.Deposit, "evasion", new[] { 2, 3, 4 }, 5, 0, 0, 1, 30, 0,
             "Только корабль героя: вражеские орудия реже выбирают его целью. Механика ванильного модуля «Глушитель» (вес цели), ванильные модули дают −10/−20.",
             "The hero's own ship only: enemy guns pick it as a target less often. The vanilla Jammer module mechanic (target weight); vanilla modules give -10/-20.",
             M("TargetingWeightBonus", Add, "", -1f));
-        // Seeker T3: fleet flak - the exact modifier pair of the vanilla "Flak enhancer" support module:
+        // Seeker T2: fleet flak - the exact modifier pair of the vanilla "Flak enhancer" support module:
         // FlakEfficiency on the kinetic guns of every ship (their anti-missile fire) and +4 damage per point
         // on the flak guns (the flak salvo damage equals the module's Damage property).
         Def(A, "Flak", "Зенитный огонь флота", "Fleet Flak Barrage", " ед. зенитного усиления", " flak power", false, Flavor.Defense, "flak", new[] { 1, 2, 3 }, 5, 0, 0, 1, 25, 0,
@@ -214,6 +213,27 @@ public static partial class HeroDesign
             "The kinetic guns of every ship in the hero's fleet shoot down enemy missiles and fighters better, and flak guns hit harder (+4 damage per point). Mirrors the vanilla Flak Enhancer module, fleet-wide.",
             M("FlakEfficiency", Add, "./ClassGarrisonFleet/ClassShip/ClassSection/ClassModuleWeapon,ClassModuleWeaponKinetic", 1f),
             M("Damage", Add, "./ClassGarrisonFleet/ClassShip/ClassSection/ClassModuleWeapon,ClassModuleWeaponFlack", 4f));
+        // Seeker T3: tech-mirrored stealth. No static modifiers: the skill level works as a CAP for the best
+        // researched cloaking module (ModuleSupportInvisibilityLevel1/2, Ambush, FullCombat -> the tech
+        // descriptors they require), and the hero ship carries the same AntiVisionStrengthForModule as the
+        // module would give. HeroRework injects the descriptor live (AddMirrorSkills).
+        Concept stealth = Def(A, "Stealth", "Маскировка флота", "Fleet Cloaking", " ур. маскировки", " cloaking lvl.", false, Flavor.Science, "stealth", S1, 3, 0, 0, 1, 3, 0,
+            "Корабль героя несёт генератор маскировки: уровень равен лучшему изученному модулю маскировки империи, но не выше уровня навыка. Изучите новую технологию маскировки - и навык сам станет сильнее (уровень 3 = маскировка на всю битву). Флот получает действие «Скрытность».",
+            "The hero's ship carries a cloaking generator: its level equals the best cloaking module the empire has researched, capped by the skill level. Research a better cloaking technology and the skill upgrades itself (level 3 = cloaked through the whole battle). The fleet gains the Cloak action.");
+        stealth.Special = "Stealth";
+        // Seeker T3: tech-mirrored detection. Same mirroring of the anti-cloaker modules
+        // (ModuleSupportInvisibilityDetectionLevel1/2/3): the fleet sees cloaked enemies at or below its
+        // detection level; from level 2 the hero ship also carries detection probes (probe stock = level).
+        Concept detect = Def(A, "Detect", "Сеть обнаружения", "Detection Grid", " ур. обнаружения", " detection lvl.", false, Flavor.Science, "detect", S1, 3, 0, 0, 1, 3, 0,
+            "Корабль героя несёт детектор невидимости: уровень равен лучшему изученному модулю обнаружения империи, но не выше уровня навыка. Флот видит замаскированных врагов своего уровня и ниже; со 2-го уровня корабль ещё и несёт зонды обнаружения (запас = уровню).",
+            "The hero's ship carries an invisibility detector: its level equals the best detection module the empire has researched, capped by the skill level. The fleet sees cloaked enemies of its level and below; from level 2 the ship also carries detection probes (stock = level).");
+        detect.Special = "Detect";
+        // Seeker ultimate: the hero ship is rebuilt as a mothership (a new hull with a support-carrier
+        // module layout). The hull swap itself is the special; no passive bonuses.
+        Concept mothership = Def(A, "Mothership", "Материнский корабль", "Mothership", "", "", false, Flavor.Mobility, "special", S1, 1, 0, 0, 1, 1, 0,
+            "Корабль героя перерождается в материнский корабль - летающую базу флота с новой раскладкой модулей: больше поддержки, эскадрилий и дальнобойных средств, меньше личного оружия.",
+            "The hero's ship is reborn as a mothership - a flying fleet base with a new module layout: more support, squadrons and long-range tools, less personal weaponry.");
+        mothership.Special = "Mothership";
 
         // ---------------------------------------------------------------- governor (star system)
         const string SP = HeroFlavors.SystemPath;
@@ -287,3 +307,69 @@ public static partial class HeroDesign
 
     public static HeroChannel ChannelOfRole(char role) { return role == 'A' ? HeroChannel.Ship : role == 'G' ? HeroChannel.System : HeroChannel.Senate; }
 }
+
+/// <summary>
+/// Tech-mirrored specials (Seeker stealth / detection): the skill level is only a CAP - the live level equals
+/// the best module the empire has actually researched. Pure data and logic, no game types: the tests check it
+/// directly, HeroRework wires it to the empire's researched technologies.
+/// </summary>
+public static class HeroMirror
+{
+    /// <summary>One vanilla module the skill mirrors: its name, the technology descriptor it needs (verified
+    /// fallback for when the module is missing at runtime) and the mirror level it carries.</summary>
+    public sealed class Source
+    {
+        public readonly string Module, FallbackTech;
+        public readonly int Level;
+        public Source(string module, string fallbackTech, int level) { Module = module; FallbackTech = fallbackTech; Level = level; }
+    }
+
+    // Cloaker I/II/III of the military tree (Penumbra): the cloak survives longer each level.
+    public static readonly Source[] Stealth =
+    {
+        new Source("ModuleSupportInvisibilityLevel1",     "TechnologyArmyCap1",  1),
+        new Source("ModuleSupportInvisibilityLevel2",     "TechnologyPlayDeck1", 2),
+        new Source("ModuleSupportInvisibilityAmbush",     "TechnologyPlayDeck3", 3),
+        new Source("ModuleSupportInvisibilityFullCombat", "TechnologyPlayDeck5", 3),
+    };
+
+    // Anti-Cloaker I/II/III: detection levels 1-3; level 2+ also carry detection probes.
+    public static readonly Source[] Detect =
+    {
+        new Source("ModuleSupportInvisibilityDetectionLevel1", "TechnologyPlayDeck2", 1),
+        new Source("ModuleSupportInvisibilityDetectionLevel2", null, 2),
+        new Source("ModuleSupportInvisibilityDetectionLevel3", null, 3),
+        // alternate module naming used by some versions of the game
+        new Source("ModuleInvisibilityDetectionProbeLevel2",   null, 2),
+        new Source("ModuleInvisibilityDetectionProbeLevel3",   null, 3),
+    };
+
+    public static Source[] TableOf(string special) { return special == "Stealth" ? Stealth : special == "Detect" ? Detect : null; }
+
+    /// <summary>Best mirror level the empire's research allows: for every source module the technology it
+    /// requires (moduleTech resolves it at runtime, the fallback is the verified name) must be researched.</summary>
+    public static int LevelOf(Source[] table, Func<string, string> moduleTech, Func<string, bool> researched)
+    {
+        if (table == null) return 0;
+        int level = 0;
+        for (int i = 0; i < table.Length; i++)
+        {
+            string tech = moduleTech(table[i].Module) ?? table[i].FallbackTech;
+            if (tech == null || table[i].Level <= level) continue;
+            if (researched(tech)) level = table[i].Level;
+        }
+        return level;
+    }
+
+    /// <summary>The hero ship carries the modifier pair of the vanilla module of this level (HeroRework turns it into a descriptor).</summary>
+    public static string[] ModifiersOf(string special, int level)
+    {
+        if (special == "Stealth") return new[] { "AntiVisionStrengthForModule +" + level };
+        if (special == "Detect")
+            return level >= 2
+                ? new[] { "VisionStrength +" + level, "MaximumShipDetectionProbeStock +" + level }
+                : new[] { "VisionStrength +" + level };
+        return new string[0];
+    }
+}
+

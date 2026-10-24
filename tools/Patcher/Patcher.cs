@@ -64,6 +64,7 @@ public static class Patcher
         if (academyOrder == null) throw new Exception("OrderAcademyHeroKind missing");
         HookHeroRework(hero);
         HookEducation(hero, academyOrder);
+        HookScience(hero);
         HideHackingNotice();
         DisableHackingEndTurnWarning();
 
@@ -269,6 +270,22 @@ public static class Patcher
         attr.ConstructorArguments.Add(new CustomAttributeArgument(template.ConstructorArguments[1].Type, "AcademyHeroKind"));
         edu.CustomAttributes.Add(attr);
         Console.WriteLine("hook: DepartmentOfEducation order processor AcademyHeroKind added");
+    }
+
+    // DepartmentOfScience.UnlockTechnology ends -> HeroRework.OnTechnologyUnlocked(department):
+    // a freshly researched cloaking/detection technology raises the mirrored Seeker skills of the empire's heroes.
+    static void HookScience(TypeDefinition hero)
+    {
+        var dos = mod.GetType("DepartmentOfScience");
+        var hook = GameMethod(hero, "OnTechnologyUnlocked");
+        int n = 0;
+        foreach (var m in dos.Methods)
+        {
+            if (m.Name != "UnlockTechnology" || !m.HasBody || m.IsStatic) continue;
+            n += WrapReturns(m, hook, new[] { OpCodes.Ldarg_0 });
+        }
+        if (n == 0) throw new Exception("DepartmentOfScience.UnlockTechnology was not hooked");
+        Console.WriteLine("hook: DepartmentOfScience.UnlockTechnology ends call OnTechnologyUnlocked: " + n);
     }
 
     // GameClient.SpawnHackingOperationBackdoorProcessor: stop before doing anything when the Counterintel law is active

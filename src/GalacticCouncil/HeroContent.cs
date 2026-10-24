@@ -319,6 +319,13 @@ public static partial class HeroRework
                     RegisterGui(sk.Name, IconTemplateFor(sk.Concepts[0].Icon), ru ? sk.TitleRu : sk.TitleEn, desc);
                 }
                 contentSkills[sk.Name] = def;
+                // live mirrors: the Stealth / Detect skills carry no static descriptors, their effect is
+                // injected by HeroRework.AddMirrorSkills (capped by the researched technology)
+                if (sk.Tier < 4 && sk.Concepts.Length == 1)
+                {
+                    string special = sk.Concepts[0].Special;
+                    if (special == "Stealth" || special == "Detect") HeroRework.RegisterMirrorSkill(sk.Name, special);
+                }
                 var slot = new HeroSkillTreeSkill();
                 slot.skillDefinition = def;
                 slot.SkillDefinitionReference = new XmlNamedReference(sk.Name);

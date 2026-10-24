@@ -45,9 +45,14 @@ public static partial class HeroRework
     {
         try
         {
-            if (list == null || list.Count == 0 || !IsRegular(hero)) return list;
+            if (!IsRegular(hero)) return list;
             if (!HeroKinds.Allows(KindOf(hero), channel)) return new List<SimulationDescriptor>();
-            return WithAutoBonus(list, hero);
+            // an empty list is normal for a ship hero whose skills are all special (no static modifiers):
+            // the mirror skills below still have to be injected, so null/empty is replaced with a fresh list
+            if (list == null) list = new List<SimulationDescriptor>();
+            List<SimulationDescriptor> result = WithAutoBonus(list, hero);
+            if (channel == HeroChannel.Ship) result = AddMirrorSkills(result, hero);
+            return result;
         }
         catch (Exception e) { Fail("Filter", e); return list; }
     }
@@ -55,6 +60,133 @@ public static partial class HeroRework
     public static List<SimulationDescriptor> FilterShip(List<SimulationDescriptor> list, Hero hero) { return Filter(list, hero, HeroChannel.Ship); }
     public static List<SimulationDescriptor> FilterSystem(List<SimulationDescriptor> list, Hero hero) { return Filter(list, hero, HeroChannel.System); }
     public static List<SimulationDescriptor> FilterSenate(List<SimulationDescriptor> list, Hero hero) { return Filter(list, hero, HeroChannel.Senate); }
+
+    // ---------------------------------------------------------------- tech-mirrored skills (Seeker stealth / detection)
+    // The skill level is a CAP for the level of the module the empire has actually researched: the hero ship
+    // carries the same AntiVisionStrengthForModule / VisionStrength the best researched cloaker / anti-cloaker
+    // module would give. When a technology is unlocked the mirror refreshes (OnTechnologyUnlocked below).
+
+    // skill database name -> mirror special ("Stealth" / "Detect"), filled while the designed trees register
+    static readonly Dictionary<string, string> mirrorSpecials = new Dictionary<string, string>();
+
+    public static void RegisterMirrorSkill(string skillName, string special) { mirrorSpecials[skillName] = special; }
+
+    static readonly Dictionary<string, string> moduleTechCache = new Dictionary<string, string>();
+    static readonly Dictionary<string, SimulationDescriptor> mirrorCache = new Dictionary<string, SimulationDescriptor>();
+
+    /// <summary>Adds the live mirror descriptors of the hero's Stealth / Detect skills (level capped by the researched technology).</summary>
+    static List<SimulationDescriptor> AddMirrorSkills(List<SimulationDescriptor> list, Hero hero)
+    {
+        if (mirrorSpecials.Count == 0 || hero.UnlockedSkills == null) return list;
+        var result = new List<SimulationDescriptor>(list);
+        var skills = hero.UnlockedSkills;
+        Empire empire = null;
+        for (int i = 0; i < skills.Count; i++)
+        {
+            string special;
+            if (skills[i] == null || skills[i].Definition == null) continue;
+            if (!mirrorSpecials.TryGetValue(skills[i].Definition.Name.ToString(), out special)) continue;
+            if (empire == null)
+            {
+                empire = hero.Empire;
+                if (empire == null) return result;
+            }
+            int level = Math.Min(skills[i].Level, HeroMirror.LevelOf(HeroMirror.TableOf(special), ModuleTech, delegate(string t) { return EmpireHasDescriptor(empire, t); }));
+            if (level <= 0) continue;
+            SimulationDescriptor d = MirrorDescriptor(special, level);
+            if (d != null) result.Add(d);
+        }
+        return result;
+    }
+
+    /// <summary>Best mirror level the empire's researched technologies allow for the special.</summary>
+    public static int MirrorTechLevel(string special, Empire empire)
+    {
+        if (empire == null) return 0;
+        return HeroMirror.LevelOf(HeroMirror.TableOf(special), ModuleTech, delegate(string t) { return EmpireHasDescriptor(empire, t); });
+    }
+
+    /// <summary>Technology descriptor the module requires (the TechnologyPrerequisite of the module), cached; null when unknown.</summary>
+    static string ModuleTech(string moduleName)
+    {
+        string cached;
+        if (moduleTechCache.TryGetValue(moduleName, out cached)) return cached;
+        string tech = null;
+        try
+        {
+            IDatabase<SupportModuleDefinition> db = Databases.GetDatabase<SupportModuleDefinition>(false);
+            SupportModuleDefinition module;
+            if (db != null && db.TryGetValue(new StaticString(moduleName), out module) && module != null)
+            {
+                Prerequisite[] prereqs = module.Prerequisites;
+                if (prereqs != null)
+                    for (int i = 0; i < prereqs.Length; i++)
+                    {
+                        var tp = prereqs[i] as TechnologyPrerequisite;
+                        if (tp == null) continue;
+                        string content = tp.PrerequisiteContent;
+                        if (!string.IsNullOrEmpty(content)) { tech = content; break; }
+                    }
+            }
+        }
+        catch (Exception e) { Fail("ModuleTech " + moduleName, e); }
+        moduleTechCache[moduleName] = tech;
+        return tech;
+    }
+
+    /// <summary>The empire carries the technology descriptor of a researched technology.</summary>
+    public static bool EmpireHasDescriptor(Empire empire, string name)
+    {
+        try
+        {
+            SimulationDescriptor[] descriptors = empire.GetSimulationDescriptors();
+            if (descriptors == null) return false;
+            for (int i = 0; i < descriptors.Length; i++)
+                if (descriptors[i] != null && descriptors[i].Name.ToString() == name) return true;
+        }
+        catch (Exception e) { Fail("EmpireHasDescriptor", e); }
+        return false;
+    }
+
+    /// <summary>The live mirror descriptor of a special at a level (cached): the modifier pair of the vanilla module, on the hero ship.</summary>
+    static SimulationDescriptor MirrorDescriptor(string special, int level)
+    {
+        string key = special + level;
+        SimulationDescriptor cached;
+        if (mirrorCache.TryGetValue(key, out cached)) return cached;
+        var mods = new List<SimulationModifierDescriptor>();
+        if (special == "Stealth")
+            mods.Add(CustomHackingHelper.MakeModifier("AntiVisionStrengthForModule", SimulationModifierDescriptor.ModifierOperation.Addition, level, ""));
+        else
+        {
+            mods.Add(CustomHackingHelper.MakeModifier("VisionStrength", SimulationModifierDescriptor.ModifierOperation.Addition, level, ""));
+            if (level >= 2) mods.Add(CustomHackingHelper.MakeModifier("MaximumShipDetectionProbeStock", SimulationModifierDescriptor.ModifierOperation.Addition, level, ""));
+        }
+        SimulationDescriptor result = null;
+        try { result = CustomHackingHelper.CreateAndRegisterDescriptor(null, "HRA_Mirror_" + special + "_" + level, "HeroSkillShip", null, mods.ToArray()); }
+        catch (Exception e) { Fail("MirrorDescriptor", e); }
+        mirrorCache[key] = result;
+        return result;
+    }
+
+    /// <summary>End hook of DepartmentOfScience.UnlockTechnology: the mirror skills may rise, refresh every ship hero of the empire.</summary>
+    public static void OnTechnologyUnlocked(DepartmentOfScience science)
+    {
+        try
+        {
+            if (mirrorSpecials.Count == 0 || science == null || science.Empire == null) return;
+            DepartmentOfEducation education = science.Empire.GetAgency<DepartmentOfEducation>();
+            if (education == null || education.ActiveHeroes == null) return;
+            var heroes = education.ActiveHeroes;
+            for (int i = 0; i < heroes.Count; i++)
+            {
+                Hero hero = heroes[i];
+                if (hero == null || hero.HeroShip == null) continue;
+                hero.HeroShip.RefreshHeroDescriptors();
+            }
+        }
+        catch (Exception e) { Fail("OnTechnologyUnlocked", e); }
+    }
 
     // ---------------------------------------------------------------- assignments (CustomHackingHelper.CheckHeroAssignableToFleet / ToSystem, start hook)
 
