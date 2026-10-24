@@ -213,3 +213,6 @@ Unverified in game: that an AI treasury returns a sensible net income at the sta
 
 ## Hacking popup hidden
 `NotificationMinorAndPirateHackingEnabled` (the only vanilla notification bound to `EventMinorAndPirateHackingUnlocked`, raised once per empire by `HackingManager.ClientBeginTurn` at the PvE hacking unlock turn) now returns false from `Bind` (`Patcher.HideHackingNotice`), so `GuiNotificationManager.RecordEventForEmpire` never creates it. The event itself is still raised because the AI listens to it. Not game-tested; if another hacking popup remains, its title is needed to find the event.
+
+## Hacking end-turn warning removed
+`DepartmentOfIntelligence.EndTurnValidator` (the check run by the "End turn" button) used to raise `EventHackingOperationLeftUnassigned` and refuse the first press while an empire had a free hacking slot and a possible target (re-armed every 5 turns). `Patcher.DisableHackingEndTurnWarning` makes it return true at once; the other validators (research, construction, heroes, treasury, ...) are untouched. Not game-tested.

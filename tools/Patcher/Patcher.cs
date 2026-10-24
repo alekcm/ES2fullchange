@@ -62,6 +62,7 @@ public static class Patcher
         if (hero == null) throw new Exception("HeroRework missing");
         HookHeroRework(hero);
         HideHackingNotice();
+        DisableHackingEndTurnWarning();
 
         Console.WriteLine("publicized members: " + cl.PublicizedLog.Count);
         foreach (var s in cl.PublicizedLog.OrderBy(x => x)) Console.WriteLine("  + " + s);
@@ -87,6 +88,18 @@ public static class Patcher
         il.InsertBefore(first, il.Create(OpCodes.Ldc_I4_0));
         il.InsertBefore(first, il.Create(OpCodes.Ret));
         Console.WriteLine("hook: NotificationMinorAndPirateHackingEnabled.Bind returns false (popup hidden)");
+    }
+
+    // End-turn warning "hacking operations are available": DepartmentOfIntelligence.EndTurnValidator raises EventHackingOperationLeftUnassigned and
+    // blocks the first press of "end turn" while a hacking slot is free and a target exists. It returns true (turn may end) at once now.
+    static void DisableHackingEndTurnWarning()
+    {
+        var m = Method("DepartmentOfIntelligence", "EndTurnValidator");
+        var il = m.Body.GetILProcessor();
+        var first = m.Body.Instructions[0];
+        il.InsertBefore(first, il.Create(OpCodes.Ldc_I4_1));
+        il.InsertBefore(first, il.Create(OpCodes.Ret));
+        Console.WriteLine("hook: DepartmentOfIntelligence.EndTurnValidator always lets the turn end (no unassigned-hacking warning)");
     }
 
     static void RepairHackingModes()
