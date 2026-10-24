@@ -19,6 +19,7 @@ public class OrderCouncilVote : Order
     public const int KindQuartermaster = 3;
     public const int KindReportTask = 4;          // unused (the manual assignment stub was removed; conditions are read from the game)
     public const int KindLeave = 5;
+    public const int KindDebug = 6;               // God-Mod menu: A = CouncilGame.Dbg* action, B = parameter (every client runs it, so the game stays in sync)
 
     public List<int[]> Entries = new List<int[]>();
     public int Kind;

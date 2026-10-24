@@ -1,0 +1,143 @@
+// Galactic Council - debug actions of the God-Mod menu (see CouncilDebug.cs for the window part).
+// Every action travels as OrderCouncilVote(KindDebug, A = action, B = parameter) and is executed by every client,
+// so the council state stays identical on all machines.
+using System;
+using System.Collections.Generic;
+using Amplitude;
+using Amplitude.Unity.Framework;
+using Amplitude.Unity.Game;
+
+public static partial class CouncilGame
+{
+    public const int DbgFound = 0;            // found the council right now (ignores the Academy discovery rules)
+    public const int DbgOpenVote = 1;         // open the vote right now (only when no vote is running)
+    public const int DbgTally = 2;            // close the running vote right now (AIs vote first)
+    public const int DbgSoon = 3;             // the next vote opens at the start of the next turn
+    public const int DbgRecalcVotes = 4;      // re-read the votes of the game (systems, Republic, senators) and subtract the war penalty
+    public const int DbgAddVotes = 5;         // B = change of the votes of the empire (session votes)
+    public const int DbgAddWar = 6;           // register one more declared war of the empire
+    public const int DbgClearWars = 7;        // forget the declared wars of the empire
+    public const int DbgAlliance = 8;         // B = -1 automatic, 0 holder is alone, 1 holder is in an alliance
+    public const int DbgGrantQualification = 9;   // B = index in CouncilLaws.Mandates: report every condition of the mandate
+    public const int DbgClearQualifications = 10; // forget every reported condition of the empire
+    public const int DbgDetectNow = 11;       // read the conditions from the game right now
+    public const int DbgGiveMandate = 12;     // B = index in CouncilLaws.Mandates
+    public const int DbgTakeMandate = 13;     // B = index in CouncilLaws.Mandates
+    public const int DbgAiVote = 14;          // every AI member casts its ballot now
+    public const int DbgClearVoteBonus = 15;  // forget the manual vote changes of the empire
+
+    static AcademyRequestsManager lastMgr;
+    public static int AllianceOverride = -1;
+    /// <summary>The Academy manager is seen at the first turn start after a load; "found" and "open vote now" need it.</summary>
+    public static bool ManagerKnown { get { return lastMgr != null; } }
+
+    public static bool DebugSend(Empire empire, int action, int param)
+    {
+        return SendKind(empire, OrderCouncilVote.KindDebug, action, param);
+    }
+
+    static void DebugProcess(OrderCouncilVote o)
+    {
+        try
+        {
+            int emp = o.EmpireIndex;
+            int b = o.B;
+            var game = GetGame();
+            if (game == null) return;
+            int turn = game.Turn;
+            switch (o.A)
+            {
+                case DbgFound:
+                    if (!Core.Enabled && lastMgr != null) FoundCouncil(lastMgr, game, turn);
+                    break;
+                case DbgOpenVote:
+                    if (Core.Enabled && Core.Phase == CouncilCore.PhaseIdle && lastMgr != null) DoOpen(lastMgr, game, turn);
+                    break;
+                case DbgTally:
+                    if (Core.Enabled && Core.Phase == CouncilCore.PhaseVoting) { DoTally(game, turn); RefreshEffects(game); }
+                    break;
+                case DbgSoon:
+                    if (Core.Enabled && Core.Phase == CouncilCore.PhaseIdle) Core.NextVoteTurn = turn + 1;
+                    break;
+                case DbgRecalcVotes:
+                    if (Core.Enabled) ApplySessionVotes(game, turn);
+                    break;
+                case DbgAddVotes:
+                    if (Core.Enabled && Core.IsMember(emp)) Core.SessionVotes[emp] = Core.SessionVotesOf(emp) + b;
+                    break;
+                case DbgClearVoteBonus:
+                    if (Core.Enabled) { Core.SessionVotes.Remove(emp); Core.VoteBonus.Remove(emp); }
+                    break;
+                case DbgAddWar:
+                    if (Core.Enabled && Core.IsMember(emp)) { Core.RecordWarDeclared(emp, turn); Core.SessionVotes[emp] = Core.SessionVotesOf(emp) - CouncilCore.WarPenaltyVotes; }
+                    break;
+                case DbgClearWars:
+                    if (Core.Enabled)
+                    {
+                        int wars = Core.RecentWars(emp, turn);
+                        Core.WarsDeclared.Remove(emp);
+                        if (wars > 0) Core.SessionVotes[emp] = Core.SessionVotesOf(emp) + wars * CouncilCore.WarPenaltyVotes;
+                    }
+                    break;
+                case DbgAlliance:
+                    AllianceOverride = b;
+                    RefreshAllianceFlag();
+                    break;
+                case DbgGrantQualification:
+                    if (Core.Enabled && b >= 0 && b < CouncilLaws.Mandates.Count)
+                    {
+                        var d = CouncilLaws.Mandates[b];
+                        if (d.Victory)
+                        {
+                            // the victory mandate needs two ordinary qualifications: grant the first ones that are missing
+                            for (int i = 0; i < CouncilLaws.Mandates.Count; i++)
+                                if (!CouncilLaws.Mandates[i].Victory && !Core.QualifiesOrdinary(emp, CouncilLaws.Mandates[i]) && Core.OrdinaryQualifiedCount(emp) < 2)
+                                    GrantConditions(emp, CouncilLaws.Mandates[i]);
+                        }
+                        else GrantConditions(emp, d);
+                    }
+                    break;
+                case DbgClearQualifications:
+                    if (Core.Enabled) Core.Tasks.Remove(emp);
+                    break;
+                case DbgDetectNow:
+                    if (Core.Enabled) DetectQualifications(game);
+                    break;
+                case DbgGiveMandate:
+                    if (Core.Enabled && Core.IsMember(emp) && b >= 0 && b < CouncilLaws.Mandates.Count)
+                    {
+                        Core.SetHolder(CouncilLaws.Mandates[b].Id, emp, turn);
+                        RefreshAllianceFlag();
+                        RefreshEffects(game);
+                    }
+                    break;
+                case DbgTakeMandate:
+                    if (Core.Enabled && b >= 0 && b < CouncilLaws.Mandates.Count)
+                    {
+                        Core.RevokeMandate(CouncilLaws.Mandates[b].Id);
+                        RefreshAllianceFlag();
+                        RefreshEffects(game);
+                    }
+                    break;
+                case DbgAiVote:
+                    if (Core.Enabled && Core.Phase == CouncilCore.PhaseVoting)
+                    {
+                        foreach (MajorEmpire e in game.EnumerableMajorEmpires)
+                        {
+                            if (!Core.IsMember(e.Index) || !e.IsControlledByAI || Core.HasVoted(e.Index)) continue;
+                            int aiSeed = unchecked(Core.VoteOpenTurn * 1103515245 + Core.VoteIndex * 12345 + e.Index * 131 + 17);
+                            Core.TrySetBallot(e.Index, Core.BuildAiBallot(e.Index, aiSeed, ScoreOf));
+                        }
+                    }
+                    break;
+            }
+        }
+        catch (Exception e) { Fail("DebugProcess", e); }
+    }
+
+    /// <summary>Reports as many different (fake) conditions as the mandate needs.</summary>
+    static void GrantConditions(int emp, CouncilMandateDef d)
+    {
+        for (int i = 0; i < d.Need; i++) Core.ReportTask(emp, d.Categories[0], "debug" + i);
+    }
+}

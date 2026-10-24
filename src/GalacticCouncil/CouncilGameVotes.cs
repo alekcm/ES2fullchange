@@ -71,6 +71,7 @@ public static partial class CouncilGame
             }
         }
         catch (Exception e) { Fail("RefreshAllianceFlag", e); }
+        if (AllianceOverride >= 0) inAlliance = AllianceOverride == 1;      // God-Mod menu
         Core.SupremeInAlliance = inAlliance;
     }
 

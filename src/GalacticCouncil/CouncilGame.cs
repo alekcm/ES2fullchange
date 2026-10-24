@@ -136,6 +136,7 @@ public static partial class CouncilGame
         try
         {
             if (mgr == null || mgr.AcademyEmpire == null) return;
+            lastMgr = mgr;
             var game = GetGame();
             if (game == null) return;
             int turn = game.Turn;

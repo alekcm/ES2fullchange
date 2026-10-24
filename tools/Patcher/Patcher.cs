@@ -54,6 +54,7 @@ public static class Patcher
         HookDecolonize(game);
         HookWarCreated(game);
         HookVictoryContext(game);
+        HookDebugTabs(cl.Mapped("CouncilDebug"));
         var hero = cl.Mapped("HeroRework");
         if (hero == null) throw new Exception("HeroRework missing");
         HookHeroRework(hero);
@@ -380,6 +381,29 @@ public static class Patcher
         il.InsertAfter(store, load);
         il.InsertAfter(load, il.Create(OpCodes.Call, GameMethod(game, "OnWarCreated")));
         Console.WriteLine("hook: CreateWarInstanceProcessor calls OnWarCreated");
+    }
+
+    // God-Mod menu: Council and hero test tools are appended to the end of two existing tabs (static (Game, MajorEmpire) methods)
+    static void HookDebugTabs(TypeDefinition dbg)
+    {
+        if (dbg == null) throw new Exception("CouncilDebug missing");
+        foreach (var spec in new[] { new[] { "DrawTabTechLawsHeroes", "DrawHeroTools" }, new[] { "DrawTabDiplomacyAndEmpires", "DrawCouncilTools" } })
+        {
+            var m = Method("CustomHackingHelper", spec[0]);
+            if (!m.IsStatic || m.Parameters.Count != 2) throw new Exception("unexpected signature of " + spec[0]);
+            var target = GameMethod(dbg, spec[1]);
+            LengthenBranches(m);
+            var il = m.Body.GetILProcessor();
+            var rets = m.Body.Instructions.Where(i => i.OpCode == OpCodes.Ret).ToList();
+            foreach (var r in rets)
+            {
+                r.OpCode = OpCodes.Ldarg_0; r.Operand = null;
+                var seq = new List<Instruction> { il.Create(OpCodes.Ldarg_1), il.Create(OpCodes.Call, target), il.Create(OpCodes.Ret) };
+                var at = r;
+                foreach (var x in seq) { il.InsertAfter(at, x); at = x; }
+            }
+            Console.WriteLine("hook: " + spec[0] + " ends with " + spec[1] + " (returns wrapped: " + rets.Count + ")");
+        }
     }
 
     // VictoryManager.SetupInterpreterContextForContender(contender) end => AdjustVictoryContext(this, contender.Empires)

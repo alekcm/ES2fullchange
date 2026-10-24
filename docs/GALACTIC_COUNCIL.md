@@ -152,3 +152,25 @@ The achievements stay once earned. The UI shows the progress (for example `62% /
 ## UI
 An IMGUI window (no Unity prefabs exist in this repo): a "Council" button appears while the Academy window is open;
 tabs Vote / Laws / Mandates. Toasts announce vote start and results.
+
+## Debug tools (God-Mod menu)
+
+The tools are appended to the END of two existing God-Mod tabs (hook `Patcher.HookDebugTabs`; code in `CouncilDebug.cs`, `CouncilGameDebug.cs`, `HeroDebug.cs`).
+Both sections are folded by default (a toggle line opens them).
+
+**Tab "Diplomacy and empires" → "DEBUG: Galactic Council"** (acts on the empire you currently control; switch with "Play As"):
+- state: phase, vote number, turns to the next vote, votes of the empire with the breakdown, Supreme Legate, keep threshold, alliance flag;
+- "Convene the Council now", "Open the vote now", "Vote at next turn", "AIs vote now", "Tally now", "Council window";
+- votes: +10 / +100 / −100, "Recompute from game", "Reset manual changes", "+ declared war (−20)", "Forget wars";
+- alliance of the Supreme Legate: auto / alone (51%) / allied (67%) - this is how both keep thresholds of "Establishment of Absolute Power" are tested;
+- every mandate: progress, holder, "Grant condition" (the Supreme Legate button grants two ordinary qualifications), "Give to me", "Take away";
+- "Detect conditions from game", "Clear conditions", last results.
+All actions are `OrderCouncilVote(KindDebug, action, param)`, executed by every client, so the state stays in sync. After a load the Academy manager is seen at the start of the next turn; "Convene" and "Open the vote" need it.
+
+Recipe for the keep-vote: "Give to me" on the Supreme Legate → "Open the vote now" → vote (Absolute Power: option 0 = keep, 1 = remove) → "Tally now".
+
+**Tab "Tech / laws / heroes" → "DEBUG: heroes"**:
+- every regular hero of the empire: kind (+ dictator), level, XP, skill points, Mastery state; buttons +1 / +5 / +20 levels (the normal XP path: level-up rule and the senator cap still apply), "Mastery" (learns an ultimate skill for free), "+5 points"; the same for all heroes;
+- hero gauge: pending hero choices, points per gauge and class, "+100 / +1000 / +10000" (the vanilla cheating order `OrderAddHeroUnlockGaugeClassPoints`; the choice appears at the end of the turn);
+- direct recruiting: filter by kind (by hero class), hire level 1 / 5 / 10 / 20, list of all definitions ("already in play" is disabled), "random free hero" (`OrderRecruitHero`, synchronized).
+Level, points and Mastery changes are applied to the local simulation (like the older God-Mod hero buttons), they are not orders.
