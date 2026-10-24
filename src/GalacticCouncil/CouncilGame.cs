@@ -164,6 +164,7 @@ public static partial class CouncilGame
             DetectQualifications(game);
             if (Core.NextAction(turn) == CouncilCore.ActionTally) DoTally(game, turn);
             if (Core.NextAction(turn) == CouncilCore.ActionOpen) DoOpen(mgr, game, turn);
+            try { AiMandateActions(game, turn); } catch (Exception ex) { Fail("AiMandateActions", ex); }
             PerTurn(game, turn);
             RefreshEffects(game);
         }
@@ -406,15 +407,15 @@ public static partial class CouncilGame
     static void ApplyMentoring(Game game)
     {
         var guids = new List<GameEntityGUID>();
-        PlayerController server = null;
         foreach (MajorEmpire e in game.EnumerableMajorEmpires)
         {
-            if (!Core.IsMember(e.Index) || e.IsControlledByAI) continue;
-            if (server == null && e.PlayerControllers != null) server = e.PlayerControllers.Server;
+            if (!Core.IsMember(e.Index) || e.HasBeenEliminated) continue;   // human and AI members alike
             var edu = e.GetAgency<DepartmentOfEducation>();
             if (edu == null) continue;
-            foreach (Hero h in edu.ActiveHeroes) guids.Add(h.GUID);
+            foreach (Hero h in edu.ActiveHeroes)
+                if (!CustomHackingHelper.IsAiHero(h)) guids.Add(h.GUID);   // the AI ruler heroes of the hacking mod keep their own progression
         }
+        var server = ServerController(null);
         if (server == null || guids.Count == 0) return;
         server.PostOrder(new OrderAddLevelsToHeroes(guids.ToArray(), 3f));
     }

@@ -295,6 +295,25 @@ static class M
             var ro = CouncilCore.Deserialize(oldState);
             Check(ro.Enabled && ro.Holds(0, CouncilLaws.Supreme) && ro.SessionVotesOf(0) == 0, "state without vote fields loads");
         }
+        // ---- mandate powers of an AI empire
+        {
+            var a = new CouncilCore();
+            turn = 400;
+            a.Found(0, new[] { 0, 1, 2 }, 20);
+            a.SetHolder(CouncilLaws.Chairman, 1, turn);
+            Open(a, 7);
+            Check(a.CanChairmanReplace(1), "AI chairman may replace a question before anybody voted");
+            var before = new List<string>(a.Proposals);
+            Check(a.TryAiChairman(1, 99), "AI chairman replaces a question");
+            int changed = 0; for (int i = 0; i < before.Count; i++) if (before[i] != a.Proposals[i]) changed++;
+            Check(changed == 1 && !a.CanChairmanReplace(1) && !a.TryAiChairman(1, 99), "exactly one question changed, once per vote");
+            bool harmless = true;
+            for (int i = 0; i < a.Proposals.Count; i++) { var d = CouncilLaws.Get(a.Proposals[i]); if (d == null) harmless = false; }
+            Check(harmless, "all proposals are known laws");
+            Check(!new CouncilCore().TryAiChairman(0, 1), "no council, no replacement");
+            Check(CouncilCore.AiCanAffordMarshal(1000f, 200f, 2) && !CouncilCore.AiCanAffordMarshal(1000f, 10f, 2) && !CouncilCore.AiCanAffordMarshal(50f, 500f, 2), "AI hires the Marshal only with a stock and a positive net income");
+            Check(CouncilCore.MarshalShips(1) == 3 && CouncilCore.MarshalShips(20) == 8, "contingent size");
+        }
         Console.WriteLine(fails == 0 ? "ALL PASSED" : (fails + " FAILED"));
         return fails == 0 ? 0 : 1;
     }

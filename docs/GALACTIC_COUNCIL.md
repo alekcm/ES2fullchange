@@ -24,7 +24,7 @@ Replenishment (manpower x1.5), Exchange of Intelligence Methods (+4 sleepers), N
 Other laws from the spec are registered in `CouncilLaws` but `Implemented=false`, so they are never offered yet.
 
 ## Stage 2 (added)
-Laws: Academic Mentoring (+3 levels to all active heroes of non-AI members, posted by the host), Market Deregulation
+Laws: Academic Mentoring (+3 levels to all active heroes of every member, human and AI, except the AI ruler heroes of the hacking mod; posted by the host), Market Deregulation
 (x0.5 buy price of Strategic/Luxury resources), Letters of Marque (x0.5 buy price of ships), Right of Plunder (x2 loot of
 `GroundBattleOutcomeLootDefinition.FillLoot`), Trade Restrictions (buy x2 / sell x0.5 for the target).
 
@@ -201,3 +201,12 @@ Level, points and Mastery changes are applied to the local simulation (like the 
   `RefreshEffects`) is called at the start of state 0 of `DepartmentOfTheTreasury.GameServerState_ComputeBailiff` and
   `GameClientState_Turn_End_CollectResources` (iterator `MoveNext`), i.e. before the bailiff check and before resources are collected.
   The same applies to the "Warship upkeep +100%" law: it can still push a poor AI empire into bankruptcy (not changed).
+
+## Mandate powers of AI empires (single player against computers)
+The buttons of the Council window are for humans; for an AI the same powers are run by `CouncilGame.AiMandateActions` (`CouncilGameAi.cs`) on every machine right after the tally/opening step of the turn, so the state stays identical:
+* **Chairman**: right after a vote opens (nobody has voted yet) `CouncilCore.TryAiChairman` replaces one ordinary question by a random implemented ordinary law that does not hurt anyone (`Benefit >= 0`), once per vote, seed from the vote number.
+* **Quartermaster**: the delivery is taken as soon as it is available (once per cycle).
+* **Marshal**: the contingent is hired once per mandate, but only when the AI can pay for it: net Dust income >= 25 per contingent ship and a stock >= 150 x stage (`AiCanAffordMarshal`); otherwise it is retried every turn. This guard exists because the upkeep is paid by the holder and a bankruptcy eliminates an empire.
+* **Leaving the Council** is never done by the AI.
+* Mentoring now also levels the heroes of AI members.
+Unverified in game: that an AI treasury returns a sensible net income at the start of the turn, the thresholds above, that the host posts the contingent for an AI empire.

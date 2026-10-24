@@ -226,6 +226,44 @@ public sealed partial class CouncilCore
         return true;
     }
 
+    // ---- mandate powers of AI empires (nobody presses the buttons for them)
+
+    public const int AiMarshalStockPerStage = 150;   // Dust in the treasury per game stage before an AI hires the contingent
+    public const int AiMarshalNetPerShip = 25;       // Dust of net income per contingent ship it must keep after the hire
+
+    public static int MarshalShips(int stage) { return Math.Min(8, 2 + Math.Max(0, stage)); }
+
+    /// <summary>The Marshal contingent is paid by the holder: an AI hires it only when it can carry the upkeep (positive net income with a margin, and a stock).</summary>
+    public static bool AiCanAffordMarshal(float stock, float net, int stage)
+    {
+        return net >= AiMarshalNetPerShip * MarshalShips(stage) && stock >= AiMarshalStockPerStage * Math.Max(1, stage);
+    }
+
+    /// <summary>An AI Chairman uses his right at once: one ordinary question is replaced by a random ordinary law that does not hurt anyone.</summary>
+    public bool TryAiChairman(int emp, int seed)
+    {
+        if (!CanChairmanReplace(emp)) return false;
+        var rng = new CouncilRng(seed ^ (emp * 7919));
+        var slots = new List<int>();
+        for (int q = 0; q < Proposals.Count; q++)
+        {
+            var d = CouncilLaws.Get(Proposals[q]);
+            if (d != null && d.Kind != CouncilLawDef.KindMandate && d.Id != CouncilLaws.NoConfidence) slots.Add(q);
+        }
+        var laws = new List<CouncilLawDef>();
+        for (int i = 0; i < CouncilLaws.All.Count; i++)
+        {
+            var nd = CouncilLaws.All[i];
+            if (!nd.Implemented || nd.Kind == CouncilLawDef.KindMandate || nd.Id == CouncilLaws.NoConfidence || nd.Benefit < 0) continue;
+            if (Proposals.Contains(nd.Id)) continue;
+            laws.Add(nd);
+        }
+        if (slots.Count == 0 || laws.Count == 0) return false;
+        for (int attempt = 0; attempt < 24; attempt++)
+            if (ChairmanReplace(emp, slots[rng.Range(slots.Count)], laws[rng.Range(laws.Count)].Id)) return true;
+        return false;
+    }
+
     public bool CanUseQuartermaster(int emp, int turn)
     {
         if (!Enabled || !Holds(emp, CouncilLaws.Quartermaster)) return false;
