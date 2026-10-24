@@ -154,6 +154,11 @@ public static class CouncilDebug
             if (edu == null) { GUILayout.Label("DepartmentOfEducation: n/a"); return; }
             bool ru = CouncilGame.IsRussian();
 
+            // ---- academy offer (variant 2b) switch
+            HeroRework.AcademyOfferEnabled = GUILayout.Toggle(HeroRework.AcademyOfferEnabled,
+                T("Выбор типа героя при заполнении шкалы Академии (Адмирал/Губернатор/Сенатор, затем два кандидата)",
+                  "Pick the hero kind when the Academy gauge fills (Admiral/Governor/Senator, then two candidates)"));
+
             // ---- own heroes
             GUILayout.Label(T("Герои империи ", "Heroes of ") + CouncilGame.EmpireName(player.Index) + ":");
             var list = new List<Hero>();

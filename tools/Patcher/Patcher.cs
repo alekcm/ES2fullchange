@@ -60,7 +60,10 @@ public static class Patcher
         HookDebugTabs(cl.Mapped("CouncilDebug"));
         var hero = cl.Mapped("HeroRework");
         if (hero == null) throw new Exception("HeroRework missing");
+        var academyOrder = cl.Mapped("OrderAcademyHeroKind");
+        if (academyOrder == null) throw new Exception("OrderAcademyHeroKind missing");
         HookHeroRework(hero);
+        HookEducation(hero, academyOrder);
         HideHackingNotice();
         DisableHackingEndTurnWarning();
 
@@ -233,6 +236,39 @@ public static class Patcher
         attr.ConstructorArguments.Add(new CustomAttributeArgument(template.ConstructorArguments[1].Type, "CouncilVote"));
         treasury.CustomAttributes.Add(attr);
         Console.WriteLine("hook: DepartmentOfTheTreasury order processor CouncilVote added");
+    }
+
+    // DepartmentOfEducation: [OrderProcessor(typeof(OrderAcademyHeroKind), "AcademyHeroKind")] AcademyHeroKindPreprocessor / AcademyHeroKindProcessor
+    // (the "variant 2b" Academy offer: the pending vanilla trio becomes a pair of the picked hero kind)
+    static void HookEducation(TypeDefinition hero, TypeDefinition academyOrder)
+    {
+        var edu = mod.GetType("DepartmentOfEducation");
+        var template = edu.CustomAttributes.FirstOrDefault(a => a.AttributeType.Name == "OrderProcessorAttribute");
+        if (template == null) throw new Exception("no OrderProcessor template attribute on DepartmentOfEducation");
+        var proto = mod.GetType("DepartmentOfTheTreasury").Methods.First(x => x.Name == "TransferResourcePreprocessor");
+        var protoProc = mod.GetType("DepartmentOfTheTreasury").Methods.First(x => x.Name == "TransferResourceProcessor");
+
+        var pre = new MethodDefinition("AcademyHeroKindPreprocessor", proto.Attributes, proto.ReturnType);
+        pre.Parameters.Add(new ParameterDefinition("order", ParameterAttributes.None, academyOrder));
+        var il = pre.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Call, GameMethod(hero, "AcademyHeroKindPreprocessor"));
+        il.Emit(OpCodes.Ret);
+        edu.Methods.Add(pre);
+
+        var proc = new MethodDefinition("AcademyHeroKindProcessor", protoProc.Attributes, protoProc.ReturnType);
+        proc.Parameters.Add(new ParameterDefinition("order", ParameterAttributes.None, academyOrder));
+        il = proc.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Call, GameMethod(hero, "AcademyHeroKindProcessor"));
+        il.Emit(OpCodes.Ret);
+        edu.Methods.Add(proc);
+
+        var attr = new CustomAttribute(template.Constructor);
+        attr.ConstructorArguments.Add(new CustomAttributeArgument(template.ConstructorArguments[0].Type, academyOrder));
+        attr.ConstructorArguments.Add(new CustomAttributeArgument(template.ConstructorArguments[1].Type, "AcademyHeroKind"));
+        edu.CustomAttributes.Add(attr);
+        Console.WriteLine("hook: DepartmentOfEducation order processor AcademyHeroKind added");
     }
 
     // GameClient.SpawnHackingOperationBackdoorProcessor: stop before doing anything when the Counterintel law is active
@@ -663,6 +699,17 @@ public static class Patcher
             il.InsertBefore(first, il.Create(OpCodes.Brfalse, first));
             il.InsertBefore(first, il.Create(OpCodes.Ret));
             Console.WriteLine("hook: Senator.UpdateRepresentativeHero restricted to senator heroes");
+        }
+
+        // variant 2b: HeroRecruitmentNotificationWindow.Refresh start => HeroRework.OnRecruitNoteRefresh(this)
+        // (a fresh vanilla trio makes the local player first pick the kind of hero)
+        {
+            var m = Method("HeroRecruitmentNotificationWindow", "Refresh");
+            var il = m.Body.GetILProcessor();
+            var first = m.Body.Instructions[0];
+            il.InsertBefore(first, il.Create(OpCodes.Ldarg_0));
+            il.InsertBefore(first, il.Create(OpCodes.Call, GameMethod(hero, "OnRecruitNoteRefresh")));
+            Console.WriteLine("hook: HeroRecruitmentNotificationWindow.Refresh asks the hero kind");
         }
     }
 
