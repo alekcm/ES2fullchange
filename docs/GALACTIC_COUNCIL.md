@@ -99,6 +99,7 @@ doubled). The budget never goes below 0.
   * every star system: level 2 -> +5, level 3 -> +10, level 4 -> +20 (one value per system, **not cumulative**;
     summed over all systems; `ColonizedStarSystem.Level` = `SimulationProperties.StarSystem.SystemLevel`);
   * Republic government: +40 (`Senate.Government.Definition.Name` contains `Republic`);
+  * Empire Development technology branch (`DepartmentOfScience.GetCurrentStageNumber`, the highest unlocked `TechnologyStageDefinition` of a quadrant whose name contains `EmpireDevelopment`): stage T3 +10, T4 +20, T5 +30; like the system levels the stages do not add up (`CouncilCore.TechStageVotes`);
   * skills of the heroes that represent the senators (see below);
   * minus 20 for every war the empire declared during the last `IntervalTurns` turns (20 at normal speed).
 * **War penalty:** hook `GameClient.<CreateWarInstanceProcessor>.MoveNext`, right after `CreateWarInstance` returns,
@@ -153,6 +154,11 @@ The achievements stay once earned. The UI shows the progress (for example `62% /
 An IMGUI window (no Unity prefabs exist in this repo): a "Council" button appears while the Academy window is open;
 tabs Vote / Laws / Mandates. Toasts announce vote start and results.
 
+### "Gives votes" in the interface
+* Council window, Voting tab: the toggle "Where the votes come from" lists every source with its rule and the live value for the player's empire (`CouncilGame.VoteSourceLines`).
+* Game texts (`CouncilGameTexts.cs`, once per turn, again after a language change): a note is appended to the description of the Republic government ("Galactic Council: the Republic gives +40 votes") and of the Empire Development stages T3/T4/T5. The keys are found at run time by scanning the `GuiElement` database (names `Government*Republic*`, `TechnologyStage[Definition]EmpireDevelopment3..5`); a stage without a description gets a new one. The God-Mod Council section prints how many texts were found.
+* Senator skills with votes already say so in their descriptions; mandate cards show "Votes: +50 / +100".
+
 ## Debug tools (God-Mod menu)
 
 The tools are appended to the END of two existing God-Mod tabs (hook `Patcher.HookDebugTabs`; code in `CouncilDebug.cs`, `CouncilGameDebug.cs`, `HeroDebug.cs`).
@@ -160,6 +166,7 @@ Both sections are folded by default (a toggle line opens them).
 
 **Tab "Diplomacy and empires" → "DEBUG: Galactic Council"** (acts on the empire you currently control; switch with "Play As"):
 - state: phase, vote number, turns to the next vote, votes of the empire with the breakdown, Supreme Legate, keep threshold, alliance flag;
+- "Open the Academy (any turn)" - the same as exploring the Academy system for the first time (`EventAcademyDiscovered` for every empire, `DiscoveredTurn`, `MinTurnsForFirstRequest = 0`) and then the Council is convened, so votes can be tested from turn 1;
 - "Convene the Council now", "Open the vote now", "Vote at next turn", "AIs vote now", "Tally now", "Council window";
 - votes: +10 / +100 / −100, "Recompute from game", "Reset manual changes", "+ declared war (−20)", "Forget wars";
 - alliance of the Supreme Legate: auto / alone (51%) / allied (67%) - this is how both keep thresholds of "Establishment of Absolute Power" are tested;

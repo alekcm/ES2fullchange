@@ -182,12 +182,27 @@ public static class CouncilUi
         GUI.DragWindow(new Rect(0, 0, 10000, 22));
     }
 
+    static bool showSources;
+
+    /// <summary>What gives votes (the rules and the live value for the player's empire).</summary>
+    static void DrawVoteSources(Empire me)
+    {
+        showSources = GUILayout.Toggle(showSources, CouncilGame.Tr("Откуда берутся голоса", "Where the votes come from"));
+        if (!showSources) return;
+        GUILayout.BeginVertical(boxStyle);
+        var lines = CouncilGame.VoteSourceLines(me);
+        for (int i = 0; i < lines.Count; i++) GUILayout.Label("• " + lines[i], smallStyle);
+        GUILayout.Label(CouncilGame.Tr("Системы, Республика, технологии, сенаторы и войны считаются в момент открытия голосования.", "Systems, Republic, technologies, senators and wars are counted when the vote opens."), smallStyle);
+        GUILayout.EndVertical();
+    }
+
     static void DrawVoteTab(Empire me)
     {
         var c = CouncilGame.Core;
         var game = CouncilGame.GetGame();
         int turn = game != null ? game.Turn : 0;
 
+        DrawVoteSources(me);
         if (c.Phase != CouncilCore.PhaseVoting)
         {
             GUILayout.Label(CouncilGame.Tr("Сейчас голосование не проводится.", "No vote is in progress."), titleStyle);
@@ -452,7 +467,7 @@ public static class CouncilUi
             int holder = c.HolderOf(d.Id);
             GUILayout.Label((CouncilGame.IsRussian() ? d.Ru : d.En) + "   [" + (holder >= 0 ? CouncilGame.EmpireName(holder) : CouncilGame.Tr("не назначен", "vacant")) + "]", titleStyle);
             GUILayout.Label(CouncilGame.IsRussian() ? d.RuDesc : d.EnDesc, smallStyle);
-            GUILayout.Label(d.Victory ? CouncilGame.Tr("Голоса: ×2 и ещё +" + CouncilCore.SupremeMandateVotes, "Votes: x2 and +" + CouncilCore.SupremeMandateVotes + " more")
+            GUILayout.Label(d.Victory ? CouncilGame.Tr("Голоса: +" + CouncilCore.SupremeMandateVotes + " владельцу", "Votes: +" + CouncilCore.SupremeMandateVotes + " to the holder")
                                       : CouncilGame.Tr("Голоса: +" + CouncilCore.MandateVotes + " владельцу", "Votes: +" + CouncilCore.MandateVotes + " to the holder"), smallStyle);
             bool q = member && c.Qualifies(me.Index, d.Id);
             string prog = d.Victory ? "" : "  (" + CouncilGame.ProgressText(me.Index, d) + ")";

@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using Amplitude;
 using Amplitude.Unity.Framework;
+using Amplitude.Unity.Event;
 using Amplitude.Unity.Game;
 
 public static partial class CouncilGame
@@ -25,6 +26,8 @@ public static partial class CouncilGame
     public const int DbgTakeMandate = 13;     // B = index in CouncilLaws.Mandates
     public const int DbgAiVote = 14;          // every AI member casts its ballot now
     public const int DbgClearVoteBonus = 15;  // forget the manual vote changes of the empire
+
+    public const int DbgOpenAcademy = 16;     // discover the Academy for everybody (any turn) and convene the Council
 
     static AcademyRequestsManager lastMgr;
     public static int AllianceOverride = -1;
@@ -60,6 +63,9 @@ public static partial class CouncilGame
             int turn = game.Turn;
             switch (o.A)
             {
+                case DbgOpenAcademy:
+                    DebugOpenAcademy(emp, game, turn);
+                    break;
                 case DbgFound:
                     if (Core.Enabled) { DebugNote("Совет уже создан", "The Council already exists"); break; }
                     if (Mgr() == null || Mgr().AcademyEmpire == null) { DebugNote("В этой партии нет Академии: Совет создать нельзя", "There is no Academy in this game: the Council cannot be created"); break; }
@@ -152,6 +158,36 @@ public static partial class CouncilGame
             }
         }
         catch (Exception e) { Fail("DebugProcess", e); }
+    }
+
+    /// <summary>Does what the first exploration of the Academy system does: the Academy is discovered (event for every empire), the first-request delay is removed, then the Council is convened.</summary>
+    static void DebugOpenAcademy(int emp, Game game, int turn)
+    {
+        var me = GetMajor(emp);
+        var mgr = Mgr();
+        if (me == null || mgr == null || mgr.AcademyEmpire == null) { DebugNote("В этой партии нет Академии", "There is no Academy in this game"); return; }
+        if (AcademyIsGone(mgr)) { DebugNote("Академия уничтожена", "The Academy is eliminated"); return; }
+        try
+        {
+            var edu = me.GetAgency<DepartmentOfEducation>();
+            var academy = edu == null ? null : edu.Academy;
+            var events = Services.GetService<IEventService>();
+            if (academy != null && events != null && academy.WorldAcademy != null)
+            {
+                if (!academy.HasBeenDiscovered)
+                    foreach (MajorEmpire e in game.EnumerableMajorEmpires)
+                        events.Notify(new EventAcademyDiscovered(e, me, academy.WorldAcademy));
+            }
+        }
+        catch (Exception e) { Fail("DebugOpenAcademy event", e); }
+        try
+        {
+            if (mgr.DiscoveredTurn == -1) mgr.DiscoveredTurn = Math.Max(0, turn);
+            mgr.MinTurnsForFirstRequest = 0f;
+        }
+        catch (Exception e) { Fail("DebugOpenAcademy manager", e); }
+        if (!Core.Enabled) FoundCouncil(mgr, game, turn);
+        DebugNote("Академия открыта", "The Academy is open");
     }
 
     /// <summary>Reports as many different (fake) conditions as the mandate needs.</summary>

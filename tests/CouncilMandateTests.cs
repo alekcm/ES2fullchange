@@ -255,6 +255,8 @@ static class M
         {
             Check(CouncilCore.SystemLevelVotes(1) == 0 && CouncilCore.SystemLevelVotes(2) == 5 && CouncilCore.SystemLevelVotes(3) == 10 && CouncilCore.SystemLevelVotes(4) == 20,
                   "system level votes 0 / 5 / 10 / 20, not cumulative");
+            Check(CouncilCore.TechStageVotes(1) == 0 && CouncilCore.TechStageVotes(2) == 0 && CouncilCore.TechStageVotes(3) == 10 && CouncilCore.TechStageVotes(4) == 20 && CouncilCore.TechStageVotes(5) == 30 && CouncilCore.TechStageVotes(6) == 30,
+                  "technology stage votes 3/4/5 -> 10/20/30");
             Check(CouncilCore.RepublicVotes == 40 && CouncilCore.MandateVotes == 50 && CouncilCore.SupremeMandateVotes == 100 && CouncilCore.WarPenaltyVotes == 20, "vote constants");
             var v = new CouncilCore(); v.Found(0, new[] { 0, 1, 2 }, 20);
             var game = new Dictionary<int, int>(); game[0] = 5 + 10 + 20 + CouncilCore.RepublicVotes; game[1] = 0; game[2] = 20;

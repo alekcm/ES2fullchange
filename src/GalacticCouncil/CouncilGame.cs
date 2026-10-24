@@ -142,6 +142,7 @@ public static partial class CouncilGame
             int turn = game.Turn;
             CouncilUi.EnsureHost();
             HeroRework.PerTurn(game);
+            EnsureVoteTexts();
 
             if (Core.Enabled && AcademyIsGone(mgr))
             {

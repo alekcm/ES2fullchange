@@ -1,6 +1,6 @@
 // Galactic Council: where the votes of an empire come from (pure C#, no game types, part of CouncilCore).
 //   base 100 + Merit law + Strategic Presence                        (CouncilCore.Budget)
-//   + session snapshot of the game state taken when the vote opens:   star system levels, Republic, senator hero skills,
+//   + session snapshot of the game state taken when the vote opens:   star system levels, Republic, Empire Development technology stage, senator hero skills,
 //                                                                     minus the penalty for declared wars
 //   + 50 votes for every ordinary mandate held, 100 for the Supreme one (and nothing is doubled)
 using System;
@@ -12,7 +12,7 @@ public sealed partial class CouncilCore
 {
     public const int RepublicVotes = 40;          // empire under the Republic government
     public const int MandateVotes = 50;           // each ordinary mandate
-    public const int SupremeMandateVotes = 100;   // the victory mandate (on top of the doubling)
+    public const int SupremeMandateVotes = 100;   // the victory mandate (simply +100, nothing is doubled)
     public const int KeepPercentSolo = 51;        // confirmation of the victory mandate: share of the votes needed to keep it
     public const int KeepPercentAlliance = 67;    // the same when the holder is a member of an alliance
     public const int WarPenaltyVotes = 20;        // per declared war ...
@@ -33,6 +33,15 @@ public sealed partial class CouncilCore
     {
         long total = (long)keep + remove;
         return total == 0 || keep * 100L >= KeepPercentNeeded * total;
+    }
+
+    /// <summary>Votes for the stage reached in the Empire Development technology branch: stage 3 gives 10, stage 4 gives 20, stage 5 gives 30. The stages do not add up (like the system levels).</summary>
+    public static int TechStageVotes(int stage)
+    {
+        if (stage >= 5) return 30;
+        if (stage == 4) return 20;
+        if (stage == 3) return 10;
+        return 0;
     }
 
     /// <summary>Votes of one star system: level 2 gives 5, level 3 gives 10, level 4 gives 20. The levels do not add up.</summary>
@@ -101,7 +110,7 @@ public sealed partial class CouncilCore
         var sb = new StringBuilder();
         sb.Append(ru ? "База " : "Base ").Append(BaseVotes);
         if (law != 0) sb.Append(ru ? "; законы и присутствие " : "; laws and presence ").Append(law > 0 ? "+" : "").Append(law);
-        if (session != 0) sb.Append(ru ? "; системы, Республика, сенаторы, войны " : "; systems, Republic, senators, wars ").Append(session > 0 ? "+" : "").Append(session);
+        if (session != 0) sb.Append(ru ? "; системы, технологии, Республика, сенаторы, войны " : "; systems, technologies, Republic, senators, wars ").Append(session > 0 ? "+" : "").Append(session);
         if (mand != 0) sb.Append(ru ? "; мандаты +" : "; mandates +").Append(mand);
         if (supreme) sb.Append(ru ? "; Верховный легат +" : "; Supreme Legate +").Append(SupremeMandateVotes);
         int wars = RecentWars(emp, turn);

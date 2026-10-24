@@ -12,7 +12,7 @@ public static partial class CouncilGame
 {
     // ---------------------------------------------------------------- votes taken when a session opens
 
-    /// <summary>Votes of every member from the game state: levels of its star systems, Republic, skills of its senators.</summary>
+    /// <summary>Votes of every member from the game state: levels of its star systems, Republic, Empire Development stage, skills of its senators.</summary>
     static Dictionary<int, int> GameVotes(Game game)
     {
         var map = new Dictionary<int, int>();
@@ -22,6 +22,7 @@ public static partial class CouncilGame
             int v = 0;
             try { v += SystemLevelVotes(e); } catch (Exception ex) { Fail("SystemLevelVotes", ex); }
             try { if (IsRepublic(e)) v += CouncilCore.RepublicVotes; } catch (Exception ex) { Fail("IsRepublic", ex); }
+            try { v += CouncilCore.TechStageVotes(EmpireDevelopmentStage(e)); } catch (Exception ex) { Fail("TechVotes", ex); }
             try { v += HeroRework.CouncilVotesOf(e); } catch (Exception ex) { Fail("SenatorVotes", ex); }
             map[e.Index] = v;
         }

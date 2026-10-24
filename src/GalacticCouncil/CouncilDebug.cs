@@ -36,6 +36,11 @@ public static class CouncilDebug
             int turn = game.Turn;
             GUILayout.Label(T("Управляется империя: ", "Controlled empire: ") + CouncilGame.EmpireName(emp) + T("  (смена игрока — «Играть за эту империю» выше)", "  (to switch use \"Play As\" above)"));
 
+            GUILayout.BeginHorizontal();
+            if (Btn(T("Открыть Академию (с любого хода)", "Open the Academy (any turn)"))) CouncilGame.DebugSend(player, CouncilGame.DbgOpenAcademy, 0);
+            GUILayout.Label(T("  открывает Академию для всех, снимает задержку первого запроса и созывает Совет", "  discovers the Academy for everybody, removes the first-request delay and convenes the Council"));
+            GUILayout.EndHorizontal();
+            if (CouncilGame.TextsStatus.Length > 0) GUILayout.Label(T("Пометки «даёт голоса» в текстах игры: ", "\"Gives votes\" notes in game texts: ") + CouncilGame.TextsStatus);
             if (!core.Enabled)
             {
                 GUILayout.Label(core.Destroyed ? T("Совет распущен (Академия была уничтожена).", "The Council is disbanded (the Academy was eliminated).")
