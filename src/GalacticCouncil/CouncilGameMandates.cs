@@ -124,7 +124,9 @@ public static partial class CouncilGame
 
     static bool ActionPreprocessor(OrderCouncilVote o)
     {
-        if (o == null || !Core.Enabled) return false;
+        if (o == null) return false;
+        if (o.Kind == OrderCouncilVote.KindDebug) return true;      // God-Mod menu: must work before the Council exists ("convene now")
+        if (!Core.Enabled) return false;
         int emp = o.EmpireIndex;
         switch (o.Kind)
         {

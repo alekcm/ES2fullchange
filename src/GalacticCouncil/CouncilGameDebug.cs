@@ -29,11 +29,24 @@ public static partial class CouncilGame
     static AcademyRequestsManager lastMgr;
     public static int AllianceOverride = -1;
     /// <summary>The Academy manager is seen at the first turn start after a load; "found" and "open vote now" need it.</summary>
-    public static bool ManagerKnown { get { return lastMgr != null; } }
+    public static bool ManagerKnown { get { return Mgr() != null; } }
+
+    /// <summary>The manager seen at the last turn start, or (right after a load) the one registered as the game service.</summary>
+    static AcademyRequestsManager Mgr()
+    {
+        if (lastMgr != null) return lastMgr;
+        try { lastMgr = Services.GetService<IAcademyRequestsService>() as AcademyRequestsManager; } catch (Exception) { }
+        return lastMgr;
+    }
 
     public static bool DebugSend(Empire empire, int action, int param)
     {
         return SendKind(empire, OrderCouncilVote.KindDebug, action, param);
+    }
+
+    static void DebugNote(string ru, string en)
+    {
+        try { CouncilUi.Toast(Tr(ru, en)); } catch (Exception) { }
     }
 
     static void DebugProcess(OrderCouncilVote o)
@@ -48,10 +61,16 @@ public static partial class CouncilGame
             switch (o.A)
             {
                 case DbgFound:
-                    if (!Core.Enabled && lastMgr != null) FoundCouncil(lastMgr, game, turn);
+                    if (Core.Enabled) { DebugNote("Совет уже создан", "The Council already exists"); break; }
+                    if (Mgr() == null || Mgr().AcademyEmpire == null) { DebugNote("В этой партии нет Академии: Совет создать нельзя", "There is no Academy in this game: the Council cannot be created"); break; }
+                    if (AcademyIsGone(Mgr())) { DebugNote("Академия уничтожена: Совет создать нельзя", "The Academy is eliminated: the Council cannot be created"); break; }
+                    FoundCouncil(Mgr(), game, turn);
                     break;
                 case DbgOpenVote:
-                    if (Core.Enabled && Core.Phase == CouncilCore.PhaseIdle && lastMgr != null) DoOpen(lastMgr, game, turn);
+                    if (!Core.Enabled) { DebugNote("Совет ещё не создан", "The Council does not exist yet"); break; }
+                    if (Core.Phase != CouncilCore.PhaseIdle) { DebugNote("Голосование уже идёт", "A vote is already running"); break; }
+                    if (Mgr() == null) { DebugNote("Менеджер Академии недоступен", "The Academy manager is not available"); break; }
+                    DoOpen(Mgr(), game, turn);
                     break;
                 case DbgTally:
                     if (Core.Enabled && Core.Phase == CouncilCore.PhaseVoting) { DoTally(game, turn); RefreshEffects(game); }

@@ -38,9 +38,9 @@ public static class CouncilDebug
 
             if (!core.Enabled)
             {
-                GUILayout.Label(core.Destroyed ? T("Совет распущен (Академия уничтожена).", "The Council is disbanded (the Academy is gone).")
-                                               : T("Совет ещё не созван (ждёт открытия Академии).", "The Council is not convened yet (waits for the Academy)."));
-                if (!core.Destroyed && Btn(T("Созвать Совет сейчас", "Convene the Council now"))) CouncilGame.DebugSend(player, CouncilGame.DbgFound, 0);
+                GUILayout.Label(core.Destroyed ? T("Совет распущен (Академия была уничтожена).", "The Council is disbanded (the Academy was eliminated).")
+                                               : T("Совет ещё не созван: нужно, чтобы Академия была открыта, и прошло достаточно ходов.", "The Council is not convened yet: the Academy must be discovered and enough turns must pass."));
+                if (Btn(T("Созвать Совет сейчас", "Convene the Council now"))) CouncilGame.DebugSend(player, CouncilGame.DbgFound, 0);
                 return;
             }
 

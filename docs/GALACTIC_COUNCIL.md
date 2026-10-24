@@ -165,7 +165,8 @@ Both sections are folded by default (a toggle line opens them).
 - alliance of the Supreme Legate: auto / alone (51%) / allied (67%) - this is how both keep thresholds of "Establishment of Absolute Power" are tested;
 - every mandate: progress, holder, "Grant condition" (the Supreme Legate button grants two ordinary qualifications), "Give to me", "Take away";
 - "Detect conditions from game", "Clear conditions", last results.
-All actions are `OrderCouncilVote(KindDebug, action, param)`, executed by every client, so the state stays in sync. After a load the Academy manager is seen at the start of the next turn; "Convene" and "Open the vote" need it.
+All actions are `OrderCouncilVote(KindDebug, action, param)`, executed by every client, so the state stays in sync. The Academy manager is taken from the game service (`IAcademyRequestsService`) when no turn has started since the load. "Convene" works only when the game has an Academy that is not eliminated; failures are shown as a toast.
+Natural founding (without the button): the Academy must be discovered (`DiscoveredTurn`), the turn must be greater than that turn and at least `MinTurnsForFirstRequest`.
 
 Recipe for the keep-vote: "Give to me" on the Supreme Legate → "Open the vote now" → vote (Absolute Power: option 0 = keep, 1 = remove) → "Tally now".
 
