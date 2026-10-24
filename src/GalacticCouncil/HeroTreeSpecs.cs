@@ -99,12 +99,14 @@ public static partial class HeroDesign
         Ult("RacePrimitives", "Дикая сила", "Primal Strength");
 
         // ------------------------------------------------ classes
-        Spec("ClassAdmiral", 'A', "T1:Xp;T2:Damage;T3:Health;U:Xp,Damage,Health,Move");
-        Spec("ClassAdventurer", 'A', "T1:Vision;T2:Evasion;T3:LootDust;U:Vision,Evasion,LootDust,Xp");
+        // Guardian: the combat line of the hero's PERSONAL ship (empty path = the ship itself).
+        // Seeker: utility line - virtual support modules serving the whole fleet through the hero's ship.
+        Spec("ClassAdmiral", 'A', "T1:ShipDmg;T2:ShipHp;T3:ShipCrit;U:ShipDmg,ShipHp,ShipCrit,ShipCrewKill");
+        Spec("ClassAdventurer", 'A', "T1:Move;T2:Repair;T3:Vision;U:Move,Repair,Vision,Crew");
         Spec("ClassAdministrator", 'G', "T1:Happy;T2:Prod;T3:Upkeep;U:Happy,Prod,Upkeep,Infl");
         Spec("ClassCorporate", 'S', "T1:Money;T2:Upkeep;T3:Prod;U:Money,Upkeep,Prod,Infl");
-        Ult("ClassAdmiral", "Флотоводец", "Fleet Commander");
-        Ult("ClassAdventurer", "Искатель приключений", "Adventure Seeker");
+        Ult("ClassAdmiral", "Личный флагман", "Personal Flagship");
+        Ult("ClassAdventurer", "Материнский корабль", "Mothership");
         Ult("ClassAdministrator", "Образцовый управитель", "Model Administrator");
         Ult("ClassCorporate", "Корпоративный магнат", "Corporate Magnate");
 

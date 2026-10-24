@@ -173,6 +173,32 @@ public static partial class HeroDesign
         eu.Special = "Euphoria";
         Get(A, "LootDust").Special = "Loot"; Get(A, "LootSci").Special = "Loot"; Get(A, "LootInfl").Special = "Loot";
 
+        // ---------------------------------------------------------------- admiral (his own ship): class trees of the admirals
+        // Ship-skill descriptors are carried by the hero's own ship (HeroShip.RefreshHeroDescriptors adds them
+        // to the ship itself), so an empty path targets the hero's ship only, while the fleet is reached through
+        // it (HeroFlavors.ShipPath / ShipCrewPath resolve from the ship). Guardian powers up his personal
+        // warship; Seeker carries virtual support modules that serve the whole fleet.
+        Def(A, "ShipDmg", "Урон орудий корабля героя", "Hero Ship Weapon Damage", "%", "%", false, Flavor.Offense, "dmg", new[] { 4, 5, 6 }, 5, 0, 0, 1, 80, 0,
+            "Только корабль героя: установленные на нём орудия бьют сильнее. Проценты умножают урон модулей, так что выигрыш растёт вместе с военными технологиями.",
+            "The hero's own ship only: the guns installed on it hit harder. The percentages multiply module damage, so the gain grows with your military tech.",
+            M("Damage", Add, "", 0.01f));
+        Def(A, "ShipHp", "Прочность корабля героя", "Hero Ship Hull", "%", "%", false, Flavor.Defense, "hp", new[] { 6, 8, 10 }, 5, 0, 0, 1, 100, 0,
+            "Только корабль героя: его корпус выдерживает больше урона.",
+            "The hero's own ship only: its hull takes more punishment.",
+            M("MaximumHealth", Pct, "", 0.01f));
+        Def(A, "ShipCrit", "Шанс крита корабля героя", "Hero Ship Critical Hit Chance", "%", "%", false, Flavor.Offense, "crit", new[] { 2, 3, 4 }, 5, 0, 0, 1, 25, 0,
+            "Только корабль героя: его выстрелы чаще наносят двойной урон.",
+            "The hero's own ship only: its shots deal double damage more often.",
+            M("CriticalHitChance", Add, "", 0.01f));
+        Def(A, "ShipCrewKill", "Выкашивание экипажей", "Crew Culling", "%", "%", false, Flavor.Offense, "crewkill", new[] { 10, 15, 20 }, 5, 0, 0, 1, 80, 0,
+            "Только корабль героя: его выстрелы выкашивают экипажи вражеских кораблей, ослабляя их абордаж и оборону.",
+            "The hero's own ship only: its shots mow down enemy crews, weakening their boarding and defense.",
+            M("ManpowerDamageOverTime", Pct, "", 0.01f));
+        Def(A, "Crew", "Запасные экипажи", "Reserve Crews", "%", "%", false, Flavor.Manpower, "crew", new[] { 5, 6, 8 }, 5, 0, 0, 1, 40, 0,
+            "Корабли флота героя берут на борт больше экипажа: больше солдат для абордажа, обороны и осады.",
+            "The ships of the hero's fleet take more crew aboard: more soldiers for boarding, defense and sieges.",
+            M("MaximumShipManpower", Pct, ShipCrewPath, 0.01f));
+
         // ---------------------------------------------------------------- governor (star system)
         const string SP = HeroFlavors.SystemPath;
         Def(G, "Prod", "Промышленность", "Industry", "", "", false, Flavor.Production, "prod", new[] { 2, 3, 4 }, 5, 0, 0, 1, 40, 0,
