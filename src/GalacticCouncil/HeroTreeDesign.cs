@@ -369,7 +369,56 @@ public static class HeroMirror
             return level >= 2
                 ? new[] { "VisionStrength +" + level, "MaximumShipDetectionProbeStock +" + level }
                 : new[] { "VisionStrength +" + level };
+        if (special == "Mothership") return new[] { "CommandPoints Force 0" };
         return new string[0];
     }
 }
+
+/// <summary>
+/// The Seeker ultimate: the hero ship is REBUILT as a mothership - a large carrier hull of the empire's
+/// faction with a support-carrier module layout (squadrons and support instead of personal weapons).
+/// Pure data and logic, no game types: the tests check the plan, HeroRework wires it to the game.
+/// </summary>
+public static class HeroMothership
+{
+    /// <summary>The design role: the large carrier hulls carry layouts for it (not for ShipRoleHero), and it
+    /// buffs squadrons (+10% health/damage). The hero ship keeps its 0 command points through the skill
+    /// descriptor (HeroMirror.ModifiersOf("Mothership")), whatever hull it wears.</summary>
+    public const string RoleName = "ShipRoleCarrier";
+
+    /// <summary>The large carrier hull line, one per major faction (HullLarge01Terrans, ...Cravers, ...).</summary>
+    public const string HullPrefix = "HullLarge01";
+    public const string HullFallback = "HullLarge01Terrans";
+
+    // basic-tier vanilla modules - the same tier the vanilla hero designs are built from
+    public const string SquadronModule = "ModuleSquadronBomber1";                       // the bomber wing
+    public const string SupportBoosterModule = "ModuleSupportSquadronDefenseEnhancer1Strategic3";  // one per ship: squadron defense
+    public const string SupportModule = "ModuleSupportEngine2";                          // plain engines
+    public const string ShieldModule = "ModuleDefenseShield1";
+    public const string PlatingModule = "ModuleDefenseHullPlating1";
+
+    public static string HullNameFor(string factionName) { return HullPrefix + factionName; }
+    public static string DesignNameFor(string hullName) { return "HRMothershipShip_" + hullName; }
+
+    /// <summary>The module a slot of the carrier hull receives (null = the slot stays empty): every
+    /// squadron-capable slot carries a bomber wing; large weapon mounts and pure weapon slots stay empty
+    /// (the mothership is a flying base, not a battleship); defense-capable slots alternate shield and
+    /// plating; the first pure support slot carries the squadron booster, the others engines.</summary>
+    public static string ModuleFor(string[] restrictedCategories, bool isLargeSlot, int supportSlotsFilled, int defenseSlotsFilled)
+    {
+        if (restrictedCategories == null || restrictedCategories.Length == 0 || isLargeSlot) return null;
+        bool squadron = false, support = false, defense = false;
+        for (int i = 0; i < restrictedCategories.Length; i++)
+        {
+            if (restrictedCategories[i] == "Squadron") squadron = true;
+            else if (restrictedCategories[i] == "Support") support = true;
+            else if (restrictedCategories[i] == "Defense") defense = true;
+        }
+        if (squadron) return SquadronModule;
+        if (defense) return (defenseSlotsFilled % 2 == 0) ? ShieldModule : PlatingModule;
+        if (support) return supportSlotsFilled == 0 ? SupportBoosterModule : SupportModule;
+        return null;
+    }
+}
+
 

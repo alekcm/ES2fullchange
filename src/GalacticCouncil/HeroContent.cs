@@ -320,12 +320,15 @@ public static partial class HeroRework
                 }
                 contentSkills[sk.Name] = def;
                 // live mirrors: the Stealth / Detect skills carry no static descriptors, their effect is
-                // injected by HeroRework.AddMirrorSkills (capped by the researched technology)
+                // injected by HeroRework.AddMirrorSkills (capped by the researched technology);
+                // the Mothership ultimate swaps the hull - HeroRework.TryMothership rebuilds the ship
                 if (sk.Tier < 4 && sk.Concepts.Length == 1)
                 {
                     string special = sk.Concepts[0].Special;
                     if (special == "Stealth" || special == "Detect") HeroRework.RegisterMirrorSkill(sk.Name, special);
                 }
+                if (sk.Tier == 4 && sk.Concepts.Length == 1 && sk.Concepts[0].Special == "Mothership")
+                    HeroRework.RegisterMothershipSkill(sk.Name);
                 var slot = new HeroSkillTreeSkill();
                 slot.skillDefinition = def;
                 slot.SkillDefinitionReference = new XmlNamedReference(sk.Name);

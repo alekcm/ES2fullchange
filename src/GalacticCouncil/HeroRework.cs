@@ -13,6 +13,7 @@ using Amplitude;
 using Amplitude.Unity.Framework;
 using Amplitude.Unity.Game;
 using Amplitude.Unity.Simulation;
+using Amplitude.Unity.Xml;
 
 public static partial class HeroRework
 {
@@ -74,27 +75,37 @@ public static partial class HeroRework
     static readonly Dictionary<string, string> moduleTechCache = new Dictionary<string, string>();
     static readonly Dictionary<string, SimulationDescriptor> mirrorCache = new Dictionary<string, SimulationDescriptor>();
 
-    /// <summary>Adds the live mirror descriptors of the hero's Stealth / Detect skills (level capped by the researched technology).</summary>
+    /// <summary>Adds the live mirror descriptors of the hero's Stealth / Detect skills (level capped by the
+    /// researched technology) and keeps a rebuilt mothership at 0 command points.</summary>
     static List<SimulationDescriptor> AddMirrorSkills(List<SimulationDescriptor> list, Hero hero)
     {
-        if (mirrorSpecials.Count == 0 || hero.UnlockedSkills == null) return list;
         var result = new List<SimulationDescriptor>(list);
         var skills = hero.UnlockedSkills;
-        Empire empire = null;
-        for (int i = 0; i < skills.Count; i++)
+        if (skills != null && mirrorSpecials.Count > 0)
         {
-            string special;
-            if (skills[i] == null || skills[i].Definition == null) continue;
-            if (!mirrorSpecials.TryGetValue(skills[i].Definition.Name.ToString(), out special)) continue;
-            if (empire == null)
+            Empire empire = null;
+            for (int i = 0; i < skills.Count; i++)
             {
-                empire = hero.Empire;
-                if (empire == null) return result;
+                string special;
+                if (skills[i] == null || skills[i].Definition == null) continue;
+                if (!mirrorSpecials.TryGetValue(skills[i].Definition.Name.ToString(), out special)) continue;
+                if (empire == null)
+                {
+                    empire = hero.Empire;
+                    if (empire == null) break;
+                }
+                int level = Math.Min(skills[i].Level, HeroMirror.LevelOf(HeroMirror.TableOf(special), ModuleTech, delegate(string t) { return EmpireHasDescriptor(empire, t); }));
+                if (level <= 0) continue;
+                SimulationDescriptor d = MirrorDescriptor(special, level);
+                if (d != null) result.Add(d);
             }
-            int level = Math.Min(skills[i].Level, HeroMirror.LevelOf(HeroMirror.TableOf(special), ModuleTech, delegate(string t) { return EmpireHasDescriptor(empire, t); }));
-            if (level <= 0) continue;
-            SimulationDescriptor d = MirrorDescriptor(special, level);
-            if (d != null) result.Add(d);
+        }
+        // the mothership rebuild replaces the hero role with the carrier role on the ship; the skill keeps
+        // it a free hero ship: 0 command points (the exact Force modifier of ShipRoleHero)
+        if (mothershipSkills.Count > 0 && HasMothershipUlt(hero))
+        {
+            SimulationDescriptor cp = MirrorDescriptor("Mothership", 1);
+            if (cp != null) result.Add(cp);
         }
         return result;
     }
@@ -157,16 +168,179 @@ public static partial class HeroRework
         var mods = new List<SimulationModifierDescriptor>();
         if (special == "Stealth")
             mods.Add(CustomHackingHelper.MakeModifier("AntiVisionStrengthForModule", SimulationModifierDescriptor.ModifierOperation.Addition, level, ""));
-        else
+        else if (special == "Detect")
         {
             mods.Add(CustomHackingHelper.MakeModifier("VisionStrength", SimulationModifierDescriptor.ModifierOperation.Addition, level, ""));
             if (level >= 2) mods.Add(CustomHackingHelper.MakeModifier("MaximumShipDetectionProbeStock", SimulationModifierDescriptor.ModifierOperation.Addition, level, ""));
         }
+        else if (special == "Mothership")
+            mods.Add(CustomHackingHelper.MakeModifier("CommandPoints", SimulationModifierDescriptor.ModifierOperation.Force, 0f, "ClassShip"));
         SimulationDescriptor result = null;
         try { result = CustomHackingHelper.CreateAndRegisterDescriptor(null, "HRA_Mirror_" + special + "_" + level, "HeroSkillShip", null, mods.ToArray()); }
         catch (Exception e) { Fail("MirrorDescriptor", e); }
         mirrorCache[key] = result;
         return result;
+    }
+
+    // ---------------------------------------------------------------- mothership (the Seeker ultimate: the hull swap)
+    // The learned ultimate rebuilds the hero ship as a mothership: a large carrier hull of the empire's
+    // faction, laid out with bomber squadrons and support instead of personal weapons. The design is a real
+    // registered ShipDesign (survives save/load), the swap goes through the game's own hero-ship binding
+    // path (DepartmentOfDefense.ApplyShipDesignToShip -> BindShipDesign: sections and descriptors rebuilt).
+
+    static readonly HashSet<string> mothershipSkills = new HashSet<string>();
+    static readonly Dictionary<ulong, string> mothershipHulls = new Dictionary<ulong, string>();
+    static readonly HashSet<string> mothershipDefinitions = new HashSet<string>();
+    static readonly Dictionary<string, ModuleDefinition> moduleCache = new Dictionary<string, ModuleDefinition>();
+
+    public static void RegisterMothershipSkill(string skillName) { mothershipSkills.Add(skillName); }
+
+    static bool HasMothershipUlt(Hero hero)
+    {
+        if (mothershipSkills.Count == 0) return false;
+        var skills = hero.UnlockedSkills;
+        if (skills == null) return false;
+        for (int i = 0; i < skills.Count; i++)
+            if (skills[i] != null && skills[i].Definition != null && mothershipSkills.Contains(skills[i].Definition.Name.ToString())) return true;
+        return false;
+    }
+
+    /// <summary>Turn pass: rebuild the ship of a Seeker who has learned the Mothership ultimate (once - the design name guards the repeat).</summary>
+    public static void TryMothership(Hero hero)
+    {
+        try
+        {
+            if (mothershipSkills.Count == 0 || !IsRegular(hero) || !HasMothershipUlt(hero)) return;
+            HeroShip ship = hero.HeroShip;
+            Empire empire = hero.Empire;
+            if (ship == null || empire == null) return;
+            string hullName = MothershipHullOf(empire);
+            string designName = HeroMothership.DesignNameFor(hullName);
+            ShipDesign current = ship.ShipDesign;
+            if (current != null && current.DefaultName.ToString() == designName) return;   // already rebuilt
+            ShipDesign design = MothershipDesign(empire, hullName, designName);
+            if (design == null || !design.IsValid) return;
+            DepartmentOfDefense.ApplyShipDesignToShip(ship, design);
+            ship.RefreshHeroDescriptors();
+            Garrison garrison = ship.Garrison;
+            if (garrison != null) garrison.Refresh(false);
+        }
+        catch (Exception e) { Fail("TryMothership", e); }
+    }
+
+    /// <summary>The large carrier hull of the empire's faction (Terrans hull as a safe fallback: retrofitting does not check build prerequisites).</summary>
+    static string MothershipHullOf(Empire empire)
+    {
+        ulong id = (ulong)empire.GUID;
+        string cached;
+        if (mothershipHulls.TryGetValue(id, out cached)) return cached;
+        string name = null;
+        try
+        {
+            string faction = empire.Faction != null ? empire.Faction.Name.ToString() : null;
+            if (!string.IsNullOrEmpty(faction) && HullExists(HeroMothership.HullNameFor(faction)))
+                name = HeroMothership.HullNameFor(faction);
+        }
+        catch (Exception) { }
+        if (name == null) name = HeroMothership.HullFallback;
+        mothershipHulls[id] = name;
+        return name;
+    }
+
+    static bool HullExists(string hullName)
+    {
+        try
+        {
+            HullDefinition hull;
+            IDatabase<HullDefinition> db = Databases.GetDatabase<HullDefinition>(false);
+            return db != null && db.TryGetValue(new StaticString(hullName), out hull) && hull != null;
+        }
+        catch (Exception) { return false; }
+    }
+
+    /// <summary>The mothership design of the empire: an existing one is reused, otherwise the definition is
+    /// registered, the game creates the design (registered entity, save-safe) and the layout is filled with the carrier plan.</summary>
+    static ShipDesign MothershipDesign(Empire empire, string hullName, string designName)
+    {
+        DepartmentOfDefense defense = empire.GetAgency<DepartmentOfDefense>();
+        if (defense == null) return null;
+        List<ShipDesign> available = defense.AvailableShipDesigns;
+        ShipDesign design = available != null ? DepartmentOfDefense.GetShipDesignByDefinitionName(available, new StaticString(designName)) : null;
+        if (design == null)
+        {
+            if (!mothershipDefinitions.Contains(designName))
+            {
+                if (!RegisterMothershipDefinition(designName, hullName)) return null;
+                mothershipDefinitions.Add(designName);
+            }
+            defense.ServerAddShipDesign(new StaticString(designName));
+            available = defense.AvailableShipDesigns;
+            design = available != null ? DepartmentOfDefense.GetShipDesignByDefinitionName(available, new StaticString(designName)) : null;
+            if (design == null) return null;
+            BuildMothershipLayout(design);
+        }
+        return design;
+    }
+
+    /// <summary>A hidden non-editable hero-design-style definition on the carrier hull (like the vanilla ShipDesignHero* designs).</summary>
+    static bool RegisterMothershipDefinition(string designName, string hullName)
+    {
+        try
+        {
+            IDatabase<ShipDesignDefinition> db = Databases.GetDatabase<ShipDesignDefinition>(false);
+            if (db == null) return false;
+            if (db.ContainsKey(new StaticString(designName))) return true;
+            var def = new ShipDesignDefinition();
+            def.XmlSerializableName = designName;
+            def.Hidden = true;              // never shows up in the player's design list
+            def.Editable = false;
+            def.MustBePreloaded = true;     // the vanilla hero designs are preloaded too
+            var tags = new Tags();
+            tags.AddTag("HideUpkeep");
+            def.Tags = tags;
+            def.HullReference = new XmlNamedReference(hullName);
+            def.ShipRoleReference = new XmlNamedReference(HeroMothership.RoleName);
+            def.SlotBindings = new SlotBindingDefinition[0];
+            db.Add(def);
+            return true;
+        }
+        catch (Exception e) { Fail("RegisterMothershipDefinition", e); return false; }
+    }
+
+    /// <summary>Fills the empty slots of the carrier hull with the mothership plan (HeroMothership.ModuleFor).</summary>
+    static void BuildMothershipLayout(ShipDesign design)
+    {
+        design.BuildShipDesignLayout(false);
+        List<Slot> slots = design.Layout.Slots;
+        int supportIndex = 0, defenseIndex = 0;
+        for (int i = 0; i < slots.Count; i++)
+        {
+            Slot slot = slots[i];
+            if (slot == null || slot.Definition == null) continue;
+            ModuleCategory[] categories = slot.Definition.RestrictedModuleCategories;
+            string[] names = categories == null ? new string[0] : Array.ConvertAll(categories, delegate(ModuleCategory c) { return c.ToString(); });
+            string moduleName = HeroMothership.ModuleFor(names, slot.Definition.IsLargeSlot, supportIndex, defenseIndex);
+            ModuleDefinition module = moduleName != null ? ModuleByName(moduleName) : null;
+            slot.BindModule(module, false, true);   // a missing module clears the slot, never breaks the ship
+            if (module == null) continue;
+            if (module.Category == ModuleCategory.Support) supportIndex++;
+            else if (module.Category == ModuleCategory.Defense) defenseIndex++;
+        }
+    }
+
+    static ModuleDefinition ModuleByName(string name)
+    {
+        ModuleDefinition cached;
+        if (moduleCache.TryGetValue(name, out cached)) return cached;
+        ModuleDefinition module = null;
+        try
+        {
+            IDatabase<ModuleDefinition> db = Databases.GetDatabase<ModuleDefinition>(false);
+            if (db != null) db.TryGetValue(new StaticString(name), out module);
+        }
+        catch (Exception e) { Fail("ModuleByName " + name, e); }
+        moduleCache[name] = module;
+        return module;
     }
 
     /// <summary>End hook of DepartmentOfScience.UnlockTechnology: the mirror skills may rise, refresh every ship hero of the empire.</summary>
@@ -686,6 +860,7 @@ public static partial class HeroRework
                     Hero hero = heroes[i];
                     if (xpDue && IsRegular(hero) && KindOf(hero) == HeroKind.Senator) GrantPassiveExperience(hero);
                     RefreshOnRoleChange(hero);
+                    TryMothership(hero);
                     if (!Fixable(hero)) continue;
                     AfterComputeAvailable(hero);
                     ulong id = (ulong)hero.GUID;

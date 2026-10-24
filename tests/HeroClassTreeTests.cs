@@ -188,6 +188,30 @@ static class HeroClassTreeTests
             Check(string.Join(";", HeroMirror.ModifiersOf("Detect", 2)) == "VisionStrength +2;MaximumShipDetectionProbeStock +2", "detection 2+ also carries probe stock");
         }
 
+        // ================= mothership (the Seeker ultimate): the carrier plan
+        {
+            Check(HeroMothership.RoleName == "ShipRoleCarrier",
+                "the mothership design uses the carrier role (the large hulls carry layouts for it, and it buffs squadrons)");
+            Check(HeroMothership.DesignNameFor(HeroMothership.HullNameFor("Terrans")) == "HRMothershipShip_HullLarge01Terrans",
+                "the design name derives from the faction carrier hull");
+            string[] sqn = { "Weapon", "Squadron" };
+            string[] sup = { "Support" };
+            string[] def = { "Defense" };
+            string[] wpn = { "Weapon" };
+            string[] hybrid = { "Defense", "Support" };
+            Check(HeroMothership.ModuleFor(sqn, false, 0, 0) == HeroMothership.SquadronModule, "squadron-capable slots carry a bomber wing");
+            Check(HeroMothership.ModuleFor(sqn, true, 0, 0) == null, "large weapon mounts stay empty (no quad batteries on a flying base)");
+            Check(HeroMothership.ModuleFor(sup, false, 0, 0) == HeroMothership.SupportBoosterModule, "the first support slot is the squadron booster");
+            Check(HeroMothership.ModuleFor(sup, false, 1, 0) == HeroMothership.SupportModule, "further support slots are engines");
+            Check(HeroMothership.ModuleFor(def, false, 0, 0) == HeroMothership.ShieldModule, "defense slots alternate shield...");
+            Check(HeroMothership.ModuleFor(def, false, 0, 1) == HeroMothership.PlatingModule, "...and plating");
+            Check(HeroMothership.ModuleFor(hybrid, false, 5, 4) == HeroMothership.ShieldModule, "defense/support hybrids carry defense (shield at an even defense index)");
+            Check(HeroMothership.ModuleFor(wpn, false, 0, 0) == null, "pure weapon slots stay empty - the mothership is not a battleship");
+            Check(HeroMothership.ModuleFor(new string[0], false, 0, 0) == null, "unknown slots stay empty");
+            Check(string.Join(";", HeroMirror.ModifiersOf("Mothership", 1)) == "CommandPoints Force 0",
+                "the mothership skill keeps the hero ship at 0 command points on any hull");
+        }
+
         // the fleet effects resolve from the hero's ship: vanilla hero-skill paths (./ClassGarrisonFleet, +/ClassShip)
         CheckMod("Move", "ShipMaximumMovement", 1, HeroFlavors.ShipPath, 1f);
         CheckMod("Vision", "VisionRange", 1, HeroFlavors.ShipPath, 1f);
