@@ -151,8 +151,32 @@ The achievements stay once earned. The UI shows the progress (for example `62% /
 | `DepartmentOfDefense.ScrapShipsPreprocessor`, `DepartmentOfCommerce.SelloutTradableShipsPreprocessor` (start) | return false when a ship belongs to a council squad |
 
 ## UI
-An IMGUI window (no Unity prefabs exist in this repo): a "Council" button appears while the Academy window is open;
-tabs Vote / Laws / Mandates. Toasts announce vote start and results.
+Native Endless Space 2 interface (no Unity prefabs needed — the game's own windows are reused at run time):
+
+* **The Council window** (`src/GalacticCouncil/CouncilUiNative.cs`) is a run-time clone of the game's laws screen
+  (`LawsManagementModalWindow`): the whole prefab hierarchy (modal frame, background, buttons, sounds, animations) is
+  cloned with `Object.Instantiate`, the window component is swapped for `CouncilModalWindow : GuiModalWindow`, and the
+  widget references (tab strip, card table, details pane, action buttons) are copied from the clone. The window is
+  registered in the GuiManager window list, so ESC/right-click closing, the modal dimming and the input blocking behave
+  exactly like for a vanilla window (the few non-public `GuiWindow` members needed for that — `Initialize`, `Loaded`,
+  `GameReady`, `guiWindowsFromBackToFront` — live in Assembly-CSharp-firstpass and are reached through reflection).
+* Four tabs built from the laws-screen tab prefab: **Voting** (the ballot card + one card per question; option cards
+  "→ Empire" appear under the selected targeted/mandate question; the chairman's replacement card), **Laws** (active
+  laws, where the votes come from, marked systems), **Mandates** (each mandate with progress and holder actions:
+  hire the contingent, request a delivery, leave the Council with a native confirmation), **Results** (past votes).
+* Voting is native-style: select a question card → its options appear as cards below; in the details pane the two
+  buttons add votes (**left click +10, right click −10**), the second button resets the question; "Cast votes" submits
+  the whole ballot. The same ±10 steppers sit on mandate cards.
+* A **HUD launcher button** (a clone of the laws-screen vote button, pinned to the top-right of the game overlay)
+  opens the window any time; it is tinted orange while a vote is open and not yet cast.
+* **Toasts** use the game's `MessageBoxNonBlockingWindow` (auto-closing, with the timeout gauge); **confirmations**
+  go through `GuiManager.ShowMessage` (native Validate/Cancel message box).
+* The window pops up by itself when a vote opens (for council members).
+
+If the native construction fails (another game version, missing widgets), the mod automatically falls back to the old
+IMGUI window (`CouncilUiImgui` in `src/GalacticCouncil/CouncilUi.cs`): a "Council" button appears while the Academy
+window is open, with the same tabs Vote / Laws / Mandates / Results. The shared ballot state (`CouncilUi.Pending`)
+is common to both UIs, so a vote begun in one can be finished in the other.
 
 ### "Gives votes" in the interface
 * Council window, Voting tab: the toggle "Where the votes come from" lists every source with its rule and the live value for the player's empire (`CouncilGame.VoteSourceLines`).

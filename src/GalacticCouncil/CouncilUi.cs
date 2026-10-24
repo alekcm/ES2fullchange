@@ -1,7 +1,13 @@
-// Galactic Council of the Academy - IMGUI window (no Unity prefabs/assets are needed).
+// Galactic Council - UI entry point.
+//
+// The Council is shown in the native Endless Space 2 interface (CouncilUiNative.cs): a runtime
+// clone of the game's laws screen registered as a real GuiModalWindow, plus a HUD launcher button;
+// toasts use the game's MessageBoxNonBlockingWindow. If that construction fails (another game
+// version, missing widgets...), everything falls back to the old IMGUI window below, which needs
+// no Unity prefabs: a "Council" button appears while the Academy window is open; tabs
+// Vote / Laws / Mandates / Results.
 using System;
 using System.Collections.Generic;
-using System.Text;
 using UnityEngine;
 using Amplitude.Unity.Game;
 
@@ -9,26 +15,157 @@ public class CouncilUiBehaviour : MonoBehaviour
 {
     void OnGUI()
     {
-        try { CouncilUi.Draw(); } catch (Exception e) { CouncilUi.DrawFailed(e); }
+        try { CouncilUiImgui.Draw(); } catch (Exception e) { CouncilUiImgui.DrawFailed(e); }
     }
 }
 
+/// <summary>Entry point used by the game hooks and the debug menu; owns the shared ballot state.</summary>
 public static class CouncilUi
 {
+    // ------------------------------------------------------------ shared pending ballot (both UIs)
+
+    public static readonly Dictionary<int, int> Pending = new Dictionary<int, int>();   // key = question*1000 + option
+
+    public static int PendingTotal()
+    {
+        int s = 0;
+        foreach (var kv in Pending) s += kv.Value;
+        return s;
+    }
+
+    public static int Pend(int q, int opt)
+    {
+        int v;
+        return Pending.TryGetValue(q * 1000 + opt, out v) ? v : 0;
+    }
+
+    public static void SetPend(int q, int opt, int v)
+    {
+        if (v <= 0) Pending.Remove(q * 1000 + opt);
+        else Pending[q * 1000 + opt] = v;
+    }
+
+    public static void ClearPending() { Pending.Clear(); }
+
+    public static void LoadPendingFromCore(int emp)
+    {
+        Pending.Clear();
+        var c = CouncilGame.Core;
+        for (int q = 0; q < c.Proposals.Count; q++)
+        {
+            for (int opt = 0; opt < 16; opt++)
+            {
+                int v = c.GetVotes(emp, q, opt);
+                if (v > 0) Pending[q * 1000 + opt] = v;
+            }
+        }
+        for (int m = 0; m < CouncilLaws.Mandates.Count; m++)
+        {
+            int v = c.GetVotes(emp, CouncilCore.MandateQBase + m, 0);
+            if (v > 0) Pending[(CouncilCore.MandateQBase + m) * 1000] = v;
+        }
+    }
+
+    // ------------------------------------------------------------ toasts (shared state for the IMGUI fallback)
+
+    public static string ToastText = "";
+    public static float ToastUntil;
+
+    public static void Toast(string text)
+    {
+        EnsureHost();
+        if (CouncilNative.Window != null) { CouncilNative.Toast(text); return; }
+        ToastText = text;
+        ToastUntil = Time.realtimeSinceStartup + 12f;
+    }
+
+    // ------------------------------------------------------------ visibility
+
+    public static bool Visible
+    {
+        get
+        {
+            if (CouncilNative.Window != null) return CouncilNative.IsVisible;
+            return CouncilUiImgui.Visible;
+        }
+        set
+        {
+            EnsureHost();
+            if (CouncilNative.Window != null)
+            {
+                if (value) CouncilNative.Show();
+                else CouncilNative.Hide();
+            }
+            else CouncilUiImgui.Visible = value;
+        }
+    }
+
+    /// <summary>Builds the native window once the game GUI is up; on failure keeps the IMGUI fallback.</summary>
+    public static void EnsureHost()
+    {
+        if (CouncilNative.Window != null) return;
+        if (CouncilNative.BuildFailed) { CouncilUiImgui.EnsureHost(); return; }
+        if (CouncilNative.EnsureWindow()) return;         // false = GUI not loaded yet, retry on the next call
+        if (CouncilNative.BuildFailed) CouncilUiImgui.EnsureHost();
+    }
+
+    // ------------------------------------------------------------ game hooks (see Patcher)
+
+    public static void OnVoteOpened(int expiredLaws)
+    {
+        var c = CouncilGame.Core;
+        Toast(CouncilGame.Tr("Галактический совет: открыто голосование. Итоги будут подведены в начале следующего хода.",
+                              "Galactic Council: voting is open. Results will be counted at the start of next turn."));
+        // pop the window up once for human players
+        var me = CouncilGame.LocalEmpire();
+        if (me != null && c.IsMember(me.Index))
+        {
+            try
+            {
+                if (CouncilNative.Window != null) { CouncilNative.Window.Tab = 0; CouncilNative.Show(); }
+                else { CouncilUiImgui.Visible = true; CouncilUiImgui.Tab = 0; }
+            }
+            catch (Exception) { }
+        }
+        CouncilNative.RebuildIfVisible();
+    }
+
+    public static void OnVoteTallied(int enacted)
+    {
+        Toast(CouncilGame.Tr("Галактический совет: подведены итоги голосования (принято законов: " + enacted + ").",
+                              "Galactic Council: votes counted (laws enacted: " + enacted + ")."));
+        CouncilNative.RebuildIfVisible();
+    }
+
+    /// <summary>Called from AcademyModalWindow.OnBeginShow so the existing Academy button opens the council.</summary>
+    public static void OnAcademyWindowShown()
+    {
+        try { if (CouncilGame.Core.Enabled) { Visible = true; if (CouncilNative.Window != null) CouncilNative.Window.Tab = 0; } } catch (Exception) { }
+    }
+
+    public static void OnAcademyWindowHidden()
+    {
+        try { Visible = false; } catch (Exception) { }
+    }
+
+    public static void DrawFailed(Exception e) { CouncilUiImgui.DrawFailed(e); }
+}
+
+// ================================================================ IMGUI fallback (no Unity prefabs needed)
+
+public static class CouncilUiImgui
+{
     public static bool Visible;
-    static int tab;                       // 0 = vote, 1 = laws, 2 = mandates
+    public static int Tab;                  // 0 = vote, 1 = laws, 2 = mandates, 3 = results
     static Rect windowRect = new Rect(0, 0, 1000, 660);
     static bool rectInit;
     static GameObject host;
-    static string toast = "";
-    static float toastUntil;
     static int shownVoteIndex = -1;
-    static Dictionary<int, int> pending = new Dictionary<int, int>();   // key = question*1000 + option
     static Vector2 scroll;
     static string uiError = "";
     static GUIStyle titleStyle, boxStyle, smallStyle, wrapStyle, goodStyle, badStyle;
 
-    // ------------------------------------------------------------ hooks
+    // ------------------------------------------------------------ host
 
     public static void EnsureHost()
     {
@@ -45,39 +182,6 @@ public static class CouncilUi
             host = found;
         }
         catch (Exception) { }
-    }
-
-    public static void Toast(string text)
-    {
-        toast = text;
-        toastUntil = Time.realtimeSinceStartup + 12f;
-    }
-
-    public static void OnVoteOpened(int expiredLaws)
-    {
-        var c = CouncilGame.Core;
-        Toast(CouncilGame.Tr("Галактический совет: открыто голосование. Итоги будут подведены в начале следующего хода.",
-                              "Galactic Council: voting is open. Results will be counted at the start of next turn."));
-        // pop the window up once for human players
-        var me = CouncilGame.LocalEmpire();
-        if (me != null && c.IsMember(me.Index)) { Visible = true; tab = 0; }
-    }
-
-    public static void OnVoteTallied(int enacted)
-    {
-        Toast(CouncilGame.Tr("Галактический совет: подведены итоги голосования (принято законов: " + enacted + ").",
-                              "Galactic Council: votes counted (laws enacted: " + enacted + ")."));
-    }
-
-    /// <summary>Called from AcademyModalWindow.OnBeginShow so the existing Academy button opens the council.</summary>
-    public static void OnAcademyWindowShown()
-    {
-        try { if (CouncilGame.Core.Enabled) { Visible = true; } } catch (Exception) { }
-    }
-
-    public static void OnAcademyWindowHidden()
-    {
-        try { Visible = false; } catch (Exception) { }
     }
 
     public static void DrawFailed(Exception e)
@@ -120,51 +224,29 @@ public static class CouncilUi
         if (GUI.Button(new Rect(sw - 222, 4, 210, 26), label)) Visible = !Visible;
         GUI.backgroundColor = oldColor;
 
-        if (Time.realtimeSinceStartup < toastUntil && !string.IsNullOrEmpty(toast))
+        if (Time.realtimeSinceStartup < CouncilUi.ToastUntil && !string.IsNullOrEmpty(CouncilUi.ToastText))
         {
             var r = new Rect((sw - 640) / 2, 40, 640, 34);
-            GUI.Box(r, toast);
+            GUI.Box(r, CouncilUi.ToastText);
         }
 
         if (Visible)
         {
-            if (shownVoteIndex != c.VoteIndex) { shownVoteIndex = c.VoteIndex; LoadPendingFromCore(me.Index); }
+            if (shownVoteIndex != c.VoteIndex) { shownVoteIndex = c.VoteIndex; CouncilUi.LoadPendingFromCore(me.Index); }
             windowRect = GUI.Window(0x6C0DE, windowRect, delegate (int id) { DrawWindow(me); }, CouncilGame.Tr("Галактический совет Академии", "Galactic Council of the Academy"));
         }
         GUI.matrix = oldMatrix;
     }
 
-    static void LoadPendingFromCore(int emp)
-    {
-        pending.Clear();
-        var c = CouncilGame.Core;
-        for (int q = 0; q < c.Proposals.Count; q++)
-        {
-            for (int opt = 0; opt < 16; opt++)
-            {
-                int v = c.GetVotes(emp, q, opt);
-                if (v > 0) pending[q * 1000 + opt] = v;
-            }
-        }
-        for (int m = 0; m < CouncilLaws.Mandates.Count; m++)
-        {
-            int v = c.GetVotes(emp, CouncilCore.MandateQBase + m, 0);
-            if (v > 0) pending[(CouncilCore.MandateQBase + m) * 1000] = v;
-        }
-    }
-
-    static int PendingTotal() { int s = 0; foreach (var kv in pending) s += kv.Value; return s; }
-    static int Pend(int q, int opt) { int v; return pending.TryGetValue(q * 1000 + opt, out v) ? v : 0; }
-
     static void DrawWindow(Empire me)
     {
         var c = CouncilGame.Core;
         GUILayout.BeginHorizontal();
-        string[] tabs = { CouncilGame.Tr("Голосование", "Voting"), CouncilGame.Tr("Законы", "Laws"), CouncilGame.Tr("Мандаты", "Mandates") };
+        string[] tabs = { CouncilGame.Tr("Голосование", "Voting"), CouncilGame.Tr("Законы", "Laws"), CouncilGame.Tr("Мандаты", "Mandates"), CouncilGame.Tr("Итоги", "Results") };
         for (int i = 0; i < tabs.Length; i++)
         {
-            bool on = tab == i;
-            if (GUILayout.Toggle(on, tabs[i], GUI.skin.button, GUILayout.Height(28)) && !on) tab = i;
+            bool on = Tab == i;
+            if (GUILayout.Toggle(on, tabs[i], GUI.skin.button, GUILayout.Height(28)) && !on) Tab = i;
         }
         GUILayout.FlexibleSpace();
         if (GUILayout.Button("X", GUILayout.Width(32), GUILayout.Height(28))) Visible = false;
@@ -174,9 +256,10 @@ public static class CouncilUi
         if (!c.IsMember(me.Index))
             GUILayout.Label(CouncilGame.Tr("Ваша империя не состоит в Совете.", "Your empire is not a council member."), badStyle);
 
-        if (tab == 0) DrawVoteTab(me);
-        else if (tab == 1) DrawLawsTab(me);
-        else DrawMandatesTab(me);
+        if (Tab == 0) DrawVoteTab(me);
+        else if (Tab == 1) DrawLawsTab(me);
+        else if (Tab == 2) DrawMandatesTab(me);
+        else DrawHistory();
 
         if (!string.IsNullOrEmpty(uiError)) GUILayout.Label("UI error: " + uiError, badStyle);
         GUI.DragWindow(new Rect(0, 0, 10000, 22));
@@ -214,7 +297,7 @@ public static class CouncilUi
         }
 
         int budget = c.Budget(me.Index);
-        int left = budget - PendingTotal();
+        int left = budget - CouncilUi.PendingTotal();
         GUILayout.Label(CouncilGame.Tr("Голосование открыто. Итоги будут подведены в начале следующего хода; законы действуют до следующего голосования.",
             "Voting is open. Results are counted at the start of next turn; laws last until the next vote."), wrapStyle);
         GUILayout.Label(CouncilGame.Tr("Ваши голоса: ", "Your votes: ") + budget + "  (" + c.BudgetText(me.Index, CouncilGame.CurTurn(), CouncilGame.IsRussian()) + ")", smallStyle);
@@ -277,12 +360,12 @@ public static class CouncilUi
         GUILayout.FlexibleSpace();
         bool member = c.IsMember(me.Index);
         GUI.enabled = member;
-        if (GUILayout.Button(CouncilGame.Tr("Сбросить", "Reset"), GUILayout.Width(120), GUILayout.Height(30))) pending.Clear();
+        if (GUILayout.Button(CouncilGame.Tr("Сбросить", "Reset"), GUILayout.Width(120), GUILayout.Height(30))) CouncilUi.ClearPending();
         if (GUILayout.Button(CouncilGame.Tr("Отдать голоса", "Cast votes"), GUILayout.Width(170), GUILayout.Height(30)))
         {
             var entries = new List<int[]>();
-            foreach (var kv in pending) if (kv.Value > 0) entries.Add(new[] { kv.Key / 1000, kv.Key % 1000, kv.Value });
-            if (CouncilGame.CastBallot(me, entries)) Toast(CouncilGame.Tr("Ваши голоса учтены", "Your votes are recorded"));
+            foreach (var kv in CouncilUi.Pending) if (kv.Value > 0) entries.Add(new[] { kv.Key / 1000, kv.Key % 1000, kv.Value });
+            if (CouncilGame.CastBallot(me, entries)) CouncilUi.Toast(CouncilGame.Tr("Ваши голоса учтены", "Your votes are recorded"));
         }
         GUI.enabled = true;
         GUILayout.EndHorizontal();
@@ -342,20 +425,15 @@ public static class CouncilUi
     {
         GUILayout.BeginHorizontal();
         GUILayout.Label(label, wrapStyle, GUILayout.Width(170));
-        int v = Pend(q, opt);
+        int v = CouncilUi.Pend(q, opt);
         GUI.enabled = v > 0;
-        if (GUILayout.Button("-", GUILayout.Width(28))) { v -= CouncilCore.VoteStep; SetPend(q, opt, v); left += CouncilCore.VoteStep; }
+        if (GUILayout.Button("-", GUILayout.Width(28))) { v -= CouncilCore.VoteStep; CouncilUi.SetPend(q, opt, v); left += CouncilCore.VoteStep; }
         GUI.enabled = true;
         GUILayout.Label(v.ToString(), wrapStyle, GUILayout.Width(40));
         GUI.enabled = left >= CouncilCore.VoteStep;
-        if (GUILayout.Button("+", GUILayout.Width(28))) { v += CouncilCore.VoteStep; SetPend(q, opt, v); left -= CouncilCore.VoteStep; }
+        if (GUILayout.Button("+", GUILayout.Width(28))) { v += CouncilCore.VoteStep; CouncilUi.SetPend(q, opt, v); left -= CouncilCore.VoteStep; }
         GUI.enabled = true;
         GUILayout.EndHorizontal();
-    }
-
-    static void SetPend(int q, int opt, int v)
-    {
-        if (v <= 0) pending.Remove(q * 1000 + opt); else pending[q * 1000 + opt] = v;
     }
 
     static string MandateName(string id)
@@ -364,7 +442,7 @@ public static class CouncilUi
         return m == null ? id : (CouncilGame.IsRussian() ? m.Ru : m.En);
     }
 
-    static string DescribeResult(CouncilResult r)
+    public static string DescribeResult(CouncilResult r)
     {
         if (r.LawId.StartsWith("MV:"))
             return "T" + r.Turn + ": " + CouncilGame.Tr("Мандат на следующее голосование: ", "Mandate on the next vote: ") + MandateName(r.LawId.Substring(3)) + " (" + r.Yes + ")";
@@ -443,7 +521,7 @@ public static class CouncilUi
         var game = CouncilGame.GetGame();
         int turn = game != null ? game.Turn : 0;
         int budget = c.Budget(me.Index);
-        int left = budget - PendingTotal();
+        int left = budget - CouncilUi.PendingTotal();
         bool member = c.IsMember(me.Index);
         bool voting = c.Phase == CouncilCore.PhaseVoting && member;
 

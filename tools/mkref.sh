@@ -3,10 +3,17 @@
 set -e
 cd "$(dirname "$0")/.."
 source tools/env.sh; source tools/refs.sh
-BASE_COMMIT=${BASE_COMMIT:-6ae43ff}
+BASE_COMMIT=${BASE_COMMIT:-0e0f215}   # "hacking fixes" baseline assembly (contains CustomHackingHelper, no Council)
+BASELINE="Managed/Assembly-CSharp — before remake.dll"
 mkdir -p /tmp/build /tmp/pub /tmp/ref
 for f in Managed/*.dll; do case "$f" in *"before remake"*) ;; *) cp "$f" /tmp/pub/ ;; esac; done
-git show $BASE_COMMIT:Managed/Assembly-CSharp.dll > /tmp/pub/Assembly-CSharp.dll
+# the baseline game assembly: an explicit BASE_COMMIT wins, else the pristine "before remake" copy
+if [ -n "$BASE_COMMIT" ] && git show "$BASE_COMMIT:Managed/Assembly-CSharp.dll" > /tmp/pub/Assembly-CSharp.dll 2>/dev/null; then
+  echo "mkref: baseline from git $BASE_COMMIT"
+else
+  cp "$BASELINE" /tmp/pub/Assembly-CSharp.dll
+  echo "mkref: baseline from '$BASELINE'"
+fi
 cp Managed/Mono.Cecil.dll /tmp/build/
 csc -codepage:65001 -nostdlib -out:/tmp/build/Publicize.exe -r:/tmp/build/Mono.Cecil.dll -r:$MANAGED/mscorlib.dll -r:$MANAGED/System.dll -r:$MANAGED/System.Core.dll tools/Patcher/Publicize.cs
 mono /tmp/build/Publicize.exe /tmp/pub/Assembly-CSharp.dll /tmp/ref/Assembly-CSharp.dll
