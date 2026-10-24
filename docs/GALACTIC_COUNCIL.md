@@ -36,7 +36,7 @@ Mandates (`CouncilMandates.cs`, state saved as `GC2`): Chairman, Marshal, Quarte
 * Marshal: hires a warship group of the empire's own faction at the home system (upkeep paid by the empire).
 * Quartermaster: once per cycle Dust + Science delivery scaled by stage and game length.
 * Eye: +1 simultaneous hacking operation, +20 `MaximumEmpireProcessingPowerStock` (the "ПВ" reading is a guess).
-* Supreme Legate: +100 votes (no doubling), the mandate confirmation is forced on the next vote and while the countdown runs; after 30 turns (scaled)
+* Supreme Legate: +100 votes (no doubling), the "Establishment of Absolute Power" vote is forced on the next vote and while the countdown runs; after 30 turns (scaled)
   `IVictoryManagementService.ForceRiseVictory` is called with the victory condition whose name contains `diplomat`/`senate`/...
 * Leaving the Council: the Academy relation is pinned to -100 every turn (static `AcademyDiplomaticRelation.SetRelationPoints`).
 * Qualification: see "Votes and qualification rework" below (the manual assignment stub was removed).

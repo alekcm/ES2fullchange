@@ -100,8 +100,8 @@ public static class CouncilLaws
             "Открыть 75% галактики", "Discover 75% of the galaxy"));
         m.Add(new CouncilMandateDef(Supreme, new string[0], 0, true,
             "Верховный легат Академии", "Supreme Legate of the Academy",
-            "Победный мандат: даёт владельцу +100 голосов. Удерживайте его 30 ходов (нормальная скорость) для победы. Следующее голосование гарантированно содержит подтверждение мандата, а пока идёт отсчёт, один из вопросов — всегда оно: мандат остаётся при 51% голосов «за» (67%, если владелец состоит в альянсе).",
-            "Victory mandate: gives the holder +100 votes. Hold it for 30 turns (normal speed) to win. The next vote is guaranteed to contain a confirmation of the mandate, and while the countdown runs one question is always that: the mandate stays with 51% of the votes in favour (67% when the holder is a member of an alliance).",
+            "Победный мандат: даёт владельцу +100 голосов. Удерживайте его 30 ходов (нормальная скорость) для победы. Следующее голосование гарантированно содержит голосование «Установление абсолютной власти», а пока идёт отсчёт, один из вопросов — всегда оно: мандат остаётся при 51% голосов «за» (67%, если владелец состоит в альянсе).",
+            "Victory mandate: gives the holder +100 votes. Hold it for 30 turns (normal speed) to win. The next vote is guaranteed to contain the Establishment of Absolute Power vote, and while the countdown runs one question is always that: the mandate stays with 51% of the votes in favour (67% when the holder is a member of an alliance).",
             "Допуск к 2 обычным мандатам и удержание одного обычного мандата в течение полного цикла", "Qualify for 2 ordinary mandates and hold one ordinary mandate for a full cycle"));
         return m;
     }
@@ -151,7 +151,7 @@ public static class CouncilLaws
             "Все герои-губернаторы, не управляемые ИИ, моментально получают +3 уровня.", "All non-AI hero governors instantly gain +3 levels."));
         l.Add(new CouncilLawDef("StrategicPresence", false, C, 1, "presence", true, "Программа стратегического присутствия", "Strategic Presence Program",
             "Дополнительные голоса на следующем заседании за удержание заранее отмеченных систем.", "Extra votes at the next session for holding pre-marked systems."));
-        l.Add(new CouncilLawDef(NoConfidence, false, I, 0, "noconf", true, "Подтверждение победного мандата", "Confirmation of the Victory Mandate",
+        l.Add(new CouncilLawDef(NoConfidence, false, I, 0, "noconf", true, "Установление абсолютной власти", "Establishment of Absolute Power",
             "Голосование за то, чтобы оставить Верховного легата. «За» — оставить, «против» — снять. Мандат остаётся, если «за» набрано не менее 51% голосов (не менее 67%, если владелец состоит в альянсе); иначе он отзывается и отсчёт победы прекращается.", "A vote to keep the Supreme Legate. \"For\" keeps the mandate, \"against\" removes it. The mandate stays with at least 51% of the votes in favour (at least 67% when the holder is a member of an alliance); otherwise it is revoked and the victory countdown stops."));
         l.Add(new CouncilLawDef(Counterintel, false, C, 0, "backdoor", true, "Контрразведка от Академии", "Academy Counter-Intelligence",
             "Запрещает установку новых бэкдоров.", "Installing new backdoors is forbidden."));
