@@ -545,7 +545,7 @@ public static partial class HeroRework
                 for (int i = 0; i < heroes.Count; i++)
                 {
                     Hero hero = heroes[i];
-                    if (xpDue && !empire.IsControlledByAI && IsRegular(hero) && KindOf(hero) == HeroKind.Senator) GrantPassiveExperience(hero);
+                    if (xpDue && IsRegular(hero) && KindOf(hero) == HeroKind.Senator) GrantPassiveExperience(hero);
                     RefreshOnRoleChange(hero);
                     if (!Fixable(hero)) continue;
                     AfterComputeAvailable(hero);

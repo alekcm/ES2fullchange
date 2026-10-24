@@ -4,7 +4,7 @@
 //  * while he rules, the official ideology (the politics of the prime senator) is not changed by elections or by
 //    the empire rebellion: only the player can end it by changing the government (abdication);
 //  * the hero who represents the leader is the dictator: no level cap, his ultimate multiplies his learned skills;
-//  * a human player is given a dictator hero for the time of the dictatorship (HeroDictatorHero.cs).
+//  * every empire is given a dictator hero for the time of the dictatorship (HeroDictatorHero.cs).
 using System;
 using System.Collections.Generic;
 using Amplitude;
@@ -122,7 +122,8 @@ public static partial class HeroRework
                     senate.PrimeSenator = leader;
                 }
                 SyncDictatorHero(empire, rec);   // a dictatorship gives the player a dictator hero
-                var dictatorHero = empire.IsControlledByAI ? null : FindDictatorHero(empire.GetAgency<DepartmentOfEducation>());
+                var education = empire.GetAgency<DepartmentOfEducation>();
+                var dictatorHero = education == null ? null : FindDictatorHero(education);
                 if (leader.RepresentativeHero == null || (dictatorHero != null && !ReferenceEquals(leader.RepresentativeHero, dictatorHero))) leader.UpdateRepresentativeHero();
                 if (leader.RepresentativeHero != null) dictatorHeroes.Add((ulong)leader.RepresentativeHero.GUID);
             }

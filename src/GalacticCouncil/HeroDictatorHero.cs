@@ -1,5 +1,5 @@
 // Hero rework: the faction dictator hero and the passive experience of senators.
-//  * a player who has a Dictatorship (or starts with one, or has the authoritarian rule of the Cravers) is given a faction dictator:
+//  * an empire (player or AI) that has a Dictatorship (or starts with one, or has the authoritarian rule of the Cravers) is given a faction dictator:
 //    a hidden senator hero of the faction whose politics are the politics of the leader senator, so he represents the leader in the senate;
 //  * when the dictatorship ends (or the leader changes party) the hero is removed again;
 //  * the definitions are generated at run time for every (faction, politics) pair, registered in the hero database (and the GUI
@@ -239,12 +239,12 @@ public static partial class HeroRework
         return null;
     }
 
-    /// <summary>Gives the human empire a dictator hero while it has a dictatorship (rec != null) and takes it away when it ends.</summary>
+    /// <summary>Gives the empire a dictator hero while it has a dictatorship (rec != null) and takes it away when it ends.</summary>
     static void SyncDictatorHero(MajorEmpire empire, DictatorRecord rec)
     {
         try
         {
-            if (empire == null || empire.IsControlledByAI) return;
+            if (empire == null) return;
             var education = empire.GetAgency<DepartmentOfEducation>();
             if (education == null) return;
             string want = rec == null ? null : rec.Politics;
@@ -271,14 +271,17 @@ public static partial class HeroRework
         int last;
         if (dictatorOrderTurn.TryGetValue(empire.Index, out last) && lastTurn >= last && lastTurn - last < DictatorOrderRetryTurns) return;
         var pc = empire.PlayerControllers;
-        if (pc == null || pc.Client == null) return;   // only the client of the player posts it (once)
+        if (pc == null) return;
+        // a human empire: the client of the player posts it; an AI empire has no client, the server posts it (each order is posted exactly once)
+        PlayerController poster = empire.IsControlledByAI ? pc.Server : pc.Client;
+        if (poster == null) return;
         EnsureDictatorDefinitions();
         HeroDefinition def = FindDictatorDefinition(empire, politics);
         if (def == null) { Fail("RecruitDictatorHero", new Exception("no dictator definition for " + politics)); return; }
         var order = new OrderRecruitHero(empire.Index, def);
         order.HeroLevel = DictatorStartLevel;
         order.GaugeIndex = -1;
-        pc.Client.PostOrder(order);
+        poster.PostOrder(order);
         dictatorOrderTurn[empire.Index] = lastTurn;
         try
         {
