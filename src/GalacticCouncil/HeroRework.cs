@@ -14,7 +14,7 @@ using Amplitude.Unity.Framework;
 using Amplitude.Unity.Game;
 using Amplitude.Unity.Simulation;
 
-public static class HeroRework
+public static partial class HeroRework
 {
     public static bool Enabled = true;
 
@@ -107,7 +107,9 @@ public static class HeroRework
         try
         {
             if (gui == null || gui.Hero == null || !IsRegular(gui.Hero)) return title;
-            return title + "  [" + HeroKinds.Name(KindOf(gui.Hero), CouncilGame.IsRussian()) + "]";
+            string kind = HeroKinds.Name(KindOf(gui.Hero), CouncilGame.IsRussian());
+            if (IsDictator(gui.Hero)) kind = CouncilGame.Tr("Диктатор", "Dictator");
+            return title + "  [" + kind + "]";
         }
         catch (Exception) { return title; }
     }
@@ -287,7 +289,9 @@ public static class HeroRework
 
     public static bool Fixable(Hero hero)
     {
-        return IsRegular(hero) && KindOf(hero) != HeroKind.Senator;
+        if (!IsRegular(hero)) return false;
+        // senators can always pick new skills, except the dictator and a senator who already took an ultimate
+        return KindOf(hero) != HeroKind.Senator || IsDictator(hero) || ultimates.ContainsKey((ulong)hero.GUID);
     }
 
     public static bool IsFixed(Hero hero)
@@ -302,11 +306,14 @@ public static class HeroRework
         return ultimates.TryGetValue((ulong)hero.GUID, out v) ? v : 0;
     }
 
-    public static string Serialize() { return HeroKinds.SerializeUltimates(ultimates); }
+    public static string Serialize() { return HeroKinds.JoinState(HeroKinds.SerializeUltimates(ultimates), HeroKinds.SerializeDictators(DictatorsForSave())); }
 
     public static void Deserialize(string text)
     {
-        ultimates = HeroKinds.ParseUltimates(text);
+        string ult, dict;
+        HeroKinds.SplitState(text, out ult, out dict);
+        ultimates = HeroKinds.ParseUltimates(ult);
+        LoadDictators(HeroKinds.ParseDictators(dict));
         appliedSteps.Clear();
         bonusCache.Clear();
         ultimateSets.Clear();
@@ -386,7 +393,7 @@ public static class HeroRework
         if (!Fixable(hero)) return list;
         int ult;
         if (!ultimates.TryGetValue((ulong)hero.GUID, out ult)) return list;
-        float fraction = HeroKinds.AutoBonusFraction(ult, hero.Level);
+        float fraction = HeroKinds.TotalBonusFraction(ult, hero.Level, IsDictator(hero));
         if (fraction <= 0f) return list;
         var result = new List<SimulationDescriptor>(list);
         int percent = (int)Math.Round(fraction * 1000f);
@@ -483,8 +490,9 @@ public static class HeroRework
         {
             if (!Enabled || game == null) return;
             int turn = game.Turn;
-            if (turn < lastTurn) { ultimates.Clear(); appliedSteps.Clear(); bonusCache.Clear(); ultimateSets.Clear(); }
+            if (turn < lastTurn) { ultimates.Clear(); appliedSteps.Clear(); bonusCache.Clear(); ultimateSets.Clear(); ClearDictators(); }
             lastTurn = turn;
+            UpdateDictatorships(game);
             foreach (MajorEmpire empire in game.EnumerableMajorEmpires)
             {
                 var education = empire.GetAgency<DepartmentOfEducation>();
@@ -498,7 +506,7 @@ public static class HeroRework
                     ulong id = (ulong)hero.GUID;
                     int ult;
                     if (!ultimates.TryGetValue(id, out ult)) continue;
-                    int steps = Math.Max(0, hero.Level - ult);
+                    int steps = Math.Max(0, hero.Level - ult) * 2 + (IsDictator(hero) ? 1 : 0);
                     int before;
                     appliedSteps.TryGetValue(id, out before);
                     if (steps == before) continue;

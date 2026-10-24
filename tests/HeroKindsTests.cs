@@ -52,6 +52,35 @@ static class HeroKindsTests
         Check(HeroKinds.ParseUltimates(null).Count == 0 && HeroKinds.SerializeUltimates(new System.Collections.Generic.Dictionary<ulong, int>()) == "", "empty registry");
         Check(HeroKinds.SerializeUltimates(map).IndexOf('|') < 0 && HeroKinds.SerializeUltimates(map).IndexOf("@@") < 0, "no council separators in the token");
 
+        // senator level cap and dictator
+        Check(HeroKinds.LevelCapFor(HeroKind.Senator, false, -1) == HeroKinds.SenatorLevelMax, "senator without a rule cap gets the senator cap");
+        Check(HeroKinds.LevelCapFor(HeroKind.Senator, false, 50) == HeroKinds.SenatorLevelMax, "a larger rule cap is lowered");
+        Check(HeroKinds.LevelCapFor(HeroKind.Senator, false, 5) == -1, "a lower rule cap is kept");
+        Check(HeroKinds.LevelCapFor(HeroKind.Senator, true, -1) == -1, "the dictator is not capped");
+        Check(HeroKinds.LevelCapFor(HeroKind.Admiral, false, -1) == -1 && HeroKinds.LevelCapFor(HeroKind.Governor, false, 60) == -1, "admirals and governors are not capped");
+        Check(HeroKinds.SenatorLevelMax >= 7 && HeroKinds.SenatorLevelMax <= 9, "senator cap is about 6-8 level-ups");
+        Check(Math.Abs(HeroKinds.TotalBonusFraction(12, 12, true) - HeroKinds.DictatorUltimateBoost) < 1e-5f, "dictator boost at the ultimate");
+        Check(Math.Abs(HeroKinds.TotalBonusFraction(10, 20, true) - (HeroKinds.DictatorUltimateBoost + 1f)) < 1e-5f, "dictator boost plus growth");
+        Check(HeroKinds.TotalBonusFraction(12, 12, false) == 0f, "no bonus for others at the ultimate");
+        Check(1f + HeroKinds.DictatorUltimateBoost >= 2.5f && 1f + HeroKinds.DictatorUltimateBoost <= 3f, "2 skill levels become about 5-6");
+        var dmap = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.KeyValuePair<string, ulong>>();
+        dmap[0] = new System.Collections.Generic.KeyValuePair<string, ulong>("Politics03", 77UL);
+        dmap[3] = new System.Collections.Generic.KeyValuePair<string, ulong>("Politics08", 18446744073709551000UL);
+        var dback = HeroKinds.ParseDictators(HeroKinds.SerializeDictators(dmap));
+        Check(dback.Count == 2 && dback[0].Key == "Politics03" && dback[0].Value == 77UL && dback[3].Value == 18446744073709551000UL, "dictator registry round trip");
+        Check(HeroKinds.ParseDictators("x=y,1=2,a=b=c,1==5").Count == 0 && HeroKinds.ParseDictators(null).Count == 0, "garbage dictator entries ignored");
+        string u, d;
+        HeroKinds.SplitState(HeroKinds.JoinState("5:12,6:9", "0=P=1"), out u, out d);
+        Check(u == "5:12,6:9" && d == "0=P=1", "state round trip");
+        HeroKinds.SplitState("5:12", out u, out d);
+        Check(u == "5:12" && d == "", "old save state has only ultimates");
+        HeroKinds.SplitState("", out u, out d);
+        Check(u == "" && d == "", "empty state");
+        HeroKinds.SplitState(HeroKinds.JoinState("", ""), out u, out d);
+        Check(u == "" && d == "", "empty parts");
+        string joined = HeroKinds.JoinState(HeroKinds.SerializeUltimates(map), HeroKinds.SerializeDictators(dmap));
+        Check(joined.IndexOf("@@") < 0, "state does not contain the council separator");
+
         Console.WriteLine(bad == 0 ? "ALL PASSED" : bad + " FAILED");
         return bad;
     }

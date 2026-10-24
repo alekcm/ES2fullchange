@@ -118,4 +118,65 @@ public static class HeroKinds
         }
         return map;
     }
+
+    // ---- senators (not the dictator) get a few levels only; the dictator is limited by the vanilla rule alone
+
+    public const int SenatorLevelMax = 8;           // level 1 -> 8 = seven level-ups: "6-8 levels over the whole game"
+    public const float DictatorUltimateBoost = 1.75f; // learned skills become x2.75 on the ultimate (2 skill levels ~ 5.5)
+
+    /// <summary>The level cap to put on a hero's level-up rule: negative = leave the rule alone.</summary>
+    public static int LevelCapFor(HeroKind kind, bool dictator, int ruleLevelMax)
+    {
+        if (kind != HeroKind.Senator || dictator) return -1;
+        if (ruleLevelMax >= 0 && ruleLevelMax <= SenatorLevelMax) return -1;
+        return SenatorLevelMax;
+    }
+
+    /// <summary>Total share of its base effect that the learned skills of a hero get on top: fixed boost of the dictator plus the per level growth after the ultimate.</summary>
+    public static float TotalBonusFraction(int ultimateLevel, int heroLevel, bool dictator)
+    {
+        return AutoBonusFraction(ultimateLevel, heroLevel) + (dictator ? DictatorUltimateBoost : 0f);
+    }
+
+    // ---- dictatorship registry persistence: "empireIndex=politics=senatorGuid,..."
+
+    public static string SerializeDictators(System.Collections.Generic.Dictionary<int, System.Collections.Generic.KeyValuePair<string, ulong>> map)
+    {
+        var sb = new System.Text.StringBuilder();
+        var keys = new System.Collections.Generic.List<int>(map.Keys);
+        keys.Sort();
+        foreach (int k in keys)
+        {
+            if (sb.Length > 0) sb.Append(',');
+            sb.Append(k).Append('=').Append(map[k].Key).Append('=').Append(map[k].Value);
+        }
+        return sb.ToString();
+    }
+
+    public static System.Collections.Generic.Dictionary<int, System.Collections.Generic.KeyValuePair<string, ulong>> ParseDictators(string text)
+    {
+        var map = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.KeyValuePair<string, ulong>>();
+        if (string.IsNullOrEmpty(text)) return map;
+        foreach (string part in text.Split(','))
+        {
+            string[] f = part.Split('=');
+            int e; ulong g;
+            if (f.Length != 3 || f[1].Length == 0 || !int.TryParse(f[0], out e) || !ulong.TryParse(f[2], out g)) continue;
+            map[e] = new System.Collections.Generic.KeyValuePair<string, ulong>(f[1], g);
+        }
+        return map;
+    }
+
+    /// <summary>The persisted hero state is "ultimates;dictators"; older saves have only the first part.</summary>
+    public static string JoinState(string ultimates, string dictators) { return ultimates + ";" + dictators; }
+
+    public static void SplitState(string state, out string ultimates, out string dictators)
+    {
+        ultimates = ""; dictators = "";
+        if (string.IsNullOrEmpty(state)) return;
+        int cut = state.IndexOf(';');
+        if (cut < 0) { ultimates = state; return; }
+        ultimates = state.Substring(0, cut);
+        dictators = state.Substring(cut + 1);
+    }
 }

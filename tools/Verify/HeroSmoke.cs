@@ -115,6 +115,23 @@ static class HeroSmoke
         return bad;
     }
 
+    // level cap rule: a clone with LevelMax, the original is untouched
+    static int CapSmoke(Type rework)
+    {
+        var ruleType = asm.GetType("LevelUpRuleDefinition");
+        object rule = Activator.CreateInstance(ruleType, true);
+        ruleType.GetProperty("LevelMax").SetValue(rule, 60, null);
+        var clone = rework.GetMethod("CloneObject", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] { rule });
+        ruleType.GetProperty("LevelMax").SetValue(clone, 8, null);
+        int a = (int)ruleType.GetProperty("LevelMax").GetValue(rule, null), b = (int)ruleType.GetProperty("LevelMax").GetValue(clone, null);
+        bool canAt7 = (bool)ruleType.GetMethod("CanLevelUp").Invoke(clone, new object[] { 7 }), canAt8 = (bool)ruleType.GetMethod("CanLevelUp").Invoke(clone, new object[] { 8 });
+        Console.WriteLine("cap clone: original=" + a + " clone=" + b + " canLevelUp(7)=" + canAt7 + " canLevelUp(8)=" + canAt8);
+        int bad = 0;
+        if (a != 60 || b != 8 || ReferenceEquals(rule, clone)) { Console.WriteLine("  clone is not independent"); bad++; }
+        if (!canAt7 || canAt8) { Console.WriteLine("  cap does not stop level-ups at the cap"); bad++; }
+        return bad;
+    }
+
     static int Main(string[] a)
     {
         asm = Assembly.LoadFrom(a[0]);
@@ -145,6 +162,7 @@ static class HeroSmoke
         int os; int on = Count(tree, out os);
         if (on != 6 || os != 4) { Console.WriteLine("original tree was modified"); bad++; }
         bad += ScalingSmoke(rework);
+        bad += CapSmoke(rework);
         Console.WriteLine(bad == 0 ? "HERO SMOKE OK" : "HERO SMOKE FAILED");
         return bad;
     }

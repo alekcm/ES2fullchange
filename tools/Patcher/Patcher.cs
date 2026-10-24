@@ -418,6 +418,37 @@ public static class Patcher
         n = WrapReturns(Method("Hero", "ComputeAvailableSkills"), GameMethod(hero, "AfterComputeAvailable"), new[] { OpCodes.Ldarg_0 });
         Console.WriteLine("hook: Hero.ComputeAvailableSkills ends call AfterComputeAvailable: " + n);
 
+        // stage 3: Hero.UpdateLevel(bool) start => HeroRework.BeforeUpdateLevel(this)
+        {
+            var m = Method("Hero", "UpdateLevel", 1);
+            var il = m.Body.GetILProcessor();
+            var first = m.Body.Instructions[0];
+            il.InsertBefore(first, il.Create(OpCodes.Ldarg_0));
+            il.InsertBefore(first, il.Create(OpCodes.Call, GameMethod(hero, "BeforeUpdateLevel")));
+            Console.WriteLine("hook: Hero.UpdateLevel caps the level of senators");
+        }
+        // Senate.ServerTriggerRebellion start: if (HeroRework.BlockRebellion(this)) return;
+        {
+            var m = Method("Senate", "ServerTriggerRebellion");
+            var il = m.Body.GetILProcessor();
+            var first = m.Body.Instructions[0];
+            il.InsertBefore(first, il.Create(OpCodes.Ldarg_0));
+            il.InsertBefore(first, il.Create(OpCodes.Call, GameMethod(hero, "BlockRebellion")));
+            il.InsertBefore(first, il.Create(OpCodes.Brfalse, first));
+            il.InsertBefore(first, il.Create(OpCodes.Ret));
+            Console.WriteLine("hook: Senate.ServerTriggerRebellion blocked while a dictator rules");
+        }
+        // Senate.ParseElectionResult start => HeroRework.LockElection(this, electionResult)
+        {
+            var m = Method("Senate", "ParseElectionResult");
+            var il = m.Body.GetILProcessor();
+            var first = m.Body.Instructions[0];
+            il.InsertBefore(first, il.Create(OpCodes.Ldarg_0));
+            il.InsertBefore(first, il.Create(OpCodes.Ldarg_1));
+            il.InsertBefore(first, il.Create(OpCodes.Call, GameMethod(hero, "LockElection")));
+            Console.WriteLine("hook: Senate.ParseElectionResult keeps the ideology of the dictator");
+        }
+
         // Senator.UpdateRepresentativeHero: if (HeroRework.UpdateRepresentative(this)) return;
         {
             var m = Method("Senator", "UpdateRepresentativeHero");

@@ -1,6 +1,6 @@
 # Hero rework
 
-Status: Stages 1–2 are implemented. Nothing has been tested in the running game; checks so far are compilation, Mono JIT of every method (`tools/verify.sh`), unit tests (`tests/HeroKindsTests.cs`) and a smoke test on real simulation objects (`tools/Verify/HeroSmoke.cs`).
+Status: Stages 1–3 are implemented. Nothing has been tested in the running game; checks so far are compilation, Mono JIT of every method (`tools/verify.sh`), unit tests (`tests/HeroKindsTests.cs`) and a smoke test on real simulation objects (`tools/Verify/HeroSmoke.cs`).
 
 ## Kinds (Stage 1)
 The kind follows the vanilla hero class (`HeroDefinition.Class`):
@@ -29,6 +29,16 @@ The hero title shows the kind (`GuiHero.get_Title`).
 * Dummy heroes (skill editing window copies) never record an ultimate: only the entity registered in `IGameEntityRepositoryService` does.
 * Persistence: the registry (`guid:level,…`) is appended to the `CouncilState` attribute after `@@HR@@`; old saves load with an empty registry (a hero already holding an ultimate is fixed at his current level on the first turn pass).
 
+## Senators and the dictatorship (Stage 3)
+* **Level cap.** A senator hero (not the dictator) stops at hero level `HeroKinds.SenatorLevelMax` = 8 (seven level-ups). Done by giving the hero a clone of his `LevelUpRuleDefinition` with `LevelMax = 8` at the start of `Hero.UpdateLevel(bool)` (`HeroRework.BeforeUpdateLevel`). Heroes already above the cap keep their level.
+* **Official ideology** is the politics of the prime senator (`Senate.MainPolitics`); the prime senator is the one with the highest `Support`.
+* **Dictatorship** is detected by the senate simulation tags `GovernmentDictatorship` / `GovernmentDictatorshipCravers` (the same ones `Senate.OnLoad` uses).
+  * When a dictatorship starts, its leader is the prime senator at that moment. This is the "chosen in advance" senator: the player prepares him with the elections before switching. The senate is trimmed to this one senator (`RemoveSenator`).
+  * While the leader rules, the ideology is locked against external factors: `Senate.ParseElectionResult` (start hook `LockElection`) rewrites the candidate list to the leader only, and `Senate.ServerTriggerRebellion` (start hook `BlockRebellion`) does nothing, so unrest and rebellion-causing events cannot overthrow the government and replace the ideology. System-level riots still happen.
+  * The player is the only one who can end it: by changing the government (abdication, `OrderSwapGovernment`) or when the government changes for another reason the turn pass forgets the record (`UpdateDictatorships`).
+  * The record (`empireIndex=politics=senatorGuid`) is persisted after the ultimates, split by `;`.
+* **Dictator hero** = the representative hero of the leader senator (a senator kind hero, class Corporate). He has no level cap (only the vanilla rule), and the same ultimate rule as admirals/governors: after his ultimate no new skills are offered, every learned skill gets `+DictatorUltimateBoost` (x2.75 effect, "2 levels become 5–6") plus the per-level growth `100 / ultimateLevel` percent. The title shows `[Диктатор]`.
+
 ## Hooks
 | Method | Hook |
 |---|---|
@@ -38,11 +48,14 @@ The hero title shows the kind (`GuiHero.get_Title`).
 | `GuiHero.get_Title` | kind in the title |
 | `CustomHackingHelper.CheckHeroAssignableToFleet/ToSystem` | kind check |
 | `Senator.UpdateRepresentativeHero` | senator kind check |
+| `Hero.UpdateLevel(bool)` (start) | `HeroRework.BeforeUpdateLevel` (senator level cap) |
+| `Senate.ParseElectionResult` (start) | `HeroRework.LockElection` |
+| `Senate.ServerTriggerRebellion` (start) | `HeroRework.BlockRebellion` |
 | `CouncilGame.ClientBeginTurn` / `SerializeAttributes` | `HeroRework.PerTurn` / registry persistence |
 
 ## Not yet done
-* Stage 3: senator level cap (~6–8 levels, empire-wide skills) and the dictatorship (one pre-chosen faction-leader senator, ideology locked while he rules, 30+ levels, ultimate that locks unlearned skills and adds levels to learned ones).
-* Stage 4: party trees (replace "Universal"), unique per-kind race trees and the dictator tree — these need authored skill definitions plus matching `GuiElement` entries.
+* Stage 4: party trees (replace "Universal"), unique per-kind race trees and the dictator tree, authored senator skills (a senator has only 3 useful vanilla skills for 7 level-ups), stronger faction-specific laws and abilities of the leader — these need authored skill definitions plus matching `GuiElement` entries.
 
 ## Unverified assumptions
 The refresh via `OnSkillsUpdated` on level change, acceptance of runtime descriptor copies by `SimulationObject`, `Hero.get_SkillTrees` being the only GUI path, the stage-threshold clamp, already-assigned mismatched heroes staying assigned without effect, the `FailureInfo` tooltip, and that `Hero.Level` is the quantity the user means by "level".
+Stage 3: that the dictatorship tags are present on the senate object under every dictatorship government, that skipping `ServerTriggerRebellion` (also its per-system rebellions caused by the empire rebellion) is acceptable, that vanilla dictatorships may have several senators, that `LevelMax` on a cloned rule is honoured by `UpdateLevel`/GUI and that the starting hero level is 1, and the prime-senator-at-start choice of the leader.
