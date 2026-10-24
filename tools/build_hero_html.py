@@ -5,7 +5,7 @@ import re, sys, markdown
 page, out = sys.argv[1], sys.argv[2]
 md = open('docs/HERO_IDEAS.md', encoding='utf-8').read()
 md = re.sub(r'^# .*\n', '', md, count=1)
-md = md.replace('(см. `HERO_TREES_MOD.md`)', '(см. разделы «Партии» и «Диктаторы фракций» ниже)')
+md = md.replace('(см. `HERO_TREES_MOD.md`)', '(см. разделы «Партии», «Расы», «Классы» и «Диктаторы фракций» ниже)')
 a = md.find('Что проверено, а что нет')
 b = md.find('Правило, чтобы идеи не были')
 tech = md[a:b]

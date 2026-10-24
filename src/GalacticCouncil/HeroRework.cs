@@ -327,11 +327,17 @@ public static partial class HeroRework
         return ultimates.TryGetValue((ulong)hero.GUID, out v) ? v : 0;
     }
 
-    public static string Serialize() { return HeroKinds.JoinState(HeroKinds.SerializeUltimates(ultimates), HeroKinds.SerializeDictators(DictatorsForSave())); }
+    public static string Serialize() { return HeroKinds.JoinState(HeroKinds.SerializeUltimates(ultimates), HeroKinds.SerializeDictators(DictatorsForSave())) + "~" + SerializeSpecials(); }
 
     public static void Deserialize(string text)
     {
-        string ult, dict;
+        string ult, dict, specials = "";
+        if (text != null)
+        {
+            int tilde = text.IndexOf('~');
+            if (tilde >= 0) { specials = text.Substring(tilde + 1); text = text.Substring(0, tilde); }
+        }
+        ParseSpecials(specials);
         HeroKinds.SplitState(text, out ult, out dict);
         ultimates = HeroKinds.ParseUltimates(ult);
         LoadDictators(HeroKinds.ParseDictators(dict));
@@ -532,8 +538,9 @@ public static partial class HeroRework
         {
             if (!Enabled || game == null) return;
             int turn = game.Turn;
-            if (turn < lastTurn) { ultimates.Clear(); appliedSteps.Clear(); bonusCache.Clear(); ultimateSets.Clear(); dictatorState.Clear(); ClearDictators(); }
+            if (turn < lastTurn) { ultimates.Clear(); appliedSteps.Clear(); bonusCache.Clear(); ultimateSets.Clear(); dictatorState.Clear(); ClearDictators(); ResetSpecials(); }
             lastTurn = turn;
+            RefreshEuphoria(game);
             UpdateDictatorships(game);
             bool xpDue = turn != passiveXpTurn;
             passiveXpTurn = turn;

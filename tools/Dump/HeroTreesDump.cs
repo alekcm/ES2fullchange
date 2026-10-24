@@ -211,106 +211,6 @@ static partial class HeroTreesDump
 
     // ---------------------------------------------------------------- role versions (copy of HeroContent.RegisterVariant)
 
-    sealed class Variant { public string Title, TitleEn; public List<List<string>> Levels = new List<List<string>>(); public List<List<string>> HLevels = new List<List<string>>(); public List<Flavor> Top = new List<Flavor>(); }
-
-    static void Accumulate(List<string> descriptors, HeroChannel channel, Dictionary<int, float> acc)
-    {
-        foreach (string d in descriptors)
-        {
-            List<Mod> mods;
-            if (!desc.TryGetValue(d, out mods)) continue;
-            foreach (Mod m in mods)
-            {
-                float v;
-                if (m.Binary || !float.TryParse(m.Value, NumberStyles.Float, inv, out v)) continue;
-                Flavor flavor; float mag;
-                if (!HeroFlavors.Classify(m.Prop, OpNumber(m.Op), v, channel, out flavor, out mag)) continue;
-                float old; acc.TryGetValue((int)flavor, out old); acc[(int)flavor] = old + mag;
-            }
-        }
-    }
-
-    static List<Flavor> TopFlavors(Dictionary<int, float> acc, int max)
-    {
-        var result = new List<Flavor>(); var used = new HashSet<int>(); float best0 = -1f;
-        for (int round = 0; round < max; round++)
-        {
-            int bestKey = -1; float best = 0f;
-            foreach (var kv in acc) if (!used.Contains(kv.Key) && kv.Value > best) { best = kv.Value; bestKey = kv.Key; }
-            if (bestKey < 0) break;
-            if (best0 < 0f) best0 = best;
-            if (best < best0 * 0.4f) break;
-            used.Add(bestKey); result.Add((Flavor)bestKey);
-        }
-        return result;
-    }
-
-    static List<string> TargetsText(Dictionary<int, float> mags, HeroChannel channel, float power)
-    {
-        var list = new List<string>();
-        foreach (var kv in mags.OrderBy(k => k.Key))
-        {
-            foreach (FlavorTarget t in HeroFlavors.TargetsOf((Flavor)kv.Key, channel))
-            {
-                float v = HeroFlavors.ValueOf(t, kv.Value, power);
-                if (v == 0f) continue;
-                string val = t.Op == 6 ? (v >= 0 ? "+" : "") + Math.Round(v * 100, 1).ToString(inv) + "%" : t.Op == 3 ? "x" + v.ToString(inv) : (v >= 0 ? "+" : "") + v.ToString(inv);
-                list.Add(t.Prop + " " + val + (string.IsNullOrEmpty(t.Path) ? "" : " @" + t.Path.Replace("../ClassEmpire", "Empire").Replace("Class", "").Replace("./", "")) + "  [" + (Flavor)kv.Key + "]");
-            }
-            if ((Flavor)kv.Key == Flavor.Votes && channel == HeroChannel.Senate) list.Add("(Council votes: read by the Council, see HERO_TREES_MOD.md)");
-        }
-        return list;
-    }
-
-    static Variant MakeVariant(Skill src, HeroKind kind, bool dictator)
-    {
-        HeroChannel channel = HeroFlavors.ChannelOf(kind);
-        float power = HeroFlavors.PowerOf(dictator);
-        int n = src.Levels.Count;
-        int count = n == 0 ? 0 : (kind == HeroKind.Senator && !dictator ? 1 : (dictator && n == 2 ? 3 : n));
-        var v = new Variant();
-        var finalFlavors = new Dictionary<int, float>();
-        for (int j = 0; j < count; j++)
-        {
-            int sj = (kind == HeroKind.Senator && !dictator) ? n - 1 : Math.Min(j, n - 1);
-            Level s = src.Levels[sj];
-            float levelScale = (dictator && j >= n) ? 1.5f : 1f;
-            float factor = power * levelScale;
-            var all = new Dictionary<int, float>(); var converted = new Dictionary<int, float>();
-            List<string> own = channel == HeroChannel.System ? s.System : channel == HeroChannel.Senate ? s.Senate : s.Ship;
-            Accumulate(own, channel, all);
-            if (channel != HeroChannel.Ship) Accumulate(s.Ship, HeroChannel.Ship, converted);
-            if (channel != HeroChannel.System) Accumulate(s.System, HeroChannel.System, converted);
-            if (channel != HeroChannel.Senate) Accumulate(s.Senate, HeroChannel.Senate, converted);
-            if (converted.Count == 0 && all.Count == 0)
-            {
-                Flavor fallback = Flavor.Production;
-                string mastery = s.Masteries.Count > 0 ? "HeroMastery" + s.Masteries[0].Split(' ')[0] : null;
-                fallback = HeroFlavors.FlavorOfMastery(mastery, fallback);
-                converted[(int)fallback] = (j + 1f) / count;
-            }
-            foreach (var kv in converted) { float old; all.TryGetValue(kv.Key, out old); all[kv.Key] = old + kv.Value; }
-            var convScaled = new Dictionary<int, float>();
-            foreach (var kv in converted) convScaled[kv.Key] = kv.Value * levelScale;
-            var eff = new List<string>();
-            foreach (string e in EffectsOf(own)) eff.Add("kept: " + e + (factor > 1.001f ? "  (x" + factor.ToString(inv) + " for the dictator)" : ""));
-            foreach (string e in TargetsText(convScaled, channel, power)) eff.Add("converted: " + e);
-            if (s.Hero.Any(h => h != "HeroSkillComplete")) foreach (string e in EffectsOf(s.Hero)) eff.Add("hero: " + e);
-            v.Levels.Add(eff);
-            var heff = new List<string>();
-            heff.AddRange(HumanOwn(own, channel, factor));
-            heff.AddRange(HumanTargets(convScaled, channel, power));
-            if (s.Hero.Any(h => h != "HeroSkillComplete")) heff.AddRange(HumanOwn(s.Hero, HeroChannel.Hero, factor));
-            v.HLevels.Add(heff);
-            if (j == count - 1) finalFlavors = all;
-        }
-        var top = TopFlavors(finalFlavors, 2);
-        v.Top = top;
-        v.Title = top.Count == 0 ? "Навык" : HeroFlavors.SkillTitle(top.ToArray(), channel, true);
-        v.TitleEn = top.Count == 0 ? "Skill" : HeroFlavors.SkillTitle(top.ToArray(), channel, false);
-        return v;
-    }
-
     static readonly HeroKind[] roleKinds = { HeroKind.Admiral, HeroKind.Governor, HeroKind.Senator, HeroKind.Senator };
     static readonly bool[] roleDict = { false, false, false, true };
     static readonly string[] roleNames = { "Адмирал (A)", "Губернатор (G)", "Сенатор (S)", "Диктатор (D)" };
@@ -346,18 +246,6 @@ static partial class HeroTreesDump
             var se = EffectsOf(l.Senate); if (se.Count > 0) parts.Add("сенат: " + string.Join("; ", se));
             var he = EffectsOf(l.Hero); if (he.Count > 0) parts.Add("герой: " + string.Join("; ", he));
             sb.AppendLine(indent + "  - ур." + (i + 1) + (l.Masteries.Count > 0 ? " [мастерство " + string.Join(", ", l.Masteries) + "]" : "") + ": " + (parts.Count > 0 ? string.Join(" | ", parts) : "(нет эффектов)"));
-        }
-    }
-
-    static void WriteVariants(StringBuilder sb, string name, string indent)
-    {
-        Skill sk;
-        if (!skills.TryGetValue(name, out sk) || sk.Levels.Count == 0) return;
-        for (int r = 0; r < 4; r++)
-        {
-            Variant v = MakeVariant(sk, roleKinds[r], roleDict[r]);
-            sb.AppendLine(indent + "  - роль " + roleNames[r] + ": «" + v.Title + "» / " + v.TitleEn);
-            for (int l = 0; l < v.Levels.Count; l++) sb.AppendLine(indent + "    - ур." + (l + 1) + ": " + (v.Levels[l].Count > 0 ? string.Join("; ", v.Levels[l]) : "(нет)"));
         }
     }
 
@@ -418,13 +306,11 @@ static partial class HeroTreesDump
                 foreach (Slot sl in st.Slots)
                 {
                     WriteSkill(sb, sl.Skill, "  ");
-                    WriteVariants(sb, sl.Skill, "  ");
                     if (sl.Required.Count > 0) sb.AppendLine("    - требует навыки: " + string.Join(", ", sl.Required));
                     foreach (var al in sl.Alternatives)
                     {
                         sb.AppendLine("    - **альтернатива** (условие: " + al.Value + "):");
                         WriteSkill(sb, al.Key, "      ");
-                        WriteVariants(sb, al.Key, "      ");
                     }
                 }
             }
@@ -435,87 +321,59 @@ static partial class HeroTreesDump
 
     // ---------------------------------------------------------------- mod document
 
-    static void WritePlan(StringBuilder sb, string treeName, string idPrefix, Flavor[] theme, HeroKind kind, bool dictator, bool authority, bool faction, string code)
+    static void WriteDesignTree(StringBuilder sb, DesignTree tree)
     {
-        HeroChannel channel = HeroFlavors.ChannelOf(kind);
-        float power = HeroFlavors.PowerOf(dictator);
-        var plan = HeroFlavors.PlanTree(theme, kind, dictator, authority);
-        sb.AppendLine("##### `" + treeName + "` - роль " + (dictator ? "диктатор" : HeroKinds.Name(kind, true)) + ", канал " + channel + ", мощность x" + power.ToString(inv));
-        foreach (PlannedStage st in plan)
+        sb.AppendLine("##### " + RoleNameRu(tree.Role) + " (`" + tree.TreeName + "`)");
+        for (int s = 0; s < tree.Stages.Count; s++)
         {
-            sb.AppendLine("- **Порог " + st.RequiredLevel + " очк.**");
-            foreach (PlannedSkill ps in st.Skills)
+            DesignStage st = tree.Stages[s];
+            sb.AppendLine("- **Ступень " + (s + 1) + (s == 3 ? " (вершина)" : "") + ", порог " + st.RequiredLevel + " очк.**");
+            foreach (DesignSkill sk in st.Skills)
             {
-                string name = idPrefix + ps.Id + (faction ? "" : "@" + code);
-                sb.AppendLine("  - **`" + name + "`** «" + HeroFlavors.SkillTitle(ps.Flavors, channel, true) + "» / " + HeroFlavors.SkillTitle(ps.Flavors, channel, false) + "  [" + string.Join("+", ps.Flavors.Select(f => f.ToString())) + "]");
-                for (int l = 0; l < ps.Magnitudes.Length; l++)
-                {
-                    var mags = new Dictionary<int, float>();
-                    for (int f = 0; f < ps.Flavors.Length; f++) { float old; mags.TryGetValue((int)ps.Flavors[f], out old); mags[(int)ps.Flavors[f]] = old + ps.Magnitudes[l][f]; }
-                    var eff = TargetsText(mags, channel, power);
-                    float[] vm = HeroFlavors.VoteMagnitudes(name);
-                    string votes = "";
-                    if (vm != null && l < vm.Length) votes = "; голоса Совета: +" + Math.Round(vm[l] * HeroFlavors.VotesFlatPerMagnitude) + " (+" + HeroFlavors.Round(vm[l] * HeroFlavors.VotesPerFourSystems) + " за каждые 4 системы)";
-                    sb.AppendLine("    - ур." + (l + 1) + " (магнитуда " + string.Join("/", ps.Magnitudes[l].Select(x => (x * power).ToString("0.###", inv))) + "): " + string.Join("; ", eff) + votes);
-                }
+                sb.AppendLine("  - **" + sk.TitleRu + "** / " + sk.TitleEn + " (`" + sk.Name + "`)");
+                for (int l = 0; l < sk.Levels; l++)
+                    sb.AppendLine("    - " + (sk.Levels > 1 ? "ур." + (l + 1) + ": " : "") + HeroDesign.LevelText(sk, l, true));
+                for (int c = 0; c < sk.Concepts.Length; c++)
+                    if (sk.Concepts[c].Special != null || (sk.Tier == 4 && sk.Concepts[c].NoteRu.Length > 0 && s == 3 && sk.Concepts.Length == 1))
+                        sb.AppendLine("    - _" + sk.Concepts[c].Note(true) + "_");
             }
         }
     }
 
+    static string RoleNameRu(char role) { return role == 'A' ? "Адмирал" : role == 'G' ? "Губернатор" : role == 'S' ? "Сенатор" : "Диктатор"; }
+
     static void WriteMod(string path)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("# Деревья навыков, созданные модом (партии и диктаторы)");
+        sb.AppendLine("# Деревья навыков, созданные модом");
         sb.AppendLine();
-        sb.AppendLine("Сгенерировано `tools/Dump/HeroTreesDump.cs` из кода мода (`HeroSkillData.cs`: `PlanTree`, таблицы флейворов). Значения - ровно то, что регистрирует игра.");
+        sb.AppendLine("Сгенерировано `tools/Dump/HeroTreesDump.cs` из кода мода (`HeroTreeDesign.cs` - библиотека эффектов, `HeroTreeSpecs.cs` - состав каждого дерева). Значения - ровно то, что регистрирует игра.");
         sb.AppendLine();
-        sb.AppendLine("Устройство любого такого дерева: 7 навыков, 4 этапа. Этап 0: A, B. Этап 1: C, A+B. Этап 2: B+C, A+C. Этап 3 (ультимейт): A+B+C (у диктатора +счастье и людские резервы). A, B, C - три флейвора темы. Размер: этап x (1.0 / 1.5 / 2.0 / 2.5), один флейвор x1, два x0.7 каждый, три x0.55, пять x0.45. Адмирал/губернатор: 2 уровня (0.5, 1.0 от размера), сенатор: 1 уровень (1.0), диктатор: 3 уровня (0.5, 1.0, 1.5), ультимейт диктатора x1.5; сила диктатора x1.6.");
-        sb.AppendLine();
-        sb.AppendLine("Флейвор -> эффект (таблицы `ShipTargets` / `SystemTargets` / `SenateTargets`): значение = опорное число x магнитуда x сила. Флейвор `Votes` в сенате не имеет модификатора: голоса читает Совет.");
-        sb.AppendLine();
-        sb.AppendLine("Порог этапа (очки навыков): A/G 0/4/8/12; сенатор 0/2/4/6; диктатор 0/6/12/18.");
-        sb.AppendLine();
-
-        sb.AppendLine("## Опорные эффекты флейворов (магнитуда 1, сила 1)");
-        sb.AppendLine();
-        sb.AppendLine("| Флейвор | Адмирал (флот) | Губернатор (система) | Сенатор (вся империя) |");
-        sb.AppendLine("|---|---|---|---|");
-        foreach (Flavor f in Enum.GetValues(typeof(Flavor)))
-        {
-            Func<HeroChannel, string> cell = ch =>
-            {
-                var ts = HeroFlavors.TargetsOf(f, ch);
-                if (ts.Length == 0) return "- (голоса Совета)";
-                return string.Join("<br>", ts.Select(t => t.Prop + " " + (t.Op == 6 ? (t.Ref >= 0 ? "+" : "") + Math.Round(t.Ref * 100, 1).ToString(inv) + "%" : (t.Ref >= 0 ? "+" : "") + t.Ref.ToString(inv)) + (string.IsNullOrEmpty(t.Path) ? "" : " @" + t.Path.Replace("../ClassEmpire", "Empire").Replace("Class", "").Replace("./", ""))));
-            };
-            sb.AppendLine("| " + f + " (" + HeroFlavors.Noun(f, HeroChannel.Senate, true) + ") | " + cell(HeroChannel.Ship) + " | " + cell(HeroChannel.System) + " | " + cell(HeroChannel.Senate) + " |");
-        }
-        sb.AppendLine();
-
-        sb.AppendLine("## Партии (6 x 4 роли = 24 дерева)");
+        sb.AppendLine("Устройство: у каждого героя три дерева (партия, раса, класс), диктатор вместо классового получает дерево фракции. Деревья написаны отдельно для адмирала, губернатора, сенатора и диктатора. 4 ступени: три ступени одиночных навыков и вершина (один уровень, несколько эффектов сразу). Эффект не повторяется внутри дерева. Порог ступени (очки навыков): A/G 0/4/8/12; сенатор 0/2/4/6; диктатор 0/6/12/18.");
         sb.AppendLine();
         string[] codes = { "A", "G", "S", "D" };
-        for (int p = 1; p <= 6; p++)
+        string[] groups = { "Party", "Race", "Class", "Dict" };
+        string[] titles = { "Партии", "Расы", "Классы", "Деревья диктаторов фракций" };
+        for (int g = 0; g < groups.Length; g++)
         {
-            Flavor[] theme = HeroFlavors.PartyTheme(p);
-            sb.AppendLine("### Партия " + p + ": " + HeroFlavors.PartyName(p, true) + " / " + HeroFlavors.PartyName(p, false) + " - тема: " + string.Join(", ", theme.Select(f => f.ToString())));
+            sb.AppendLine("## " + titles[g]);
             sb.AppendLine();
-            for (int r = 0; r < 4; r++)
+            var keys = new List<string>();
+            foreach (char role in new[] { 'A', 'G', 'S', 'D' })
+                foreach (string k in HeroDesign.AllKeys(role))
+                    if (k.StartsWith(groups[g], StringComparison.Ordinal) && !keys.Contains(k)) keys.Add(k);
+            foreach (string key in keys)
             {
-                WritePlan(sb, "HRTreeParty" + p.ToString("00") + "@" + codes[r], "HRParty" + p.ToString("00"), theme, roleKinds[r], roleDict[r], false, false, codes[r]);
+                sb.AppendLine("### " + HeroDesign.KeyTitle(key, true) + " / " + HeroDesign.KeyTitle(key, false) + " (" + key + ")");
                 sb.AppendLine();
+                foreach (char role in new[] { 'A', 'G', 'S', 'D' })
+                {
+                    DesignTree t = HeroDesign.Build(key, role);
+                    if (t == null || (role == 'D' && key.StartsWith("Class", StringComparison.Ordinal))) continue;
+                    WriteDesignTree(sb, t);
+                    sb.AppendLine();
+                }
             }
-        }
-
-        sb.AppendLine("## Деревья диктаторов фракций (" + HeroFlavors.FactionKeys.Length + ")");
-        sb.AppendLine();
-        foreach (string key in HeroFlavors.FactionKeys)
-        {
-            Flavor[] theme = HeroFlavors.FactionTheme(key);
-            sb.AppendLine("### " + HeroFlavors.FactionName(key, true) + " / " + HeroFlavors.FactionName(key, false) + " (`HRTreeDict" + key + "`) - тема: " + string.Join(", ", theme.Select(f => f.ToString())));
-            sb.AppendLine();
-            WritePlan(sb, "HRTreeDict" + key, "HRDict" + key, theme, HeroKind.Senator, true, true, true, "D");
-            sb.AppendLine();
         }
         File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
     }

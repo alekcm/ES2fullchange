@@ -595,6 +595,11 @@ public static class Patcher
         n = WrapReturns(Method("Hero", "ComputeAvailableSkills"), GameMethod(hero, "AfterComputeAvailable"), new[] { OpCodes.Ldarg_0 });
         Console.WriteLine("hook: Hero.ComputeAvailableSkills ends call AfterComputeAvailable: " + n);
 
+        // special ultimates of the admirals: GameClient.ApplyDamage(encounter, damage, attacker, ref xp, out surviving, out damaged, out destroyed) end
+        // => HeroRework.OnShipsDestroyed(encounter, attacker, ref destroyed)
+        n = WrapReturnsSlots(Method("GameClient", "ApplyDamage", 7), GameMethod(hero, "OnShipsDestroyed"), new[] { 1, 3, 7 });
+        Console.WriteLine("hook: GameClient.ApplyDamage (simplified battles) ends call OnShipsDestroyed: " + n);
+
         // stage 3: Hero.UpdateLevel(bool) start => HeroRework.BeforeUpdateLevel(this)
         {
             var m = Method("Hero", "UpdateLevel", 1);

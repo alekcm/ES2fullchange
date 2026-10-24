@@ -24,21 +24,6 @@ public sealed class FlavorTarget
     public FlavorTarget(string prop, int op, string path, float reference) { Prop = prop; Op = op; Path = path; Ref = reference; }
 }
 
-/// <summary>One planned level of an authored skill: the flavors it gives and how strong they are.</summary>
-public sealed class PlannedSkill
-{
-    public string Id;                // stable id inside a tree: S0..S6
-    public Flavor[] Flavors;
-    public float[][] Magnitudes;     // [level][flavor index]
-    public int StageIndex;
-}
-
-public sealed class PlannedStage
-{
-    public int RequiredLevel;
-    public List<PlannedSkill> Skills = new List<PlannedSkill>();
-}
-
 public static class HeroFlavors
 {
     public const string ShipPath = "./ClassGarrisonFleet";
@@ -361,10 +346,9 @@ public static class HeroFlavors
     public static Flavor[] FactionTheme(string key) { return factionThemes[FactionIndex(key)]; }
     public static string FactionName(string key, bool russian) { return Pick(factionNames[FactionIndex(key)], russian); }
 
-    // ---------------------------------------------------------------- authored trees (party and dictator)
+    // ---------------------------------------------------------------- stages of the authored trees
 
     public const int StageCount = 4;
-    static readonly float[] tierOfStage = { 1.0f, 1.5f, 2.0f, 2.5f };
 
     /// <summary>Skill points a hero must have spent before a stage opens (vanilla: 0 / 4 / 8 / 12).</summary>
     public static int StageThreshold(int stage, HeroKind kind, bool dictator)
@@ -373,52 +357,6 @@ public static class HeroFlavors
         if (dictator) return stage * 6;        // 0 / 6 / 12 / 18: the dictator has thirty levels to spend
         if (kind == HeroKind.Senator) return stage * 2;   // 0 / 2 / 4 / 6: a senator has seven level-ups
         return vanilla;
-    }
-
-    /// <summary>
-    /// The seven skills of an authored tree (two at each of the first three stages, one ultimate):
-    /// stage 0: A, B; stage 1: C, A+B; stage 2: B+C, A+C; stage 3: the ultimate A+B+C (+ authority for the dictator).
-    /// Admirals and governors get two levels per skill, a senator one (the strong one), the dictator three.
-    /// </summary>
-    public static List<PlannedStage> PlanTree(Flavor[] theme, HeroKind kind, bool dictator, bool authority)
-    {
-        Flavor a = theme[0], b = theme[1], c = theme[2];
-        var combos = new Flavor[][]
-        {
-            new[] { a }, new[] { b }, new[] { c }, new[] { a, b }, new[] { b, c }, new[] { a, c },
-            authority ? new[] { a, b, c, Flavor.Happiness, Flavor.Manpower } : new[] { a, b, c }
-        };
-        int[] stageOf = { 0, 0, 1, 1, 2, 2, 3 };
-        var stages = new List<PlannedStage>();
-        for (int s = 0; s < StageCount; s++) stages.Add(new PlannedStage { RequiredLevel = StageThreshold(s, kind, dictator) });
-        for (int i = 0; i < combos.Length; i++)
-        {
-            int s = stageOf[i];
-            float tier = tierOfStage[s];
-            float per = combos[i].Length == 1 ? 1f : (combos[i].Length == 2 ? 0.7f : (combos[i].Length == 3 ? 0.55f : 0.45f));
-            bool ultimate = s == StageCount - 1;
-            float[] levelFactor;
-            if (ultimate) levelFactor = new[] { dictator ? 1.5f : 1f };
-            else if (dictator) levelFactor = new[] { 0.5f, 1f, 1.5f };
-            else if (kind == HeroKind.Senator) levelFactor = new[] { 1f };
-            else levelFactor = new[] { 0.5f, 1f };
-            var skill = new PlannedSkill { Id = "S" + i, Flavors = combos[i], StageIndex = s, Magnitudes = new float[levelFactor.Length][] };
-            for (int l = 0; l < levelFactor.Length; l++)
-            {
-                skill.Magnitudes[l] = new float[combos[i].Length];
-                for (int f = 0; f < combos[i].Length; f++) skill.Magnitudes[l][f] = tier * per * levelFactor[l];
-            }
-            stages[s].Skills.Add(skill);
-        }
-        return stages;
-    }
-
-    /// <summary>Title of an authored skill: the nouns of its flavors in the channel of the kind.</summary>
-    public static string SkillTitle(Flavor[] flavors, HeroChannel channel, bool russian)
-    {
-        if (flavors.Length == 1) return Noun(flavors[0], channel, russian);
-        if (flavors.Length == 2) return Noun(flavors[0], channel, russian) + " / " + Noun(flavors[1], channel, russian);
-        return russian ? "Вершина: " + Noun(flavors[0], channel, russian) : "Pinnacle: " + Noun(flavors[0], channel, russian);
     }
 
     public static string KindCode(HeroKind kind, bool dictator)
@@ -440,81 +378,4 @@ public static class HeroFlavors
         return false;
     }
 
-    // ---------------------------------------------------------------- votes of the Galactic Council
-
-    public const float VotesFlatPerMagnitude = 6f;        // votes of a skill of magnitude 1 ...
-    public const float VotesPerFourSystems = 1f;          // ... plus this many for every four colonized systems
-
-    static readonly Dictionary<string, float[]> voteCache = new Dictionary<string, float[]>();
-
-    /// <summary>
-    /// Magnitude of the Council votes of a senator or dictator skill by level (null: the skill gives no votes).
-    /// Everything is derived from the name of the generated skill (HRParty01S0@S, HRDictSophonsS6), so it works for saved games.
-    /// </summary>
-    public static float[] VoteMagnitudes(string skillName)
-    {
-        float[] r;
-        if (skillName == null) return null;
-        if (voteCache.TryGetValue(skillName, out r)) return r;
-        r = ParseVotes(skillName);
-        voteCache[skillName] = r;
-        return r;
-    }
-
-    static float[] ParseVotes(string name)
-    {
-        Flavor[] theme; HeroKind kind = HeroKind.Senator; bool dictator = false, authority = false;
-        string sid;
-        if (name.StartsWith("HRParty", StringComparison.Ordinal))
-        {
-            int party, at = name.IndexOf('@');
-            if (name.Length < 12 || at < 10 || !int.TryParse(name.Substring(7, 2), out party) || party < 1 || party > 6) return null;
-            sid = name.Substring(9, at - 9);
-            if (!TryParseKindCode(name.Substring(at + 1), out kind, out dictator)) return null;
-            theme = PartyTheme(party);
-        }
-        else if (name.StartsWith("HRDict", StringComparison.Ordinal))
-        {
-            string rest = name.Substring(6);
-            int s = rest.LastIndexOf('S');
-            if (s < 1) return null;
-            sid = rest.Substring(s);
-            theme = FactionTheme(rest.Substring(0, s));
-            dictator = true; authority = true;
-        }
-        else return null;
-        if (kind != HeroKind.Senator) return null;           // only senators and dictators sit in the senate
-        var plan = PlanTree(theme, kind, dictator, authority);
-        float power = PowerOf(dictator);
-        for (int st = 0; st < plan.Count; st++)
-            for (int k = 0; k < plan[st].Skills.Count; k++)
-            {
-                PlannedSkill ps = plan[st].Skills[k];
-                if (ps.Id != sid) continue;
-                var res = new float[ps.Magnitudes.Length];
-                float total = 0f;
-                for (int l = 0; l < res.Length; l++)
-                {
-                    for (int f = 0; f < ps.Flavors.Length; f++) if (ps.Flavors[f] == Flavor.Votes) res[l] += ps.Magnitudes[l][f] * power;
-                    total += res[l];
-                }
-                return total > 0f ? res : null;
-            }
-        return null;
-    }
-
-    /// <summary>Votes of one learned skill level: a flat part plus a part per four colonized systems of the empire.</summary>
-    public static int VotesOfSkill(string skillName, int level, int systems)
-    {
-        float[] m = VoteMagnitudes(skillName);
-        if (m == null || m.Length == 0) return 0;
-        int idx = Math.Max(0, Math.Min(m.Length - 1, level - 1));
-        return (int)Math.Round(m[idx] * (VotesFlatPerMagnitude + VotesPerFourSystems * (systems / 4)));
-    }
-
-    /// <summary>Strength of the senate effects of the dictator compared with a senator: "stronger faction-specialised laws".</summary>
-    public const float DictatorPower = 1.6f;
-
-    /// <summary>Power factor of a skill of a kind: the dictator is stronger than a senator.</summary>
-    public static float PowerOf(bool dictator) { return dictator ? DictatorPower : 1f; }
 }

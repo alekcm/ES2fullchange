@@ -122,7 +122,7 @@ public static class HeroKinds
     // ---- senators (not the dictator) get a few levels only; the dictator is limited by the vanilla rule alone
 
     public const int SenatorLevelMax = 8;           // level 1 -> 8 = seven level-ups: "6-8 levels over the whole game"
-    public const float DictatorUltimateBoost = 1.75f; // learned skills become x2.75 on the ultimate (2 skill levels ~ 5.5)
+    public const float DictatorUltimateBoost = 0f;    // the dictator has five levels per skill and a stronger ultimate of his own: no extra multiplier
 
     // ---- passive experience: senators sit in the senate and never see a battle or a construction site, so they grow with time
 

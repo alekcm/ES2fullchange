@@ -59,10 +59,9 @@ static class HeroKindsTests
         Check(HeroKinds.LevelCapFor(HeroKind.Senator, true, -1) == -1, "the dictator is not capped");
         Check(HeroKinds.LevelCapFor(HeroKind.Admiral, false, -1) == -1 && HeroKinds.LevelCapFor(HeroKind.Governor, false, 60) == -1, "admirals and governors are not capped");
         Check(HeroKinds.SenatorLevelMax >= 7 && HeroKinds.SenatorLevelMax <= 9, "senator cap is about 6-8 level-ups");
-        Check(Math.Abs(HeroKinds.TotalBonusFraction(12, 12, true) - HeroKinds.DictatorUltimateBoost) < 1e-5f, "dictator boost at the ultimate");
-        Check(Math.Abs(HeroKinds.TotalBonusFraction(10, 20, true) - (HeroKinds.DictatorUltimateBoost + 1f)) < 1e-5f, "dictator boost plus growth");
+        Check(HeroKinds.DictatorUltimateBoost == 0f && HeroKinds.TotalBonusFraction(12, 12, true) == 0f, "no extra multiplier for the dictator (he has five levels per skill)");
+        Check(Math.Abs(HeroKinds.TotalBonusFraction(10, 20, true) - 1f) < 1e-5f, "growth after the ultimate");
         Check(HeroKinds.TotalBonusFraction(12, 12, false) == 0f, "no bonus for others at the ultimate");
-        Check(1f + HeroKinds.DictatorUltimateBoost >= 2.5f && 1f + HeroKinds.DictatorUltimateBoost <= 3f, "2 skill levels become about 5-6");
         var dmap = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.KeyValuePair<string, ulong>>();
         dmap[0] = new System.Collections.Generic.KeyValuePair<string, ulong>("Politics03", 77UL);
         dmap[3] = new System.Collections.Generic.KeyValuePair<string, ulong>("Politics08", 18446744073709551000UL);
@@ -117,48 +116,96 @@ static class HeroKindsTests
         for (int pi = 1; pi <= 6; pi++) Check(HeroFlavors.PartyTheme(pi).Length == 3 && HeroFlavors.PartyName(pi, true).Length > 0 && HeroFlavors.PartyName(pi, false).Length > 0, "party " + pi);
         Check(HeroFlavors.FactionKey("HeroAffinitySophons") == "Sophons" && HeroFlavors.FactionKey("HeroAffinityTimeLords") == "TimeLords" && HeroFlavors.FactionKey("???") == "Other" && HeroFlavors.FactionKey(null) == "Other", "faction key");
         foreach (string fk in HeroFlavors.FactionKeys) Check(HeroFlavors.FactionTheme(fk).Length == 3 && HeroFlavors.FactionName(fk, true).Length > 0, "faction " + fk);
-        // trees
-        foreach (HeroKind k in new[] { HeroKind.Admiral, HeroKind.Governor, HeroKind.Senator })
-            foreach (bool dict in new[] { false, true })
-            {
-                if (dict && k != HeroKind.Senator) continue;
-                var plan = HeroFlavors.PlanTree(HeroFlavors.PartyTheme(1), k, dict, false);
-                int skills = 0, points = 0, prev = -1;
-                foreach (var st in plan) { Check(st.RequiredLevel > prev, "thresholds grow"); prev = st.RequiredLevel; foreach (var sk in st.Skills) { skills++; points += sk.Magnitudes.Length; } }
-                Check(plan.Count == 4 && skills == 7, "seven skills in four stages for " + k + dict);
-                Check(plan[3].Skills.Count == 1 && plan[3].Skills[0].Magnitudes.Length == 1, "single ultimate");
-                if (k == HeroKind.Senator && !dict) Check(plan[0].Skills[0].Magnitudes.Length == 1 && plan[3].RequiredLevel == 6, "senator skills have one level and open early");
-                if (dict) Check(plan[0].Skills[0].Magnitudes.Length == 3 && plan[3].RequiredLevel == 18 && points >= 19, "dictator skills have three levels");
-                if (k != HeroKind.Senator) Check(plan[0].Skills[0].Magnitudes.Length == 2 && plan[3].RequiredLevel == 12 && points == 13, "vanilla thresholds and levels for admirals and governors");
-                // the points a hero has before the last stage are enough to open it
-                int below = 0; for (int s = 0; s < 3; s++) foreach (var sk in plan[s].Skills) below += sk.Magnitudes.Length;
-                Check(below >= plan[3].RequiredLevel, "last stage can be opened for " + k + dict);
-            }
-        var auth = HeroFlavors.PlanTree(HeroFlavors.FactionTheme("Sophons"), HeroKind.Senator, true, true);
-        Check(auth[3].Skills[0].Flavors.Length == 5, "dictator ultimate adds authority");
+        // stage thresholds
+        Check(HeroFlavors.StageThreshold(3, HeroKind.Admiral, false) == 12 && HeroFlavors.StageThreshold(3, HeroKind.Senator, false) == 6 && HeroFlavors.StageThreshold(3, HeroKind.Senator, true) == 18, "stage thresholds");
         Check(HeroFlavors.KindCode(HeroKind.Admiral, false) == "A" && HeroFlavors.KindCode(HeroKind.Senator, true) == "D" && HeroFlavors.KindCode(HeroKind.Governor, false) == "G" && HeroFlavors.KindCode(HeroKind.Senator, false) == "S", "kind codes");
         HeroKind pk; bool pd;
         Check(HeroFlavors.TryParseKindCode("D", out pk, out pd) && pd && !HeroFlavors.TryParseKindCode("X", out pk, out pd), "parse kind code");
-        Check(HeroFlavors.DictatorPower > 1f, "dictator is stronger");
 
-        // ---- votes of the Galactic Council given by senator skills
-        Check(HeroFlavors.TargetsOf(Flavor.Votes, HeroChannel.Senate).Length == 0, "votes have no senate modifier (the Council reads them)");
-        Check(HeroFlavors.TargetsOf(Flavor.Votes, HeroChannel.System).Length == 1 && HeroFlavors.TargetsOf(Flavor.Votes, HeroChannel.Ship).Length == 1, "governors and admirals get influence instead of votes");
-        float[] vm = HeroFlavors.VoteMagnitudes("HRParty03S1@S");
-        Check(vm != null && vm.Length == 1 && Math.Abs(vm[0] - 1f) < 1e-4f, "pacifist senator skill S1 is votes with magnitude 1");
-        Check(HeroFlavors.VotesOfSkill("HRParty03S1@S", 1, 0) == 6 && HeroFlavors.VotesOfSkill("HRParty03S1@S", 1, 8) == 8 && HeroFlavors.VotesOfSkill("HRParty03S1@S", 1, 3) == 6, "votes: 6 flat + 1 per four systems");
-        Check(HeroFlavors.VoteMagnitudes("HRParty03S0@S") == null && HeroFlavors.VoteMagnitudes("HRParty01S1@S") == null, "other skills and other parties give no votes");
-        Check(HeroFlavors.VoteMagnitudes("HRParty03S1@G") == null && HeroFlavors.VoteMagnitudes("HRParty03S1@A") == null, "governors and admirals give no council votes");
-        Check(HeroFlavors.VoteMagnitudes("HRParty05S2@S") != null, "religious party has a votes skill");
-        var dv = HeroFlavors.VoteMagnitudes("HRParty03S1@D");
-        Check(dv != null && dv.Length == 3 && HeroFlavors.VotesOfSkill("HRParty03S1@D", 3, 0) > HeroFlavors.VotesOfSkill("HRParty03S1@S", 1, 0) && HeroFlavors.VotesOfSkill("HRParty03S1@D", 9, 0) == HeroFlavors.VotesOfSkill("HRParty03S1@D", 3, 0), "dictator version is stronger and level is clamped");
-        Check(HeroFlavors.VoteMagnitudes("HRDictVenetiansS2") != null && HeroFlavors.VoteMagnitudes("HRDictVenetiansS6") != null && HeroFlavors.VoteMagnitudes("HRDictSophonsS0") == null, "venetian dictator skills give votes");
-        Check(HeroFlavors.VoteMagnitudes(null) == null && HeroFlavors.VoteMagnitudes("HeroSkillSomething") == null && HeroFlavors.VoteMagnitudes("HRParty") == null && HeroFlavors.VoteMagnitudes("HRPartyXXS0@S") == null && HeroFlavors.VoteMagnitudes("HRDict") == null, "garbage names give no votes");
-        Check(HeroFlavors.VotesOfSkill("HeroSkillSomething", 1, 100) == 0, "vanilla skills give no votes");
+        // ---- the written trees (HeroTreeDesign / HeroTreeSpecs)
+        var roles = new[] { 'A', 'G', 'S', 'D' };
+        int treesTotal = 0, skillsTotal = 0;
+        foreach (char role in roles)
+        {
+            var keys = HeroDesign.AllKeys(role);
+            Check(keys.Count >= 20, "keys for role " + role + ": " + keys.Count);
+            foreach (string key in keys)
+            {
+                DesignTree tree = HeroDesign.Build(key, role);
+                Check(tree != null, "tree " + key + "|" + role);
+                if (tree == null) continue;
+                treesTotal++;
+                Check(tree.Stages.Count == 4, "four stages in " + tree.TreeName);
+                int prev = -1;
+                var usedConcepts = new System.Collections.Generic.HashSet<string>();
+                var usedGroups = new System.Collections.Generic.HashSet<string>();
+                var names = new System.Collections.Generic.HashSet<string>();
+                for (int si = 0; si < tree.Stages.Count; si++)
+                {
+                    var st = tree.Stages[si];
+                    Check(st.RequiredLevel > prev, "thresholds grow in " + tree.TreeName); prev = st.RequiredLevel;
+                    Check(st.RequiredLevel == HeroFlavors.StageThreshold(si, role == 'A' ? HeroKind.Admiral : role == 'G' ? HeroKind.Governor : HeroKind.Senator, role == 'D'), "threshold of stage " + si + " in " + tree.TreeName);
+                    if (si == 3) Check(st.Skills.Count == 1 && st.Skills[0].Levels == 1, "single one-level ultimate in " + tree.TreeName);
+                    else Check(st.Skills.Count >= 1 && st.Skills.Count <= 3, "skills per stage in " + tree.TreeName);
+                    foreach (DesignSkill sk in st.Skills)
+                    {
+                        skillsTotal++;
+                        Check(names.Add(sk.Name), "unique skill name " + sk.Name);
+                        Check(sk.Concepts.Length >= 1 && sk.Values.Length >= 1 && sk.TitleRu.Length > 0 && sk.TitleEn.Length > 0, "skill has content " + sk.Name);
+                        Check(HeroDesign.Describe(sk, true).Length > 0 && HeroDesign.Describe(sk, false).Length > 0, "description of " + sk.Name);
+                        if (si < 3 && role != 'D')
+                            Check(sk.Levels >= (role == 'S' ? 1 : 3) && sk.Levels <= 8, "levels of " + sk.Name + ": " + sk.Levels);
+                        if (si < 3 && role == 'D') Check(sk.Levels >= 2 && sk.Levels <= 8, "dictator levels of " + sk.Name);
+                        for (int c = 0; c < sk.Concepts.Length; c++)
+                        {
+                            if (si < 3)
+                            {
+                                Check(usedConcepts.Add(sk.Concepts[c].Key), "concept " + sk.Concepts[c].Key + " is used once in " + tree.TreeName);
+                                if (sk.Concepts[c].Group != null) Check(usedGroups.Add(sk.Concepts[c].Group), "idea group " + sk.Concepts[c].Group + " is used once in " + tree.TreeName);
+                            }
+                            for (int l = 0; l < sk.Levels; l++) Check(sk.Values[l][c] > 0, "positive value in " + sk.Name);
+                            // no fractional percentages are shown
+                            for (int l = 0; l < sk.Levels; l++) { string t = HeroDesign.LevelText(sk, l, true); Check(!System.Text.RegularExpressions.Regex.IsMatch(t, @"\d[.,]\d"), "round numbers in " + sk.Name + ": " + t); }
+                        }
+                        // values grow with the level
+                        for (int l = 1; l < sk.Levels; l++) Check(sk.Values[l][0] > sk.Values[l - 1][0], "levels grow in " + sk.Name);
+                    }
+                }
+                Check(HeroDesign.UltimateTitle(key, true).Length > 0, "ultimate title " + key);
+                Check(HeroDesign.TreeName(key, role) == tree.TreeName, "tree name " + tree.TreeName);
+            }
+        }
+        Check(treesTotal >= 80 && skillsTotal >= 400, "trees " + treesTotal + ", skills " + skillsTotal);
+        Check(HeroDesign.TreeKeyOfVanilla("HeroSkillTreeSophons") == "RaceSophons" && HeroDesign.TreeKeyOfVanilla("HeroSkillTreeAdmiral") == "ClassAdmiral" && HeroDesign.TreeKeyOfVanilla("HeroSkillTreeMinorFaction01") == "RacePirates", "vanilla tree key");
+        Check(HeroDesign.TreeKeyOfVanilla("HeroSkillTreeGeneric") == null && HeroDesign.TreeKeyOfVanilla("Nonsense") == null, "unknown tree keys");
+
+        // ---- votes of the Galactic Council given by senator and dictator skills
         int voteSkills = 0;
-        for (int pi = 1; pi <= 6; pi++)
-            for (int si = 0; si < 7; si++) if (HeroFlavors.VoteMagnitudes("HRParty0" + pi + "S" + si + "@S") != null) voteSkills++;
-        Check(voteSkills >= 6, "at least some senator skills give votes (" + voteSkills + ")");
+        foreach (char role in new[] { 'S', 'D' })
+            foreach (string key in HeroDesign.AllKeys(role))
+            {
+                DesignTree tree = HeroDesign.Build(key, role);
+                foreach (var st in tree.Stages) foreach (var sk in st.Skills)
+                {
+                    int[] v = HeroDesign.VotesByLevel(sk.Name);
+                    if (v == null) continue;
+                    voteSkills++;
+                    Check(v.Length == sk.Levels && v[0] > 0 && HeroDesign.VotesOfSkill(sk.Name, 1) == v[0] && HeroDesign.VotesOfSkill(sk.Name, sk.Levels + 5) == v[v.Length - 1] && HeroDesign.VotesOfSkill(sk.Name, 0) == 0, "votes table of " + sk.Name);
+                    for (int l = 1; l < v.Length; l++) Check(v[l] > v[l - 1], "votes grow in " + sk.Name);
+                }
+            }
+        Check(voteSkills >= 12, "skills that give votes: " + voteSkills);
+        Check(HeroDesign.VotesOfSkill("HeroSkillSomething", 1) == 0 && HeroDesign.VotesOfSkill(null, 1) == 0, "vanilla skills give no votes");
+        Check(HeroDesign.VotesByLevel("HRParty03_0@A") == null, "admiral skills give no votes");
+
+        // ---- special ultimates
+        Check(HeroDesign.SpecialOf(HeroDesign.Build("RaceCravers", 'A').Stages[3].Skills[0].Name) == "Prisoner", "Cravers admiral ultimate: prisoner");
+        Check(HeroDesign.SpecialOf(HeroDesign.Build("RaceTerrans", 'A').Stages[3].Skills[0].Name) == "Euphoria", "Terrans admiral ultimate: euphoria");
+        bool sci = false; foreach (var cc in HeroDesign.Build("RaceSophons", 'A').Stages[3].Skills[0].Concepts) if (cc.Key == "A.LootSci") sci = true;
+        Check(sci, "Sophons admiral ultimate: science for kills");
+        Check(HeroDesign.SpecialOf("HRRaceSophons_6@A") == null && HeroDesign.SpecialOf(null) == null, "no hook for ordinary skills");
+        // each concept has a way to be described and a unit
+        foreach (var cpt in HeroDesign.AllConcepts()) Check(cpt.Name(true).Length > 0 && cpt.Name(false).Length > 0, "concept name " + cpt.Key);
 
         // ---- passive experience, visible skill points, dictator hero definitions
         Check(Math.Abs(HeroKinds.PassiveExperience(100f, false) - 10f) < 1e-4f && Math.Abs(HeroKinds.PassiveExperience(120f, true) - 20f) < 1e-4f, "passive xp: 10 turns per level for a senator, 6 for the dictator");

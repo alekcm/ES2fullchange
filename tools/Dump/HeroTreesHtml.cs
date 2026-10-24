@@ -161,21 +161,6 @@ static partial class HeroTreesDump
         return list;
     }
 
-    static List<string> HumanTargets(Dictionary<int, float> mags, HeroChannel channel, float power)
-    {
-        var list = new List<string>();
-        foreach (var kv in mags.OrderBy(k => k.Key))
-        {
-            foreach (FlavorTarget t in HeroFlavors.TargetsOf((Flavor)kv.Key, channel))
-            {
-                float v = HeroFlavors.ValueOf(t, kv.Value, power);
-                if (v == 0f) continue;
-                list.Add(Phrase(t.Prop, t.Op, v, t.Path, channel, 1f));
-            }
-        }
-        return list;
-    }
-
     // ---------------------------------------------------------------- html pieces
 
     static string Chips(IEnumerable<Flavor> flavors)
@@ -187,13 +172,6 @@ static partial class HeroTreesDump
     {
         if (lines.Count == 0) return "<div class=\"none\">нет числовых эффектов</div>";
         return "<ul>" + string.Concat(lines.Select(l => "<li>" + l + "</li>")) + "</ul>";
-    }
-
-    static string VotesLine(string skillName, int level)
-    {
-        float[] vm = HeroFlavors.VoteMagnitudes(skillName);
-        if (vm == null || level >= vm.Length) return "";
-        return "<li><b>+" + Math.Round(vm[level] * HeroFlavors.VotesFlatPerMagnitude) + " голосов</b> в Галактическом Совете <span class=\"sc\">— и ещё +" + Nf(vm[level] * HeroFlavors.VotesPerFourSystems) + " за каждые 4 колонизированные системы</span></li>";
     }
 
     static string Needs(int stageIndex, int required, HeroKind kind, bool dictator)
@@ -209,38 +187,55 @@ static partial class HeroTreesDump
         "флот: влияет на корабли одного флота",
         "система: влияет на одну систему, где он назначен",
         "сенатор: влияет на всю империю, один уровень навыка",
-        "диктатор: влияет на всю империю, сильнее сенатора в 1.6 раза, три уровня навыка"
+        "диктатор: влияет на всю империю, пять уровней у каждого навыка и особая вершина"
     };
 
-    static string AuthoredTree(string treeName, string idPrefix, Flavor[] theme, int r, bool faction, string code, bool authority)
+    static string DesignTreeHtml(string key, char role)
     {
-        HeroKind kind = roleKinds[r]; bool dictator = roleDict[r];
-        HeroChannel channel = HeroFlavors.ChannelOf(kind);
-        float power = HeroFlavors.PowerOf(dictator);
-        var plan = HeroFlavors.PlanTree(theme, kind, dictator, authority);
+        DesignTree tree = HeroDesign.Build(key, role);
+        if (tree == null || (role == 'D' && key.StartsWith("Class", StringComparison.Ordinal))) return "";
+        int r = "AGSD".IndexOf(role);
         var sb = new StringBuilder();
         sb.Append("<div class=\"rv " + RoleClass(r) + "\"><div class=\"rolehead role" + r + "\">" + roleShort[r] + " <small>" + H(roleHint[r]) + "</small></div>");
-        foreach (PlannedStage st in plan)
+        for (int s = 0; s < tree.Stages.Count; s++)
         {
-            sb.Append("<div class=\"stage\"><div class=\"stagehead\">Ступень " + (plan.IndexOf(st) + 1) + (plan.IndexOf(st) == plan.Count - 1 ? " — вершина" : "") + " <small>(" + H(st.RequiredLevel == 0 ? "доступно сразу" : "после " + st.RequiredLevel + " потраченных очков навыков") + ")</small></div><div class=\"cards\">");
-            foreach (PlannedSkill ps in st.Skills)
+            DesignStage st = tree.Stages[s];
+            sb.Append("<div class=\"stage\"><div class=\"stagehead\">Ступень " + (s + 1) + (s == 3 ? " — вершина" : "") + " <small>(" + H(st.RequiredLevel == 0 ? "доступно сразу" : "после " + st.RequiredLevel + " потраченных очков навыков") + ")</small></div><div class=\"cards\">");
+            foreach (DesignSkill sk in st.Skills)
             {
-                string name = idPrefix + ps.Id + (faction ? "" : "@" + code);
-                sb.Append("<div class=\"card\"><div class=\"ct\">" + H(HeroFlavors.SkillTitle(ps.Flavors, channel, true)) + "</div><div class=\"cen\">" + H(HeroFlavors.SkillTitle(ps.Flavors, channel, false)) + "</div>");
-                sb.Append("<div>" + Chips(ps.Flavors) + "</div><div class=\"id\">" + H(name) + "</div>");
-                for (int l = 0; l < ps.Magnitudes.Length; l++)
+                sb.Append("<div class=\"card\"><div class=\"ct\">" + H(sk.TitleRu) + "</div><div class=\"cen\">" + H(sk.TitleEn) + "</div><div class=\"id\">" + H(sk.Name) + "</div>");
+                if (sk.Tier < 4) sb.Append("<div class=\"sc\">" + H(sk.Concepts[0].Note(true)) + "</div>");
+                for (int l = 0; l < sk.Levels; l++)
                 {
-                    var mags = new Dictionary<int, float>();
-                    for (int f = 0; f < ps.Flavors.Length; f++) { float old; mags.TryGetValue((int)ps.Flavors[f], out old); mags[(int)ps.Flavors[f]] = old + ps.Magnitudes[l][f]; }
-                    var lines = HumanTargets(mags, channel, power);
-                    string votes = VotesLine(name, l);
-                    sb.Append("<div class=\"lvl\"><span class=\"ln\">Уровень " + (l + 1) + "</span><ul>" + string.Concat(lines.Select(x => "<li>" + x + "</li>")) + votes + "</ul></div>");
+                    sb.Append("<div class=\"lvl\"><span class=\"ln\">" + (sk.Levels > 1 ? "Уровень " + (l + 1) : "Эффекты") + "</span><ul>");
+                    for (int c = 0; c < sk.Concepts.Length; c++)
+                        sb.Append("<li><b>" + H(sk.Concepts[c].Show(sk.Values[l][c], true)) + "</b> " + H(sk.Concepts[c].Name(true)) + "</li>");
+                    sb.Append("</ul></div>");
                 }
+                if (sk.Tier == 4)
+                    for (int c = 0; c < sk.Concepts.Length; c++)
+                        if (sk.Concepts[c].Special != null) sb.Append("<div class=\"sc\"><b>" + H(sk.Concepts[c].Name(true)) + ":</b> " + H(sk.Concepts[c].Note(true)) + "</div>");
                 sb.Append("</div>");
             }
             sb.Append("</div></div>");
         }
         sb.Append("</div>");
+        return sb.ToString();
+    }
+
+    static string DesignGroupHtml(string id, string title, string note, string prefix)
+    {
+        var sb = new StringBuilder();
+        sb.Append("<h2 id=\"" + id + "\">" + H(title) + "</h2><div class=\"note\">" + H(note) + "</div>");
+        var keys = new List<string>();
+        foreach (char role in new[] { 'A', 'G', 'S', 'D' })
+            foreach (string k in HeroDesign.AllKeys(role))
+                if (k.StartsWith(prefix, StringComparison.Ordinal) && !keys.Contains(k)) keys.Add(k);
+        foreach (string key in keys)
+        {
+            sb.Append("<h3>" + H(HeroDesign.KeyTitle(key, true)) + " <small>(" + H(HeroDesign.KeyTitle(key, false)) + ")</small></h3>");
+            foreach (char role in new[] { 'A', 'G', 'S', 'D' }) sb.Append(DesignTreeHtml(key, role));
+        }
         return sb.ToString();
     }
 
@@ -263,18 +258,6 @@ static partial class HeroTreesDump
             sb.Append("<div class=\"lvl\"><span class=\"ln\">Уровень " + (i + 1) + "</span>" + Lines(lines) + "</div>");
         }
         sb.Append("</div>");
-        if (sk.Levels.Count > 0)
-        {
-            sb.Append("<details class=\"roles\"><summary>Как этот навык работает в моде у каждой роли</summary>");
-            for (int r = 0; r < 4; r++)
-            {
-                Variant v = MakeVariant(sk, roleKinds[r], roleDict[r]);
-                sb.Append("<div class=\"rv " + RoleClass(r) + "\"><div class=\"rolehead role" + r + "\">" + roleShort[r] + ": «" + H(v.Title) + "» <small>" + H(v.TitleEn) + "</small></div>");
-                for (int l = 0; l < v.HLevels.Count; l++) sb.Append("<div class=\"lvl\"><span class=\"ln\">Уровень " + (l + 1) + "</span>" + Lines(v.HLevels[l]) + "</div>");
-                sb.Append("</div>");
-            }
-            sb.Append("</details>");
-        }
         sb.Append("</div>");
         return sb.ToString();
     }
@@ -364,46 +347,30 @@ function setRole(r){document.body.setAttribute('data-role',r);
                   "<button class=\"role on\" data-r=\"all\" onclick=\"setRole('all')\">Все</button><button class=\"role\" data-r=\"A\" onclick=\"setRole('A')\">Адмирал</button>" +
                   "<button class=\"role\" data-r=\"G\" onclick=\"setRole('G')\">Губернатор</button><button class=\"role\" data-r=\"S\" onclick=\"setRole('S')\">Сенатор</button>" +
                   "<button class=\"role\" data-r=\"D\" onclick=\"setRole('D')\">Диктатор</button><span class=\"sep\"></span>" +
-                  "<a class=\"nav\" href=\"#how\">Как читать</a><a class=\"nav\" href=\"#ideas\">Идеи</a><a class=\"nav\" href=\"#parties\">Партии</a><a class=\"nav\" href=\"#factions\">Диктаторы фракций</a><a class=\"nav\" href=\"#vanilla\">Ванильные деревья</a><a class=\"nav\" href=\"#heroes\">Герои</a></div>");
+                  "<a class=\"nav\" href=\"#how\">Как читать</a><a class=\"nav\" href=\"#ideas\">Идеи</a><a class=\"nav\" href=\"#parties\">Партии</a><a class=\"nav\" href=\"#races\">Расы</a><a class=\"nav\" href=\"#classes\">Классы</a><a class=\"nav\" href=\"#factions\">Диктаторы фракций</a><a class=\"nav\" href=\"#vanilla\">Ванильные деревья</a><a class=\"nav\" href=\"#heroes\">Герои</a></div>");
         sb.Append("<main>");
 
         sb.Append("<h2 id=\"how\">Как читать</h2>");
         sb.Append("<div class=\"note\"><b>Роли героя.</b> Один и тот же герой в моде работает в одной из ролей, и от роли зависит, <i>где</i> действует навык: " +
                   "<b>Адмирал</b> — на один флот; <b>Губернатор</b> — на одну систему; <b>Сенатор</b> — на всю империю (один уровень каждого навыка); " +
-                  "<b>Диктатор</b> — на всю империю, но сильнее сенатора в 1.6 раза (три уровня навыка). Роль определяется классом героя: Адмирал и Авантюрист → адмирал, Администратор → губернатор, Корпоративный → сенатор.</div>");
-        sb.Append("<div class=\"note\"><b>Дерево.</b> У каждого дерева 4 ступени: 2 навыка, 2, 2 и одна «вершина». Следующая ступень открывается, когда герой потратил определённое число очков навыков " +
+                  "<b>Диктатор</b> — на всю империю, но с пятью уровнями у каждого навыка. Роль определяется классом героя: Адмирал и Авантюрист → адмирал, Администратор → губернатор, Корпоративный → сенатор.</div>");
+        sb.Append("<div class=\"note\"><b>Дерево.</b> У каждого дерева 4 ступени: три ступени с одиночными навыками и «вершина» с несколькими эффектами сразу. Один и тот же эффект в дереве не повторяется. Следующая ступень открывается, когда герой потратил определённое число очков навыков " +
                   "(адмирал и губернатор: 4 / 8 / 12; сенатор: 2 / 4 / 6; диктатор: 6 / 12 / 18). Если у навыка несколько уровней, каждый следующий уровень сильнее.</div>");
-        sb.Append("<div class=\"note\"><b>Партия и фракция.</b> Партия героя (Индустриалисты, Учёные, Пацифисты, Экологи, Религиозные, Милитаристы) заменяет в моде общее дерево героя на партийное. " +
-                  "Диктатор дополнительно получает дерево своей фракции вместо классового дерева.</div>");
-        sb.Append("<div class=\"note warn\"><b>Оговорки.</b> Числа в процентах — моя трактовка игровых значений (например, «урон +0.2» в игре читаю как +20%); в игре это не проверялось. " +
+        sb.Append("<div class=\"note\"><b>Партия и фракция.</b> Партия героя (Индустриалисты, Учёные, Пацифисты, Экологи, Религиозные, Милитаристы) заменяет в моде общее дерево героя на партийное, а расовое и классовое деревья тоже написаны модом. " +
+                  "Диктатор получает дерево своей фракции вместо классового дерева.</div>");
+        sb.Append("<div class=\"note warn\"><b>Оговорки.</b> Деревья мода реализованы, но в игре ещё не проверялись; соответствие эффектов игровым свойствам (например, «восстановление корпуса вне боя») подобрано по данным игры и требует проверки. Числа в ванильном разделе в процентах — моя трактовка игровых значений. " +
                   "Ванильные данные взяты из более старой версии игры, в вашей сборке цифры и названия могут отличаться. Техническое имя навыка (серый мелкий шрифт) нужно, чтобы найти его в коде.</div>");
 
         sb.Append("<h2 id=\"ideas\">Идеи: что могли бы делать партии и фракции</h2><div class=\"ideas\">@@IDEAS@@</div>");
 
-        // ---- parties
-        sb.Append("<h2 id=\"parties\">Партии: деревья навыков мода (6 партий × 4 роли)</h2>");
-        sb.Append("<div class=\"note\">Эти деревья создаёт мод. Они заменяют ванильное «Универсальное» дерево у героев соответствующей партии. Кнопки роли сверху оставляют на странице одну роль.</div>");
-        for (int p = 1; p <= 6; p++)
-        {
-            Flavor[] theme = HeroFlavors.PartyTheme(p);
-            sb.Append("<h3>Партия «" + H(HeroFlavors.PartyName(p, true)) + "» <small>(" + H(HeroFlavors.PartyName(p, false)) + ")</small></h3><div class=\"themes\">Тема партии: " + Chips(theme) + "</div>");
-            for (int r = 0; r < 4; r++) sb.Append(AuthoredTree("HRTreeParty" + p.ToString("00") + "@" + "AGSD"[r], "HRParty" + p.ToString("00"), theme, r, false, "AGSD"[r].ToString(), false));
-        }
-
-        // ---- dictators
-        sb.Append("<h2 id=\"factions\">Деревья диктаторов по фракциям</h2>");
-        sb.Append("<div class=\"note\">Диктатор — герой, представляющий в сенате правителя империи при диктатуре. Он получает дерево своей фракции (три ступени по два навыка и вершина с дополнительными бонусами счастья и людских резервов), три уровня на навык, мощность ×1.6.</div>");
-        foreach (string key in HeroFlavors.FactionKeys)
-        {
-            Flavor[] theme = HeroFlavors.FactionTheme(key);
-            sb.Append("<h3>" + H(HeroFlavors.FactionName(key, true)) + " <small>(" + H(HeroFlavors.FactionName(key, false)) + ")</small></h3><div class=\"themes\">Тема фракции: " + Chips(theme) + "</div>");
-            sb.Append(AuthoredTree("HRTreeDict" + key, "HRDict" + key, theme, 3, true, "D", true).Replace(" rD\"", " rD rFaction\""));
-        }
+        sb.Append(DesignGroupHtml("parties", "Партии: деревья навыков мода (6 партий × 4 роли)", "Эти деревья создаёт мод. Партийное дерево заменяет ванильное «Универсальное» у героев соответствующей партии. Кнопки роли сверху оставляют на странице одну роль.", "Party"));
+        sb.Append(DesignGroupHtml("races", "Расы: деревья навыков мода", "Расовое дерево героя (по фракции, откуда он родом) заменяет ванильное расовое. Для каждой роли своё дерево.", "Race"));
+        sb.Append(DesignGroupHtml("classes", "Классы: деревья навыков мода", "Классовое дерево заменяет ванильное. Адмирал и Авантюрист — адмиральские деревья, Администратор — губернаторское, Корпорат — сенаторское. Диктатор классового дерева не имеет.", "Class"));
+        sb.Append(DesignGroupHtml("factions", "Деревья диктаторов по фракциям", "Диктатор — герой, представляющий в сенате правителя империи при диктатуре. Вместо классового дерева он получает дерево своей фракции: по два навыка на ступень и особая вершина.", "Dict"));
 
         // ---- vanilla
-        sb.Append("<h2 id=\"vanilla\">Ванильные деревья навыков и как они выглядят у каждой роли</h2>");
-        sb.Append("<div class=\"note\">В каждой карточке сверху — как навык работает в оригинальной игре. Раскройте «Как этот навык работает в моде у каждой роли» — там версии для адмирала, губернатора, сенатора и диктатора. " +
-                  "Если у навыка нет эффекта в нужном канале, мод пересчитывает чужой эффект в похожий (например, бонус к науке системы у сенатора превращается в бонус к науке с каждой планеты империи).</div>");
+        sb.Append("<h2 id=\"vanilla\">Ванильные деревья навыков (для сравнения)</h2>");
+        sb.Append("<div class=\"note\">Это деревья оригинальной игры. В моде они больше не используются: вместо них действуют деревья мода из разделов выше. Личные навыки героев остаются как в игре.</div>");
         foreach (Tree t in trees)
         {
             var users = heroes.Where(h => h.Trees.Contains(t.Name)).ToList();
