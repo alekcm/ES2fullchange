@@ -26,11 +26,15 @@ static class HeroClassTreeTests
         if (c == null) return;
         Check(c.Mods != null && c.Mods.Length == 1, "A." + conceptKey + " has exactly one modifier");
         if (c.Mods == null || c.Mods.Length != 1) return;
-        DesignMod m = c.Mods[0];
-        Check(m.Prop == prop, "A." + conceptKey + " modifies " + prop + " (got " + m.Prop + ")");
-        Check(m.Op == op, "A." + conceptKey + " operation " + op + " (got " + m.Op + ")");
-        Check(m.Path == path, "A." + conceptKey + " path '" + path + "' (got '" + (m.Path ?? "<null>") + "')");
-        Check(Math.Abs(m.Scale - scale) < 0.0001f, "A." + conceptKey + " scale " + scale + " (got " + m.Scale + ")");
+        CheckModAt(c.Mods[0], "A." + conceptKey, prop, op, path, scale);
+    }
+
+    static void CheckModAt(DesignMod m, string what, string prop, int op, string path, float scale)
+    {
+        Check(m.Prop == prop, what + " modifies " + prop + " (got " + m.Prop + ")");
+        Check(m.Op == op, what + " operation " + op + " (got " + m.Op + ")");
+        Check(m.Path == path, what + " path '" + path + "' (got '" + (m.Path ?? "<null>") + "')");
+        Check(Math.Abs(m.Scale - scale) < 0.0001f, what + " scale " + scale + " (got " + m.Scale + ")");
     }
 
     static DesignSkill UltOf(DesignTree t)
@@ -82,38 +86,63 @@ static class HeroClassTreeTests
         CheckMod("ShipCrewKill", "ManpowerDamageOverTime", 6, "", 0.01f);
         CheckMod("Crew", "MaximumShipManpower", 6, HeroFlavors.ShipCrewPath, 0.01f);
 
-        // the numbers of the ultimate: all four effects must be present with positive values
+        // the numbers follow the vanilla scale: one skill = up to +40% (vanilla HeroSkillShip18_4 = ShipDamage +0.40),
+        // per-ship values go higher (vanilla HeroSkillShip22_3 = Damage +0.80 per ship)
         Concept cd = HeroDesign.Get(HeroChannel.Ship, "ShipDmg");
         Concept ch = HeroDesign.Get(HeroChannel.Ship, "ShipHp");
         Concept cc2 = HeroDesign.Get(HeroChannel.Ship, "ShipCrit");
         Concept ck = HeroDesign.Get(HeroChannel.Ship, "ShipCrewKill");
-        Check(cd != null && cd.Ult >= 40, "the ultimate ship damage is at least +40% (got " + (cd == null ? "?" : cd.Ult.ToString()) + ")");
-        Check(ch != null && ch.Ult >= 50, "the ultimate hull is at least +50%");
+        Check(cd != null && cd.Value('A', 1, 5) == 40, "tier 1 weapon damage reaches the vanilla +40% at level 5 (got " + (cd == null ? "?" : cd.Value('A', 1, 5).ToString()) + ")");
+        Check(ch != null && ch.Value('A', 1, 5) >= 40, "tier 1 hull is at least +40% at level 5");
+        Check(cd != null && cd.Ult >= 80, "the ultimate ship damage is at least +80% (got " + (cd == null ? "?" : cd.Ult.ToString()) + ")");
+        Check(ch != null && ch.Ult >= 100, "the ultimate hull is at least +100%");
         Check(cc2 != null && cc2.Ult >= 10, "the ultimate crit is at least +10%");
         Check(ck != null && ck.Ult >= 30, "the ultimate crew culling is at least +30%");
 
-        // ================= Seeker (ClassAdventurer@A): virtual support modules serving the fleet through his ship.
+        // ================= Seeker (ClassAdventurer@A): vision first, electronic warfare, fleet flak.
         DesignTree seeker = HeroDesign.Build("ClassAdventurer", 'A');
         Check(seeker != null, "ClassAdventurer@A builds");
         if (seeker != null)
         {
             CheckStages(seeker, 0, 4, 8, 12);
-            Check(TierOf(seeker, 1).Concepts[0].Key == "A.Move", "stage 1 is the fleet movement");
-            Check(TierOf(seeker, 2).Concepts[0].Key == "A.Repair", "stage 2 is the out-of-battle repair");
-            Check(TierOf(seeker, 3).Concepts[0].Key == "A.Vision", "stage 3 is the vision range");
+            Check(seeker.Stages[0].Skills.Count == 2, "stage 1 holds the movement and vision skills (got " + seeker.Stages[0].Skills.Count + ")");
+            var tier1 = new List<string>(); foreach (DesignSkill sk in seeker.Stages[0].Skills) tier1.Add(sk.Concepts[0].Key);
+            Check(tier1.Contains("A.Move") && tier1.Contains("A.Vision"), "stage 1 = movement + vision (got " + string.Join(",", tier1.ToArray()) + ")");
+            Check(TierOf(seeker, 2).Concepts[0].Key == "A.Jammer", "stage 2 is the jammer");
+            Check(TierOf(seeker, 3).Concepts[0].Key == "A.Flak", "stage 3 is the fleet flak");
 
             DesignSkill u2 = UltOf(seeker);
             var keys2 = new List<string>(); foreach (Concept cc in u2.Concepts) keys2.Add(cc.Key);
             Check(keys2.Count == 4, "the Seeker ultimate combines four effects");
-            Check(keys2.Contains("A.Move") && keys2.Contains("A.Repair") && keys2.Contains("A.Vision") && keys2.Contains("A.Crew"),
-                "the ultimate = movement + repair + vision + reserve crews (got " + string.Join(",", keys2.ToArray()) + ")");
+            Check(keys2.Contains("A.Move") && keys2.Contains("A.Vision") && keys2.Contains("A.Jammer") && keys2.Contains("A.Flak"),
+                "the ultimate = movement + vision + jammer + flak (got " + string.Join(",", keys2.ToArray()) + ")");
             Check(u2.TitleRu == "Материнский корабль" && u2.TitleEn == "Mothership", "the Seeker ultimate is the mothership");
+
+            bool hasRepair = false;
+            foreach (DesignStage st in seeker.Stages)
+                foreach (DesignSkill sk in st.Skills)
+                    foreach (Concept c in sk.Concepts)
+                        if (c.Key == "A.Repair") hasRepair = true;
+            Check(!hasRepair, "the Seeker class tree has no hull repair (it stays in the party/race trees)");
         }
 
         // the fleet effects resolve from the hero's ship: vanilla hero-skill paths (./ClassGarrisonFleet, +/ClassShip)
         CheckMod("Move", "ShipMaximumMovement", 1, HeroFlavors.ShipPath, 1f);
         CheckMod("Vision", "VisionRange", 1, HeroFlavors.ShipPath, 1f);
-        CheckMod("Repair", "FlatHealthRegeneration", 1, HeroFlavors.ShipCrewPath, 1f);
+        // the jammer: the vanilla ModuleSupportJammer mechanic, self-targeted on the hero's ship
+        CheckMod("Jammer", "TargetingWeightBonus", 1, "", -1f);
+        // the flak: the vanilla Flak Enhancer pair - FlakEfficiency on the fleet's kinetic guns,
+        // +4 damage per point on the fleet's flak guns
+        {
+            Concept flak = HeroDesign.Get(HeroChannel.Ship, "Flak");
+            Check(flak != null, "concept A.Flak exists");
+            if (flak != null && flak.Mods != null && flak.Mods.Length == 2)
+            {
+                CheckModAt(flak.Mods[0], "A.Flak eff", "FlakEfficiency", 1, "./ClassGarrisonFleet/ClassShip/ClassSection/ClassModuleWeapon,ClassModuleWeaponKinetic", 1f);
+                CheckModAt(flak.Mods[1], "A.Flak dmg", "Damage", 1, "./ClassGarrisonFleet/ClassShip/ClassSection/ClassModuleWeapon,ClassModuleWeaponFlack", 4f);
+            }
+            else Check(false, "A.Flak has exactly two modifiers (got " + (flak == null || flak.Mods == null ? "?" : flak.Mods.Length.ToString()) + ")");
+        }
 
         // ================= library invariants the game relies on
         // every concept of every tree of every role must build and produce a positive number for each level

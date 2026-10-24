@@ -178,19 +178,19 @@ public static partial class HeroDesign
         // to the ship itself), so an empty path targets the hero's ship only, while the fleet is reached through
         // it (HeroFlavors.ShipPath / ShipCrewPath resolve from the ship). Guardian powers up his personal
         // warship; Seeker carries virtual support modules that serve the whole fleet.
-        Def(A, "ShipDmg", "Урон орудий корабля героя", "Hero Ship Weapon Damage", "%", "%", false, Flavor.Offense, "dmg", new[] { 4, 5, 6 }, 5, 0, 0, 1, 80, 0,
-            "Только корабль героя: установленные на нём орудия бьют сильнее. Проценты умножают урон модулей, так что выигрыш растёт вместе с военными технологиями.",
-            "The hero's own ship only: the guns installed on it hit harder. The percentages multiply module damage, so the gain grows with your military tech.",
+        Def(A, "ShipDmg", "Урон орудий корабля героя", "Hero Ship Weapon Damage", "%", "%", false, Flavor.Offense, "dmg", new[] { 8, 10, 12 }, 5, 0, 0, 1, 100, 0,
+            "Только корабль героя: установленные на нём орудия бьют сильнее. Проценты умножают урон модулей, так что выигрыш растёт вместе с военными технологиями. Масштаб ванильных навыков адмирала: один навык там даёт до +40% урона.",
+            "The hero's own ship only: the guns installed on it hit harder. The percentages multiply module damage, so the gain grows with your military tech. The scale follows vanilla admiral skills: a single vanilla skill grants up to +40% damage.",
             M("Damage", Add, "", 0.01f));
-        Def(A, "ShipHp", "Прочность корабля героя", "Hero Ship Hull", "%", "%", false, Flavor.Defense, "hp", new[] { 6, 8, 10 }, 5, 0, 0, 1, 100, 0,
-            "Только корабль героя: его корпус выдерживает больше урона.",
-            "The hero's own ship only: its hull takes more punishment.",
+        Def(A, "ShipHp", "Прочность корабля героя", "Hero Ship Hull", "%", "%", false, Flavor.Defense, "hp", new[] { 10, 15, 20 }, 5, 0, 0, 1, 150, 0,
+            "Только корабль героя: его корпус выдерживает больше урона. Масштаб ванильных навыков на один корабль: до +80% за навык.",
+            "The hero's own ship only: its hull takes more punishment. The scale follows vanilla per-ship skills: up to +80% in one skill.",
             M("MaximumHealth", Pct, "", 0.01f));
         Def(A, "ShipCrit", "Шанс крита корабля героя", "Hero Ship Critical Hit Chance", "%", "%", false, Flavor.Offense, "crit", new[] { 2, 3, 4 }, 5, 0, 0, 1, 25, 0,
             "Только корабль героя: его выстрелы чаще наносят двойной урон.",
             "The hero's own ship only: its shots deal double damage more often.",
             M("CriticalHitChance", Add, "", 0.01f));
-        Def(A, "ShipCrewKill", "Выкашивание экипажей", "Crew Culling", "%", "%", false, Flavor.Offense, "crewkill", new[] { 10, 15, 20 }, 5, 0, 0, 1, 80, 0,
+        Def(A, "ShipCrewKill", "Выкашивание экипажей", "Crew Culling", "%", "%", false, Flavor.Offense, "crewkill", new[] { 10, 15, 20 }, 5, 0, 0, 1, 100, 0,
             "Только корабль героя: его выстрелы выкашивают экипажи вражеских кораблей, ослабляя их абордаж и оборону.",
             "The hero's own ship only: its shots mow down enemy crews, weakening their boarding and defense.",
             M("ManpowerDamageOverTime", Pct, "", 0.01f));
@@ -198,6 +198,22 @@ public static partial class HeroDesign
             "Корабли флота героя берут на борт больше экипажа: больше солдат для абордажа, обороны и осады.",
             "The ships of the hero's fleet take more crew aboard: more soldiers for boarding, defense and sieges.",
             M("MaximumShipManpower", Pct, ShipCrewPath, 0.01f));
+        // Seeker T2: electronic warfare - the vanilla jammer mechanic (ModuleSupportJammer lowers the ship's
+        // TargetingWeightBonus, so enemy guns pick the hero's ship as a target less often). The attack EMP
+        // (disabling enemy weapons/shields) is bound to weapon modules with their own battle actions and is
+        // planned as a real module of the stage-3 hero hull.
+        Def(A, "Jammer", "Генератор помех", "Jammer", " к весу цели", " target weight", true, Flavor.Deposit, "evasion", new[] { 2, 3, 4 }, 5, 0, 0, 1, 30, 0,
+            "Только корабль героя: вражеские орудия реже выбирают его целью. Механика ванильного модуля «Глушитель» (вес цели), ванильные модули дают −10/−20.",
+            "The hero's own ship only: enemy guns pick it as a target less often. The vanilla Jammer module mechanic (target weight); vanilla modules give -10/-20.",
+            M("TargetingWeightBonus", Add, "", -1f));
+        // Seeker T3: fleet flak - the exact modifier pair of the vanilla "Flak enhancer" support module:
+        // FlakEfficiency on the kinetic guns of every ship (their anti-missile fire) and +4 damage per point
+        // on the flak guns (the flak salvo damage equals the module's Damage property).
+        Def(A, "Flak", "Зенитный огонь флота", "Fleet Flak Barrage", " ед. зенитного усиления", " flak power", false, Flavor.Defense, "flak", new[] { 1, 2, 3 }, 5, 0, 0, 1, 25, 0,
+            "Кинетические орудия всех кораблей флота героя сбивают вражеские ракеты и истребители эффективнее, а зенитные орудия бьют сильнее (+4 урона за единицу). Повторяет эффект ванильного модуля «Улучшение зениток», но на весь флот.",
+            "The kinetic guns of every ship in the hero's fleet shoot down enemy missiles and fighters better, and flak guns hit harder (+4 damage per point). Mirrors the vanilla Flak Enhancer module, fleet-wide.",
+            M("FlakEfficiency", Add, "./ClassGarrisonFleet/ClassShip/ClassSection/ClassModuleWeapon,ClassModuleWeaponKinetic", 1f),
+            M("Damage", Add, "./ClassGarrisonFleet/ClassShip/ClassSection/ClassModuleWeapon,ClassModuleWeaponFlack", 4f));
 
         // ---------------------------------------------------------------- governor (star system)
         const string SP = HeroFlavors.SystemPath;
