@@ -120,6 +120,8 @@ public static partial class HeroRework
     {
         public HeroSkillTreeDefinition[] Original;
         public HeroSkillTreeDefinition[] Filtered;
+        public bool Dictator;
+        public int Generation;
     }
 
     static readonly Dictionary<ulong, TreeCache> treeCache = new Dictionary<ulong, TreeCache>();
@@ -130,15 +132,32 @@ public static partial class HeroRework
         return memberwiseClone.Invoke(source, null);
     }
 
+    static bool SameTrees(HeroSkillTreeDefinition[] a, HeroSkillTreeDefinition[] b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a == null || b == null || a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
+            if (!ReferenceEquals(a[i], b[i]) && (a[i] == null || b[i] == null || a[i].Name != b[i].Name)) return false;
+        return true;
+    }
+
+    /// <summary>Hero.get_SkillTrees return hook: the trees of the role of the hero (see HeroContent), the filtered vanilla trees when the content is missing.</summary>
     public static HeroSkillTreeDefinition[] TreesFor(HeroSkillTreeDefinition[] original, Hero hero)
     {
         try
         {
             if (original == null || original.Length == 0 || !IsRegular(hero)) return original;
             ulong id = (ulong)hero.GUID;
+            bool dictator = IsDictator(hero);
             TreeCache c;
-            if (treeCache.TryGetValue(id, out c) && ReferenceEquals(c.Original, original)) return c.Filtered;
-            c = new TreeCache { Original = original, Filtered = BuildTrees(original, KindOf(hero)) };
+            if (treeCache.TryGetValue(id, out c) && c.Dictator == dictator && c.Generation == contentGeneration && SameTrees(c.Original, original)) return c.Filtered;
+            EnsureContent();
+            HeroKind kind = KindOf(hero);
+            HeroSkillTreeDefinition[] built = null;
+            try { built = BuildHeroTrees(original, hero, kind, dictator); }
+            catch (Exception e) { Fail("BuildHeroTrees", e); }
+            if (built == null) built = BuildTrees(original, kind);
+            c = new TreeCache { Original = original, Filtered = built, Dictator = dictator, Generation = contentGeneration };
             treeCache[id] = c;
             return c.Filtered;
         }
@@ -320,13 +339,14 @@ public static partial class HeroRework
         lastTurn = int.MinValue;
     }
 
-    static HashSet<HeroSkillDefinition> UltimatesOf(HeroDefinition definition)
+    /// <summary>Skills of the last stage of the trees the hero really has (his role decides the trees): taking one of them is the ultimate.</summary>
+    static HashSet<HeroSkillDefinition> UltimatesOf(Hero hero)
     {
-        string key = definition.Name.ToString();
+        string key = hero.Definition.Name.ToString() + "|" + HeroFlavors.KindCode(KindOf(hero), IsDictator(hero)) + "|" + contentGeneration;
         HashSet<HeroSkillDefinition> set;
         if (ultimateSets.TryGetValue(key, out set)) return set;
         set = new HashSet<HeroSkillDefinition>();
-        var trees = definition.GetSkillTrees();
+        var trees = TreesFor(hero.Definition.GetSkillTrees(), hero);
         if (trees != null)
             foreach (var tree in trees)
             {
@@ -350,7 +370,7 @@ public static partial class HeroRework
 
     public static bool HoldsUltimate(Hero hero)
     {
-        var set = UltimatesOf(hero.Definition);
+        var set = UltimatesOf(hero);
         if (set.Count == 0) return false;
         var skills = hero.UnlockedSkills;
         if (skills == null) return false;
@@ -483,6 +503,26 @@ public static partial class HeroRework
 
     // ---------------------------------------------------------------- per turn
 
+    static readonly Dictionary<ulong, bool> dictatorState = new Dictionary<ulong, bool>();
+
+    /// <summary>A hero who became (or stopped being) the dictator has other skill trees: recompute what he can learn.</summary>
+    static void RefreshOnRoleChange(Hero hero)
+    {
+        try
+        {
+            if (!IsRegular(hero)) return;
+            ulong id = (ulong)hero.GUID;
+            bool now = IsDictator(hero), was;
+            dictatorState.TryGetValue(id, out was);
+            if (now == was) return;
+            dictatorState[id] = now;
+            hero.ComputeAvailableSkills();
+            var skills = hero.UnlockedSkills;
+            if (skills != null && skills.Count > 0) hero.OnSkillsUpdated(CollectionChangeAction.Refresh, skills[0]);
+        }
+        catch (Exception e) { Fail("RefreshOnRoleChange", e); }
+    }
+
     /// <summary>Turn pass: forget state of a finished game, refresh the effects of fixed heroes whose level changed.</summary>
     public static void PerTurn(Game game)
     {
@@ -490,7 +530,7 @@ public static partial class HeroRework
         {
             if (!Enabled || game == null) return;
             int turn = game.Turn;
-            if (turn < lastTurn) { ultimates.Clear(); appliedSteps.Clear(); bonusCache.Clear(); ultimateSets.Clear(); ClearDictators(); }
+            if (turn < lastTurn) { ultimates.Clear(); appliedSteps.Clear(); bonusCache.Clear(); ultimateSets.Clear(); dictatorState.Clear(); ClearDictators(); }
             lastTurn = turn;
             UpdateDictatorships(game);
             foreach (MajorEmpire empire in game.EnumerableMajorEmpires)
@@ -501,6 +541,7 @@ public static partial class HeroRework
                 for (int i = 0; i < heroes.Count; i++)
                 {
                     Hero hero = heroes[i];
+                    RefreshOnRoleChange(hero);
                     if (!Fixable(hero)) continue;
                     AfterComputeAvailable(hero);
                     ulong id = (ulong)hero.GUID;

@@ -39,11 +39,25 @@ The hero title shows the kind (`GuiHero.get_Title`).
   * The record (`empireIndex=politics=senatorGuid`) is persisted after the ultimates, split by `;`.
 * **Dictator hero** = the representative hero of the leader senator (a senator kind hero, class Corporate). He has no level cap (only the vanilla rule), and the same ultimate rule as admirals/governors: after his ultimate no new skills are offered, every learned skill gets `+DictatorUltimateBoost` (x2.75 effect, "2 levels become 5–6") plus the per-level growth `100 / ultimateLevel` percent. The title shows `[Диктатор]`.
 
+## Skill content (Stage 4)
+All skills are generated at run time from the live skill database (`HeroContent.cs`, pure data in `HeroSkillData.cs`) and registered in the game databases together with `GuiElement`s and localization (`CustomHackingHelper.RegisterLoc`), so no game XML is shipped.
+
+* **Roles** (code in the skill name): `@A` admiral, `@G` governor, `@S` senator, `@D` dictator. Every skill of every vanilla tree exists in all four versions: `<VanillaName>@A` etc.
+* **Conversion.** Each vanilla modifier is classified into a *flavor* (offense, defense, mobility, sustain, upkeep, production, growth, science, money, influence, happiness, manpower, deposit, experience, diplomacy) with a magnitude (1 = a typical second-level skill). The effects of the role's own channel are kept; the effects of the other channels become the flavor's effect in the role's channel, so no skill is wasted: "+10 production / +30% damage" gives the governor "+10 production / +0.2 garrison health" and the admiral "+20% hull plating / +30% damage". Penalties, forced values and non-numeric modifiers are not converted; a level that would stay empty gets a modest effect by its mastery.
+* **Senator version:** one level (the strongest vanilla level), stage thresholds halved (0/2/4/6 points: seven level-ups reach the last stage), effects empire-wide through the senate channel.
+* **Dictator version:** senate channel, 3 levels for two-level skills, effects x`DictatorPower` (1.6), thresholds x1.5 (0/6/12/18).
+* **Trees of a hero** (`BuildHeroTrees`): his race tree and class tree with the skills of his role (an admiral Sophon and a governor Sophon have different Sophon trees), and the **party tree** (`HRTreeParty0N@code`) instead of "Universal". Party themes: 1 Industrialists (production, money, manpower), 2 Scientists (science, experience, influence), 3 Pacifists (happiness, diplomacy, growth), 4 Ecologists (growth, deposits, sustain), 5 Religious (happiness, influence, defense), 6 Militarists (offense, defense, manpower). Seven skills per tree: stage 0: A, B; stage 1: C, A+B; stage 2: B+C, A+C; stage 3: ultimate A+B+C.
+* **Dictator** gets the senate version of his race tree, the dictator version of his party tree and a **unique faction tree** (`HRTreeDict<Faction>`) instead of the class tree. Faction themes: Sophons science/food/influence, Cravers war/manpower/industry, Terrans industry/money/influence, Venetians money/influence/diplomacy, Vampirilis influence/offense/sustain, Time Lords science/mobility/experience, Unfallen defense/food/happiness, Endless science/influence/industry, and so on; the tree ultimate also gives happiness and manpower. A hero who becomes or stops being the dictator gets his skills recomputed.
+* **Ultimate** = a skill of the last stage of the hero's *own* (new) trees.
+* `HeroSkill.Load` (start) calls `HeroRework.EnsureContent()` so saves find the skills by name.
+* Magnitudes are balance guesses in `HeroSkillData.cs` (target tables and `Classify` reference values): tune there.
+
 ## Hooks
 | Method | Hook |
 |---|---|
 | `Hero.Get{System,Ship,Senate,…}SkillDescriptors` (8) | `HeroRework.Filter*` (kind filter + auto bonus) |
-| `Hero.get_SkillTrees` | `HeroRework.FilterTrees` |
+| `Hero.get_SkillTrees` | `HeroRework.TreesFor` (role trees) |
+| `HeroSkill.Load` (start) | `HeroRework.EnsureContent` |
 | `Hero.ComputeAvailableSkills` (before each `ret`) | `HeroRework.AfterComputeAvailable` |
 | `GuiHero.get_Title` | kind in the title |
 | `CustomHackingHelper.CheckHeroAssignableToFleet/ToSystem` | kind check |
@@ -54,8 +68,9 @@ The hero title shows the kind (`GuiHero.get_Title`).
 | `CouncilGame.ClientBeginTurn` / `SerializeAttributes` | `HeroRework.PerTurn` / registry persistence |
 
 ## Not yet done
-* Stage 4: party trees (replace "Universal"), unique per-kind race trees and the dictator tree, authored senator skills (a senator has only 3 useful vanilla skills for 7 level-ups), stronger faction-specific laws and abilities of the leader — these need authored skill definitions plus matching `GuiElement` entries.
+Nothing of the original list. Known limits: skills already learned in a save made before this build stay vanilla (they keep working, filtered by role) but are not part of the new trees; texts of generated skills are registered in the language active at start.
 
 ## Unverified assumptions
 The refresh via `OnSkillsUpdated` on level change, acceptance of runtime descriptor copies by `SimulationObject`, `Hero.get_SkillTrees` being the only GUI path, the stage-threshold clamp, already-assigned mismatched heroes staying assigned without effect, the `FailureInfo` tooltip, and that `Hero.Level` is the quantity the user means by "level".
 Stage 3: that the dictatorship tags are present on the senate object under every dictatorship government, that skipping `ServerTriggerRebellion` (also its per-system rebellions caused by the empire rebellion) is acceptable, that vanilla dictatorships may have several senators, that `LevelMax` on a cloned rule is honoured by `UpdateLevel`/GUI and that the starting hero level is 1, and the prime-senator-at-start choice of the leader.
+Stage 4: that runtime-registered skills, `GuiElement`s and descriptors are accepted by the game (the registration was only exercised against a synthetic database in a plain Mono process, not in the game), that `GuiElement.Clone()` keeps the icons, that paths such as `../ClassEmpire/ClassGarrisonFleet` accept the fleet properties used for senators (`ShipDamage`, `FleetMaximumHealth`, ...), that the senate descriptors reach the senator of the dictator, that `HeroSkillTreeStage.RequiredLevel` is compared with hero-wide spent skill points (it is, in `ComputeAvailableSkills`), and that all magnitudes are balanced.

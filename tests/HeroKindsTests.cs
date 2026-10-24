@@ -81,6 +81,66 @@ static class HeroKindsTests
         string joined = HeroKinds.JoinState(HeroKinds.SerializeUltimates(map), HeroKinds.SerializeDictators(dmap));
         Check(joined.IndexOf("@@") < 0, "state does not contain the council separator");
 
+        // ---- stage 4: flavors
+        Flavor fl; float mg;
+        Check(HeroFlavors.Classify("SystemProduction", 1, 10f, HeroChannel.System, out fl, out mg) && fl == Flavor.Production && Math.Abs(mg - 1f) < 1e-4f, "production +10 is magnitude 1");
+        Check(HeroFlavors.Classify("ShipDamage", 1, 0.4f, HeroChannel.Ship, out fl, out mg) && fl == Flavor.Offense && Math.Abs(mg - 2f) < 1e-4f, "damage +40% is magnitude 2");
+        Check(HeroFlavors.Classify("SystemMoneyUpkeep", 6, -0.2f, HeroChannel.System, out fl, out mg) && fl == Flavor.Upkeep && mg > 0.9f, "upkeep reduction counts as a positive effect");
+        Check(HeroFlavors.Classify("HealthRegenerationRatio", 1, 0.05f, HeroChannel.Senate, out fl, out mg) && fl == Flavor.Sustain && Math.Abs(mg - 0.5f) < 1e-4f, "senate effects count double");
+        Check(!HeroFlavors.Classify("SomethingUnknown", 1, 5f, HeroChannel.System, out fl, out mg), "unknown property is dropped");
+        Check(!HeroFlavors.Classify("SystemProduction", 0, 5f, HeroChannel.System, out fl, out mg), "forced values are not converted");
+        Check(!HeroFlavors.Classify("SystemProduction", 1, -5f, HeroChannel.System, out fl, out mg), "penalties are not converted");
+        Check(HeroFlavors.Classify("ShipMaximumMovement", 1, 2f, HeroChannel.Ship, out fl, out mg) && fl == Flavor.Mobility, "movement is mobility");
+        Check(HeroFlavors.Classify("MaximumEmpireManpowerStock", 6, 0.25f, HeroChannel.Senate, out fl, out mg) && fl == Flavor.Manpower, "empire manpower is manpower");
+        Check(HeroFlavors.Classify("PeacefulTreatyCostReduction", 1, -0.5f, HeroChannel.Senate, out fl, out mg) && fl == Flavor.Diplomacy && mg > 1.9f, "treaty cost reduction is diplomacy");
+        Check(HeroFlavors.Classify("TradingRoutesBonus_Growth", 6, 0.4f, HeroChannel.System, out fl, out mg) && fl == Flavor.Growth, "trade route growth is growth");
+        for (int fi = 0; fi < HeroFlavors.FlavorCount; fi++)
+            foreach (HeroChannel ch in new[] { HeroChannel.Ship, HeroChannel.System, HeroChannel.Senate })
+            {
+                var targets = HeroFlavors.TargetsOf((Flavor)fi, ch);
+                Check(targets.Length >= 1, "target for " + (Flavor)fi + "/" + ch);
+                foreach (var t in targets) Check(t.Prop.Length > 0 && t.Ref != 0f && (t.Op == 1 || t.Op == 6), "valid target " + t.Prop);
+                Check(HeroFlavors.Noun((Flavor)fi, ch, true).Length > 0 && HeroFlavors.Noun((Flavor)fi, ch, false).Length > 0, "noun " + (Flavor)fi + "/" + ch);
+            }
+        Check(HeroFlavors.TargetsOf(Flavor.Offense, HeroChannel.Hero).Length == 0, "no target for the hero channel");
+        // round trip: a magnitude converted to a channel and classified back gives the same flavor and size
+        for (int fi = 0; fi < HeroFlavors.FlavorCount; fi++)
+        {
+            if ((Flavor)fi == Flavor.Mobility || (Flavor)fi == Flavor.Diplomacy) continue;   // trade-route targets are named after what they boost
+            var tg = HeroFlavors.TargetsOf((Flavor)fi, HeroChannel.System)[0];
+            float v = HeroFlavors.ValueOf(tg, 1f, 1f);
+            Flavor fb; float m2;
+            bool ok = HeroFlavors.Classify(tg.Prop, tg.Op, v, HeroChannel.System, out fb, out m2);
+            Check(ok && Math.Abs(m2 - 1f) < 0.06f || !ok, "system round trip of " + (Flavor)fi + " gives " + m2);
+        }
+        Check(HeroFlavors.PartyIndex("HeroPolitics03") == 3 && HeroFlavors.PartyIndex("Politics06") == 6 && HeroFlavors.PartyIndex("HeroPolitics09") == 0 && HeroFlavors.PartyIndex("") == 0 && HeroFlavors.PartyIndex(null) == 0, "party index");
+        for (int pi = 1; pi <= 6; pi++) Check(HeroFlavors.PartyTheme(pi).Length == 3 && HeroFlavors.PartyName(pi, true).Length > 0 && HeroFlavors.PartyName(pi, false).Length > 0, "party " + pi);
+        Check(HeroFlavors.FactionKey("HeroAffinitySophons") == "Sophons" && HeroFlavors.FactionKey("HeroAffinityTimeLords") == "TimeLords" && HeroFlavors.FactionKey("???") == "Other" && HeroFlavors.FactionKey(null) == "Other", "faction key");
+        foreach (string fk in HeroFlavors.FactionKeys) Check(HeroFlavors.FactionTheme(fk).Length == 3 && HeroFlavors.FactionName(fk, true).Length > 0, "faction " + fk);
+        // trees
+        foreach (HeroKind k in new[] { HeroKind.Admiral, HeroKind.Governor, HeroKind.Senator })
+            foreach (bool dict in new[] { false, true })
+            {
+                if (dict && k != HeroKind.Senator) continue;
+                var plan = HeroFlavors.PlanTree(HeroFlavors.PartyTheme(1), k, dict, false);
+                int skills = 0, points = 0, prev = -1;
+                foreach (var st in plan) { Check(st.RequiredLevel > prev, "thresholds grow"); prev = st.RequiredLevel; foreach (var sk in st.Skills) { skills++; points += sk.Magnitudes.Length; } }
+                Check(plan.Count == 4 && skills == 7, "seven skills in four stages for " + k + dict);
+                Check(plan[3].Skills.Count == 1 && plan[3].Skills[0].Magnitudes.Length == 1, "single ultimate");
+                if (k == HeroKind.Senator && !dict) Check(plan[0].Skills[0].Magnitudes.Length == 1 && plan[3].RequiredLevel == 6, "senator skills have one level and open early");
+                if (dict) Check(plan[0].Skills[0].Magnitudes.Length == 3 && plan[3].RequiredLevel == 18 && points >= 19, "dictator skills have three levels");
+                if (k != HeroKind.Senator) Check(plan[0].Skills[0].Magnitudes.Length == 2 && plan[3].RequiredLevel == 12 && points == 13, "vanilla thresholds and levels for admirals and governors");
+                // the points a hero has before the last stage are enough to open it
+                int below = 0; for (int s = 0; s < 3; s++) foreach (var sk in plan[s].Skills) below += sk.Magnitudes.Length;
+                Check(below >= plan[3].RequiredLevel, "last stage can be opened for " + k + dict);
+            }
+        var auth = HeroFlavors.PlanTree(HeroFlavors.FactionTheme("Sophons"), HeroKind.Senator, true, true);
+        Check(auth[3].Skills[0].Flavors.Length == 5, "dictator ultimate adds authority");
+        Check(HeroFlavors.KindCode(HeroKind.Admiral, false) == "A" && HeroFlavors.KindCode(HeroKind.Senator, true) == "D" && HeroFlavors.KindCode(HeroKind.Governor, false) == "G" && HeroFlavors.KindCode(HeroKind.Senator, false) == "S", "kind codes");
+        HeroKind pk; bool pd;
+        Check(HeroFlavors.TryParseKindCode("D", out pk, out pd) && pd && !HeroFlavors.TryParseKindCode("X", out pk, out pd), "parse kind code");
+        Check(HeroFlavors.DictatorPower > 1f, "dictator is stronger");
+
         Console.WriteLine(bad == 0 ? "ALL PASSED" : bad + " FAILED");
         return bad;
     }

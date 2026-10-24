@@ -132,6 +132,161 @@ static class HeroSmoke
         return bad;
     }
 
+
+    // ---- stage 4: content generation on a synthetic vanilla database
+    static object Db(string type)
+    {
+        var databases = T("Amplitude.Unity.Framework.Databases");
+        var m = databases.GetMethod("GetDatabase").MakeGenericMethod(T(type));
+        return m.Invoke(null, new object[] { true });
+    }
+    static void DbAdd(object db, object item) { db.GetType().GetMethod("Add").Invoke(db, new object[] { item }); }
+    static bool DbHas(object db, string name) { return (bool)db.GetType().GetMethod("ContainsKey").Invoke(db, new object[] { Activator.CreateInstance(T("Amplitude.StaticString"), new object[] { name }) }); }
+    static object DbGet(object db, string name)
+    {
+        var args = new object[] { Activator.CreateInstance(T("Amplitude.StaticString"), new object[] { name }), null };
+        db.GetType().GetMethod("TryGetValue").Invoke(db, args);
+        return args[1];
+    }
+
+    static object MakeDesc(string name, string type, string prop, int op, float value)
+    {
+        var helper = asm.GetType("CustomHackingHelper");
+        var make = helper.GetMethod("MakeModifier"); var create = helper.GetMethod("CreateAndRegisterDescriptor");
+        var opType = make.GetParameters()[1].ParameterType;
+        object m = make.Invoke(null, new object[] { prop, Enum.ToObject(opType, op), value, "ClassX" });
+        var cps = create.GetParameters();
+        var arr = Array.CreateInstance(cps[cps.Length - 1].ParameterType.GetElementType(), 1);
+        arr.SetValue(m, 0);
+        return create.Invoke(null, new object[] { null, name, type, null, arr });
+    }
+
+    static object SynthSkill(string name, int levels, string channel, string prop, int op, float v1, float v2)
+    {
+        var def = Make("HeroSkillDefinition");
+        var lt = T("HeroSkillDefinition+HeroSkillLevelDefinition");
+        var arr = Array.CreateInstance(lt, levels);
+        for (int i = 0; i < levels; i++)
+        {
+            var l = Activator.CreateInstance(lt, true);
+            string field = channel == "system" ? "systemDescriptors" : channel == "ship" ? "shipDescriptors" : "senateDescriptors";
+            string type = channel == "system" ? "HeroSkillSystem" : channel == "ship" ? "HeroSkillShip" : "HeroSkillSenator";
+            var da = Arr("Amplitude.Unity.Simulation.SimulationDescriptor", 1);
+            da.SetValue(MakeDesc("D_" + name + "_" + i, type, prop, op, i == 0 ? v1 : v2), 0);
+            Set(l, field, da);
+            var hero = Arr("Amplitude.Unity.Simulation.SimulationDescriptor", i == levels - 1 ? 1 : 0);
+            if (i == levels - 1) hero.SetValue(MakeDesc("HeroSkillComplete", "HeroSkill", "CompleteSkill", 1, 1f), 0);
+            Set(l, "heroDescriptors", hero);
+            arr.SetValue(l, i);
+        }
+        def.GetType().GetProperty("XmlSerializableName").SetValue(def, name, null);
+        def.GetType().GetProperty("SkillLevels").SetValue(def, arr, null);
+        return def;
+    }
+
+    static Array PropArr(object skill) { return (Array)skill.GetType().GetProperty("SkillLevels").GetValue(skill, null); }
+
+    static string ModsOf(object skill, int level, string field)
+    {
+        var l = PropArr(skill).GetValue(level);
+        var descs = (Array)l.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public).GetValue(l);
+        var sb = new System.Text.StringBuilder();
+        foreach (var d in descs)
+            foreach (var m in (Array)d.GetType().GetProperty("SimulationModifierDescriptors").GetValue(d, null))
+                sb.Append(m.GetType().GetProperty("TargetPropertyName").GetValue(m, null)).Append('=').Append(m.GetType().GetProperty("ValueAsFloat").GetValue(m, null)).Append(' ');
+        return sb.ToString();
+    }
+
+    static int ContentSmoke(Type rework)
+    {
+        int bad = 0;
+        var skillDb = Db("HeroSkillDefinition"); var treeDb = Db("HeroSkillTreeDefinition"); var guiDb = Db("Amplitude.Unity.Gui.GuiElement");
+        object[] skills =
+        {
+            SynthSkill("SkSys", 2, "system", "SystemProduction", 1, 5f, 10f),
+            SynthSkill("SkShip", 2, "ship", "ShipDamage", 1, 0.1f, 0.2f),
+            SynthSkill("SkSen", 1, "senate", "Happiness", 1, 5f, 5f),
+            SynthSkill("SkUlt", 1, "system", "SystemResearch", 1, 40f, 40f)
+        };
+        string[] names = { "SkSys", "SkShip", "SkSen", "SkUlt" };
+        for (int i = 0; i < skills.Length; i++)
+        {
+            DbAdd(skillDb, skills[i]);
+            var gui = Activator.CreateInstance(T("Amplitude.Unity.Gui.GuiElement"));
+            gui.GetType().GetProperty("XmlSerializableName").SetValue(gui, names[i], null);
+            gui.GetType().GetProperty("Title").SetValue(gui, "%T", null);
+            DbAdd(guiDb, gui);
+        }
+        var gen = Activator.CreateInstance(T("Amplitude.Unity.Gui.GuiElement"));
+        gen.GetType().GetProperty("XmlSerializableName").SetValue(gen, "HeroSkillTreeGeneric", null);
+        DbAdd(guiDb, gen);
+        var tree = Tree(
+            Stage(0, Slot(skills[0]), Slot(skills[1])),
+            Stage(4, Slot(skills[2])),
+            Stage(12, Slot(skills[3])));
+        tree.GetType().GetProperty("XmlSerializableName").SetValue(tree, "HeroSkillTreeSophons", null);
+        DbAdd(treeDb, tree);
+
+        rework.GetMethod("EnsureContent").Invoke(null, null);
+        if (!DbHas(skillDb, "HRContentEnd")) { Console.WriteLine("content: sentinel missing (generation failed)"); return bad + 1; }
+        foreach (string code in new[] { "A", "G", "S", "D" })
+            foreach (string n in names)
+                if (!DbHas(skillDb, n + "@" + code)) { Console.WriteLine("content: missing " + n + "@" + code); bad++; }
+        for (int party = 1; party <= 6; party++)
+            foreach (string code in new[] { "A", "G", "S", "D" })
+                for (int s = 0; s < 7; s++)
+                    if (!DbHas(skillDb, "HRParty0" + party + "S" + s + "@" + code)) { Console.WriteLine("content: missing party skill " + party + "/" + s + "/" + code); bad++; }
+        foreach (string f in new[] { "Sophons", "Cravers", "Other" })
+            for (int s = 0; s < 7; s++)
+                if (!DbHas(skillDb, "HRDict" + f + "S" + s)) { Console.WriteLine("content: missing dictator skill " + f + "/" + s); bad++; }
+        // gui elements follow the skills
+        if (!DbHas(guiDb, "SkSys@A") || !DbHas(guiDb, "HRParty01S0@G") || !DbHas(guiDb, "HRTreeDictSophons") || !DbHas(guiDb, "HRTreeParty02@S")) { Console.WriteLine("content: gui elements missing"); bad++; }
+
+        object sysA = DbGet(skillDb, "SkSys@A"), sysG = DbGet(skillDb, "SkSys@G"), shipG = DbGet(skillDb, "SkShip@G"), sysS = DbGet(skillDb, "SkSys@S"), sysD = DbGet(skillDb, "SkSys@D"), senA = DbGet(skillDb, "SkSen@A");
+        Console.WriteLine("SkSys@A ship L1: " + ModsOf(sysA, 0, "shipDescriptors") + "| L2: " + ModsOf(sysA, 1, "shipDescriptors"));
+        Console.WriteLine("SkSys@G system L2: " + ModsOf(sysG, 1, "systemDescriptors"));
+        Console.WriteLine("SkShip@G system L2: " + ModsOf(shipG, 1, "systemDescriptors"));
+        Console.WriteLine("SkSys@S levels=" + PropArr(sysS).Length + " senate: " + ModsOf(sysS, 0, "senateDescriptors"));
+        Console.WriteLine("SkSys@D levels=" + PropArr(sysD).Length + " senate L3: " + ModsOf(sysD, 2, "senateDescriptors"));
+        Console.WriteLine("SkSen@A ship L1: " + ModsOf(senA, 0, "shipDescriptors"));
+        if (!ModsOf(sysA, 1, "shipDescriptors").Contains("ShipHullPlatingAbsorptionPercent=0.2")) { Console.WriteLine("  admiral variant of a production skill has no ship effect"); bad++; }
+        if (!ModsOf(shipG, 1, "systemDescriptors").Contains("GroundBattleDefenderTroopsMaxHealthMultiplier=0.2")) { Console.WriteLine("  governor variant of a ship skill has no system effect"); bad++; }
+        foreach (string pn in new[] { "HRParty06S6@A", "HRParty06S6@G", "HRParty06S6@S", "HRParty06S6@D", "HRParty02S0@S", "HRDictSophonsS6" })
+        {
+            object ps = DbGet(skillDb, pn);
+            int last = PropArr(ps).Length - 1;
+            Console.WriteLine(pn + " levels=" + (last + 1) + " ship[" + ModsOf(ps, last, "shipDescriptors") + "] system[" + ModsOf(ps, last, "systemDescriptors") + "] senate[" + ModsOf(ps, last, "senateDescriptors") + "]");
+        }
+        if (!ModsOf(sysG, 1, "systemDescriptors").Contains("SystemProduction=10")) { Console.WriteLine("  own channel changed"); bad++; }
+        if (PropArr(sysS).Length != 1 || PropArr(sysD).Length != 3 || PropArr(sysA).Length != 2) { Console.WriteLine("  wrong level counts"); bad++; }
+        if (!ModsOf(sysS, 0, "senateDescriptors").Contains("PlanetRawIndustry")) { Console.WriteLine("  senator version of a production skill has no industry"); bad++; }
+        // the ultimate descriptor of the hero channel survives only on the last level
+        string h0 = ModsOf(sysD, 0, "heroDescriptors"), h2 = ModsOf(sysD, 2, "heroDescriptors");
+        if (h0.Contains("CompleteSkill") || !h2.Contains("CompleteSkill")) { Console.WriteLine("  HeroSkillComplete not only on the last level of the dictator version: '" + h0 + "' / '" + h2 + "'"); bad++; }
+
+        // trees: variants keep the structure, thresholds follow the role
+        var variantTree = rework.GetMethod("VariantTree", BindingFlags.Static | BindingFlags.NonPublic);
+        var kindType = asm.GetType("HeroKind");
+        foreach (var spec in new object[][] { new object[] { 0, false }, new object[] { 1, false }, new object[] { 2, false }, new object[] { 2, true } })
+        {
+            var vt = variantTree.Invoke(null, new object[] { tree, Enum.ToObject(kindType, (int)spec[0]), (bool)spec[1] });
+            var st = (Array)vt.GetType().GetField("Stages").GetValue(vt);
+            var req = new List<string>(); int slots = 0;
+            foreach (var s in st) { req.Add(s.GetType().GetField("RequiredLevel").GetValue(s).ToString()); slots += ((Array)s.GetType().GetField("Skills").GetValue(s)).Length; }
+            var firstSlot = ((Array)st.GetValue(0).GetType().GetField("Skills").GetValue(st.GetValue(0))).GetValue(0);
+            var def = firstSlot.GetType().GetProperty("SkillDefinition").GetValue(firstSlot, null);
+            Console.WriteLine("variant tree role " + spec[0] + (((bool)spec[1]) ? " dictator" : "") + ": thresholds " + string.Join(",", req.ToArray()) + " slots=" + slots + " first=" + def.GetType().GetProperty("Name").GetValue(def, null));
+            if (slots != 4) { Console.WriteLine("  slot count changed"); bad++; }
+        }
+        // idempotent
+        int before = (int)skillDb.GetType().GetMethod("GetValues").Invoke(skillDb, null).GetType().GetProperty("Length").GetValue(skillDb.GetType().GetMethod("GetValues").Invoke(skillDb, null), null);
+        rework.GetMethod("EnsureContent").Invoke(null, null);
+        int after = (int)skillDb.GetType().GetMethod("GetValues").Invoke(skillDb, null).GetType().GetProperty("Length").GetValue(skillDb.GetType().GetMethod("GetValues").Invoke(skillDb, null), null);
+        if (before != after) { Console.WriteLine("  EnsureContent is not idempotent: " + before + " -> " + after); bad++; }
+        Console.WriteLine("content skills registered: " + before);
+        return bad;
+    }
+
     static int Main(string[] a)
     {
         asm = Assembly.LoadFrom(a[0]);
@@ -163,6 +318,7 @@ static class HeroSmoke
         if (on != 6 || os != 4) { Console.WriteLine("original tree was modified"); bad++; }
         bad += ScalingSmoke(rework);
         bad += CapSmoke(rework);
+        try { bad += ContentSmoke(rework); } catch (Exception e) { Console.WriteLine("content smoke crashed: " + e); bad++; }
         Console.WriteLine(bad == 0 ? "HERO SMOKE OK" : "HERO SMOKE FAILED");
         return bad;
     }

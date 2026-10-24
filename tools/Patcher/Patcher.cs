@@ -449,6 +449,15 @@ public static class Patcher
             Console.WriteLine("hook: Senate.ParseElectionResult keeps the ideology of the dictator");
         }
 
+        // stage 4: HeroSkill.Load start => HeroRework.EnsureContent() (skills of the rework exist before a save looks them up)
+        {
+            var m = Method("HeroSkill", "Load");
+            var il = m.Body.GetILProcessor();
+            var first = m.Body.Instructions[0];
+            il.InsertBefore(first, il.Create(OpCodes.Call, GameMethod(hero, "EnsureContent")));
+            Console.WriteLine("hook: HeroSkill.Load registers the skills of the rework first");
+        }
+
         // Senator.UpdateRepresentativeHero: if (HeroRework.UpdateRepresentative(this)) return;
         {
             var m = Method("Senator", "UpdateRepresentativeHero");
