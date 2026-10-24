@@ -11,6 +11,13 @@ static class HeroKindsTests
         for (ulong g = 1; g <= 3000; g++) count[(int)HeroKinds.KindOfGuid(g)]++;
         Check(count[0] == 1000 && count[1] == 1000 && count[2] == 1000, "kinds are evenly spread over sequential ids");
         Check(HeroKinds.KindOfGuid(7) == HeroKinds.KindOfGuid(7), "kind is stable");
+        HeroKind hk;
+        Check(HeroKinds.TryKindOfClass("HeroClassAdmiral", out hk) && hk == HeroKind.Admiral, "admiral class -> admiral");
+        Check(HeroKinds.TryKindOfClass("HeroClassAdventurer", out hk) && hk == HeroKind.Admiral, "adventurer (explorer) class -> admiral");
+        Check(HeroKinds.TryKindOfClass("HeroClassAdministrator", out hk) && hk == HeroKind.Governor, "administrator class -> governor");
+        Check(HeroKinds.TryKindOfClass("HeroClassCorporate", out hk) && hk == HeroKind.Senator, "corporate class -> senator");
+        Check(!HeroKinds.TryKindOfClass("HeroClassSomethingNew", out hk) && !HeroKinds.TryKindOfClass(null, out hk), "unknown class is not mapped");
+        Check(HeroKinds.KindOf("HeroClassCorporate", 3UL) == HeroKind.Senator && HeroKinds.KindOf("Mod", 4UL) == HeroKinds.KindOfGuid(4UL), "class wins, unknown falls back to the id");
 
         foreach (HeroKind k in new[] { HeroKind.Admiral, HeroKind.Governor, HeroKind.Senator })
         {

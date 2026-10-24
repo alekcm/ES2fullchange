@@ -3,7 +3,17 @@
 Status: Stages 1–2 are implemented. Nothing has been tested in the running game; checks so far are compilation, Mono JIT of every method (`tools/verify.sh`), unit tests (`tests/HeroKindsTests.cs`) and a smoke test on real simulation objects (`tools/Verify/HeroSmoke.cs`).
 
 ## Kinds (Stage 1)
-`kind = (ulong)hero.GUID % 3` → Admiral / Governor / Senator (AI-ruler heroes are not touched).
+The kind follows the vanilla hero class (`HeroDefinition.Class`):
+
+| Class (ship design) | Kind |
+|---|---|
+| `HeroClassAdmiral` (Attacker) | Admiral |
+| `HeroClassAdventurer` (Explorer) | Admiral — its tree is almost all ship skills |
+| `HeroClassAdministrator` (Defender) | Governor |
+| `HeroClassCorporate` (Supporter) | Senator |
+
+A hero of an unknown (modded) class falls back to `GUID % 3`. AI-ruler heroes are not touched. Trees that keep no useful skill for the kind are dropped, so a kind only gets branches that exist for it.
+The mapping lives in `HeroKinds.TryKindOfClass`.
 The skill descriptors a hero provides are filtered by channel: Admiral → Ship, Governor → System, Senator → Senate. The Hero channel is kept for all.
 Skill trees are rebuilt per kind (skills with no effect for the kind are dropped, stage thresholds are clamped to the points that remain).
 Assigning a hero to the wrong job (`CheckHeroAssignableToFleet/ToSystem`, `Senator.UpdateRepresentativeHero`) is refused.

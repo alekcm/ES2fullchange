@@ -33,7 +33,10 @@ public static class HeroRework
 
     public static HeroKind KindOf(Hero hero)
     {
-        return HeroKinds.KindOfGuid((ulong)hero.GUID);
+        string className = null;
+        try { if (hero.Definition != null && hero.Definition.Class != null) className = hero.Definition.Class.Name.ToString(); }
+        catch (Exception) { }
+        return HeroKinds.KindOf(className, (ulong)hero.GUID);
     }
 
     // ---------------------------------------------------------------- effect channels (Hero.Get*SkillDescriptors, return hooks)
@@ -241,6 +244,7 @@ public static class HeroRework
                 sc.Skills = slots.ToArray();
                 stages.Add(sc);
             }
+            if (stages.Count == 0) continue;   // nothing of this tree is useful for the kind: no empty tree
             copy.Stages = stages.ToArray();
             result.Add(copy);
         }

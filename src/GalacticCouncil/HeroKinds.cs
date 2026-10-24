@@ -8,10 +8,27 @@ public enum HeroChannel { Hero = 0, System = 1, Ship = 2, Senate = 3 }
 
 public static class HeroKinds
 {
-    /// <summary>The kind of a hero is fixed for his whole life and derived from his entity id: about a third of every kind, no saved state needed.</summary>
+    /// <summary>Kind by the vanilla hero class (HeroClassDefinition name). Attacker and explorer classes fight with fleets, administrators govern, corporates sit in the senate.</summary>
+    public static bool TryKindOfClass(string className, out HeroKind kind)
+    {
+        kind = HeroKind.Admiral;
+        if (className == null) return false;
+        if (className.IndexOf("Admiral", StringComparison.OrdinalIgnoreCase) >= 0 || className.IndexOf("Adventurer", StringComparison.OrdinalIgnoreCase) >= 0) { kind = HeroKind.Admiral; return true; }
+        if (className.IndexOf("Administrator", StringComparison.OrdinalIgnoreCase) >= 0) { kind = HeroKind.Governor; return true; }
+        if (className.IndexOf("Corporate", StringComparison.OrdinalIgnoreCase) >= 0) { kind = HeroKind.Senator; return true; }
+        return false;
+    }
+
+    /// <summary>Fallback for heroes of an unknown (modded) class: spread by entity id, so nothing is left without a role.</summary>
     public static HeroKind KindOfGuid(ulong guid)
     {
         return (HeroKind)(int)(guid % 3UL);
+    }
+
+    public static HeroKind KindOf(string className, ulong guid)
+    {
+        HeroKind k;
+        return TryKindOfClass(className, out k) ? k : KindOfGuid(guid);
     }
 
     /// <summary>Admirals only use ship effects, governors only system effects, senators only senate effects. Effects on the hero himself are universal.</summary>
