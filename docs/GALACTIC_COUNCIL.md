@@ -210,3 +210,6 @@ The buttons of the Council window are for humans; for an AI the same powers are 
 * **Leaving the Council** is never done by the AI.
 * Mentoring now also levels the heroes of AI members.
 Unverified in game: that an AI treasury returns a sensible net income at the start of the turn, the thresholds above, that the host posts the contingent for an AI empire.
+
+## Hacking popup hidden
+`NotificationMinorAndPirateHackingEnabled` (the only vanilla notification bound to `EventMinorAndPirateHackingUnlocked`, raised once per empire by `HackingManager.ClientBeginTurn` at the PvE hacking unlock turn) now returns false from `Bind` (`Patcher.HideHackingNotice`), so `GuiNotificationManager.RecordEventForEmpire` never creates it. The event itself is still raised because the AI listens to it. Not game-tested; if another hacking popup remains, its title is needed to find the event.

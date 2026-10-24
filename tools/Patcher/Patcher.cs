@@ -61,6 +61,7 @@ public static class Patcher
         var hero = cl.Mapped("HeroRework");
         if (hero == null) throw new Exception("HeroRework missing");
         HookHeroRework(hero);
+        HideHackingNotice();
 
         Console.WriteLine("publicized members: " + cl.PublicizedLog.Count);
         foreach (var s in cl.PublicizedLog.OrderBy(x => x)) Console.WriteLine("  + " + s);
@@ -75,6 +76,19 @@ public static class Patcher
     // branch: `brfalse.s` at IL_0075 has an unresolved target (the real target, the final `ldloc.0; ret`, is more than
     // 127 bytes away). The JIT throws InvalidProgramException, which made the hack target un-pickable in the UI
     // (a system could only be chosen as a route node). Point the branch at the final `ldloc.0` and use the long form.
+    // The popup "hacking operations are available / pirates and minor factions can hack" (vanilla NotificationMinorAndPirateHackingEnabled, raised once
+    // by HackingManager.ClientBeginTurn) is not wanted: Bind returns false, so GuiNotificationManager.RecordEventForEmpire drops it. The event itself
+    // is still raised (the AI listens to it).
+    static void HideHackingNotice()
+    {
+        var m = Method("NotificationMinorAndPirateHackingEnabled", "Bind");
+        var il = m.Body.GetILProcessor();
+        var first = m.Body.Instructions[0];
+        il.InsertBefore(first, il.Create(OpCodes.Ldc_I4_0));
+        il.InsertBefore(first, il.Create(OpCodes.Ret));
+        Console.WriteLine("hook: NotificationMinorAndPirateHackingEnabled.Bind returns false (popup hidden)");
+    }
+
     static void RepairHackingModes()
     {
         var m = Method("CustomHackingHelper", "GetValidModesForTarget");
