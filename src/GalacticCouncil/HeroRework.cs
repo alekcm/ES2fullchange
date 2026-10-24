@@ -90,7 +90,9 @@ public static partial class HeroRework
                 if (h == null || h.Definition == null) continue;
                 if (h.Definition.Politics != senator.Politics.Name) continue;
                 if (IsRegular(h) && KindOf(h) != HeroKind.Senator) continue;
-                if (best == null || h.CompareTo_ForSenate(best) > 0) best = h;
+                // the dictator hero of a dictatorship always represents the leader
+                bool dict = IsDictatorDefinition(h.Definition), bestDict = best != null && IsDictatorDefinition(best.Definition);
+                if (best == null || (dict && !bestDict) || (dict == bestDict && h.CompareTo_ForSenate(best) > 0)) best = h;
             }
             senator.RemoveAllHeroDescriptors();
             senator.RepresentativeHero = best;
@@ -533,6 +535,8 @@ public static partial class HeroRework
             if (turn < lastTurn) { ultimates.Clear(); appliedSteps.Clear(); bonusCache.Clear(); ultimateSets.Clear(); dictatorState.Clear(); ClearDictators(); }
             lastTurn = turn;
             UpdateDictatorships(game);
+            bool xpDue = turn != passiveXpTurn;
+            passiveXpTurn = turn;
             foreach (MajorEmpire empire in game.EnumerableMajorEmpires)
             {
                 var education = empire.GetAgency<DepartmentOfEducation>();
@@ -541,6 +545,7 @@ public static partial class HeroRework
                 for (int i = 0; i < heroes.Count; i++)
                 {
                     Hero hero = heroes[i];
+                    if (xpDue && !empire.IsControlledByAI && IsRegular(hero) && KindOf(hero) == HeroKind.Senator) GrantPassiveExperience(hero);
                     RefreshOnRoleChange(hero);
                     if (!Fixable(hero)) continue;
                     AfterComputeAvailable(hero);

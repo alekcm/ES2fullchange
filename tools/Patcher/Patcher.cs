@@ -599,6 +599,19 @@ public static class Patcher
             Console.WriteLine("hook: Senate.ParseElectionResult keeps the ideology of the dictator");
         }
 
+        // unspent skill points: a hero who took his ultimate has nothing to spend them on => Hero.get_AvailableSkillPoints returns 0
+        n = WrapReturns(Method("Hero", "get_AvailableSkillPoints"), GameMethod(hero, "AdjustAvailablePoints"), new[] { OpCodes.Ldarg_0 });
+        Console.WriteLine("hook: Hero.get_AvailableSkillPoints returns wrapped: " + n);
+
+        // dictator hero definitions exist before a save is read: DepartmentOfEducation.SerializeElements start => HeroRework.EnsureDictatorDefinitions()
+        {
+            var m = Method("DepartmentOfEducation", "SerializeElements");
+            var il = m.Body.GetILProcessor();
+            var first = m.Body.Instructions[0];
+            il.InsertBefore(first, il.Create(OpCodes.Call, GameMethod(hero, "EnsureDictatorDefinitions")));
+            Console.WriteLine("hook: DepartmentOfEducation.SerializeElements registers the dictator hero definitions first");
+        }
+
         // stage 4: HeroSkill.Load start => HeroRework.EnsureContent() (skills of the rework exist before a save looks them up)
         {
             var m = Method("HeroSkill", "Load");

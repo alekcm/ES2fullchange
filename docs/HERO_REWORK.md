@@ -53,6 +53,14 @@ All skills are generated at run time from the live skill database (`HeroContent.
 * **Council votes** (`Flavor.Votes`): senator and dictator skills of this flavor have no senate modifier; the Galactic Council reads the learned skills (see `docs/GALACTIC_COUNCIL.md`). Governors and admirals get influence instead.
 * Magnitudes are balance guesses in `HeroSkillData.cs` (target tables and `Classify` reference values): tune there.
 
+## Playtest follow-ups (2026-10-24)
+* **Dictator hero is given.** While a *human* empire has a dictatorship (including a start with one and the Cravers' authoritarian rule), `UpdateDictatorships` calls `SyncDictatorHero`: if the empire has no hero whose definition name starts with `HeroDefinitionGCDictator_`, the client of the player posts a normal `OrderRecruitHero` (level 1, once per 3 turns at most). When the dictatorship ends, or the leader senator has another politics, the hero is removed with `DepartmentOfEducation.RemoveHero` (on every client, the representative links of the senators are cleared first and recomputed after). AI empires are not touched.
+  * Definitions are generated at run time, one per (faction, politics): hidden, `IgnoreInstanceNumber`, class/ship/level rule of a vanilla Corporate hero, affinity of a hero of the faction (fallback `Other` = any Corporate hero), race tree of that faction hero, politics = the politics of the leader, so `Senator.UpdateRepresentative` picks him (a dictator definition always wins over a regular hero of the same party). GUI element copied from the template, title "Диктатор: <фракция>".
+  * Registered by `HeroRework.EnsureDictatorDefinitions` at the start of `DepartmentOfEducation.SerializeElements` (before a save reads its heroes) and again on demand.
+  * The faction of the empire is read from `Faction.Name`, `GetAffinityMappingName()` and `GetAffinityGameplayName()` through `HeroFlavors.FactionKey`; an unknown faction uses the `Other` set (the log line `[HeroRework] dictator hero definitions: N` is written once per registration).
+* **No skill points after the ultimate.** `Hero.get_AvailableSkillPoints` is wrapped by `HeroRework.AdjustAvailablePoints`: 0 for a hero whose ultimate is registered (admiral, governor, dictator, senator with ultimate). This removes the "assign skills" prompt, the level-up window and the points counter; the per-level percentage growth of the learned skills is unchanged.
+* **Passive experience of senators.** Each turn every senator kind hero of a human empire gets `NextLevelRequestedExperience / 10` (`/ 6` for the dictator) through `Hero.SetExperience`; the level cap (8 for senators) and the level-up rule decide whether it counts. Constants: `HeroKinds.SenatorXpTurnsPerLevel`, `DictatorXpTurnsPerLevel`.
+
 ## Hooks
 | Method | Hook |
 |---|---|
@@ -66,6 +74,8 @@ All skills are generated at run time from the live skill database (`HeroContent.
 | `Hero.UpdateLevel(bool)` (start) | `HeroRework.BeforeUpdateLevel` (senator level cap) |
 | `Senate.ParseElectionResult` (start) | `HeroRework.LockElection` |
 | `Senate.ServerTriggerRebellion` (start) | `HeroRework.BlockRebellion` |
+| `Hero.get_AvailableSkillPoints` (return) | `HeroRework.AdjustAvailablePoints` |
+| `DepartmentOfEducation.SerializeElements` (start) | `HeroRework.EnsureDictatorDefinitions` |
 | `CouncilGame.ClientBeginTurn` / `SerializeAttributes` | `HeroRework.PerTurn` / registry persistence |
 
 ## Not yet done
@@ -75,3 +85,4 @@ Nothing of the original list. Known limits: skills already learned in a save mad
 The refresh via `OnSkillsUpdated` on level change, acceptance of runtime descriptor copies by `SimulationObject`, `Hero.get_SkillTrees` being the only GUI path, the stage-threshold clamp, already-assigned mismatched heroes staying assigned without effect, the `FailureInfo` tooltip, and that `Hero.Level` is the quantity the user means by "level".
 Stage 3: that the dictatorship tags are present on the senate object under every dictatorship government, that skipping `ServerTriggerRebellion` (also its per-system rebellions caused by the empire rebellion) is acceptable, that vanilla dictatorships may have several senators, that `LevelMax` on a cloned rule is honoured by `UpdateLevel`/GUI and that the starting hero level is 1, and the prime-senator-at-start choice of the leader.
 Stage 4: that runtime-registered skills, `GuiElement`s and descriptors are accepted by the game (the registration was only exercised against a synthetic database in a plain Mono process, not in the game), that `GuiElement.Clone()` keeps the icons, that paths such as `../ClassEmpire/ClassGarrisonFleet` accept the fleet properties used for senators (`ShipDamage`, `FleetMaximumHealth`, ...), that the senate descriptors reach the senator of the dictator, that `HeroSkillTreeStage.RequiredLevel` is compared with hero-wide spent skill points (it is, in `ComputeAvailableSkills`), and that all magnitudes are balanced.
+Follow-ups: that a client-posted `OrderRecruitHero` for a hidden runtime definition is accepted and processed by the game, that `Touch`/`Add` of the definitions before `SerializeElements` is early enough for a load, that the faction names resolve to a faction key, that removing a hero with `RemoveHero` on every client is consistent (no order exists for it), that the senators' representative refresh picks the new hero, and the pace of the passive experience (10 / 6 turns per level) - none of it has been tried in the game.

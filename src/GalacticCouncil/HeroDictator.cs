@@ -3,7 +3,8 @@
 //  * a dictatorship has exactly one senator, the faction leader (the prime senator when the dictatorship starts);
 //  * while he rules, the official ideology (the politics of the prime senator) is not changed by elections or by
 //    the empire rebellion: only the player can end it by changing the government (abdication);
-//  * the hero who represents the leader is the dictator: no level cap, his ultimate multiplies his learned skills.
+//  * the hero who represents the leader is the dictator: no level cap, his ultimate multiplies his learned skills;
+//  * a human player is given a dictator hero for the time of the dictatorship (HeroDictatorHero.cs).
 using System;
 using System.Collections.Generic;
 using Amplitude;
@@ -48,6 +49,8 @@ public static partial class HeroRework
         dictatorHeroes.Clear();
         cappedToOriginal.Clear();
         originalToCapped.Clear();
+        dictatorOrderTurn.Clear();
+        passiveXpTurn = int.MinValue;
     }
 
     // ---------------------------------------------------------------- senate helpers
@@ -95,6 +98,7 @@ public static partial class HeroRework
                 if (!IsDictatorship(senate))
                 {
                     dictatorships.Remove(index);   // abdication, change of the government or anarchy: the leader no longer rules
+                    SyncDictatorHero(empire, null);   // ... and the dictator hero leaves
                     continue;
                 }
                 DictatorRecord rec;
@@ -103,7 +107,7 @@ public static partial class HeroRework
                 if (leader == null)
                 {
                     leader = senate.PrimeSenator;   // the senator with the most support when the dictatorship starts
-                    if (leader == null || leader.Politics == null) { dictatorships.Remove(index); continue; }
+                    if (leader == null || leader.Politics == null) { dictatorships.Remove(index); SyncDictatorHero(empire, null); continue; }
                     rec = new DictatorRecord { Politics = leader.Politics.Name.ToString(), SenatorGuid = (ulong)leader.GUID };
                     dictatorships[index] = rec;
                     AnnounceDictator(empire, leader);
@@ -117,7 +121,9 @@ public static partial class HeroRework
                     foreach (Senator s in extra) senate.RemoveSenator(s, false);
                     senate.PrimeSenator = leader;
                 }
-                if (leader.RepresentativeHero == null) leader.UpdateRepresentativeHero();
+                SyncDictatorHero(empire, rec);   // a dictatorship gives the player a dictator hero
+                var dictatorHero = empire.IsControlledByAI ? null : FindDictatorHero(empire.GetAgency<DepartmentOfEducation>());
+                if (leader.RepresentativeHero == null || (dictatorHero != null && !ReferenceEquals(leader.RepresentativeHero, dictatorHero))) leader.UpdateRepresentativeHero();
                 if (leader.RepresentativeHero != null) dictatorHeroes.Add((ulong)leader.RepresentativeHero.GUID);
             }
             catch (Exception e) { Fail("UpdateDictatorships", e); }

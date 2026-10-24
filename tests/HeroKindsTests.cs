@@ -160,6 +160,14 @@ static class HeroKindsTests
             for (int si = 0; si < 7; si++) if (HeroFlavors.VoteMagnitudes("HRParty0" + pi + "S" + si + "@S") != null) voteSkills++;
         Check(voteSkills >= 6, "at least some senator skills give votes (" + voteSkills + ")");
 
+        // ---- passive experience, visible skill points, dictator hero definitions
+        Check(Math.Abs(HeroKinds.PassiveExperience(100f, false) - 10f) < 1e-4f && Math.Abs(HeroKinds.PassiveExperience(120f, true) - 20f) < 1e-4f, "passive xp: 10 turns per level for a senator, 6 for the dictator");
+        Check(HeroKinds.PassiveExperience(0f, false) == 0f && HeroKinds.PassiveExperience(-5f, true) == 0f, "no passive xp when the next level asks for nothing");
+        Check(HeroKinds.PassiveExperience(100f, true) > HeroKinds.PassiveExperience(100f, false), "the dictator levels faster");
+        Check(HeroKinds.VisibleSkillPoints(3, true) == 0 && HeroKinds.VisibleSkillPoints(3, false) == 3 && HeroKinds.VisibleSkillPoints(0, false) == 0, "fixed heroes show no unspent points");
+        Check(HeroKinds.DictatorDefinitionName("Sophons", "HeroPolitics03") == "HeroDefinitionGCDictator_Sophons_HeroPolitics03", "dictator definition name");
+        Check(HeroKinds.IsDictatorDefinitionName(HeroKinds.DictatorDefinitionName("Other", "P")) && !HeroKinds.IsDictatorDefinitionName("HeroDefinitionHOPeacefulAI_1") && !HeroKinds.IsDictatorDefinitionName(null), "dictator definition name check");
+
         Console.WriteLine(bad == 0 ? "ALL PASSED" : bad + " FAILED");
         return bad;
     }

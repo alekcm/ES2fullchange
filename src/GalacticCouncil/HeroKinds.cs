@@ -124,6 +124,38 @@ public static class HeroKinds
     public const int SenatorLevelMax = 8;           // level 1 -> 8 = seven level-ups: "6-8 levels over the whole game"
     public const float DictatorUltimateBoost = 1.75f; // learned skills become x2.75 on the ultimate (2 skill levels ~ 5.5)
 
+    // ---- passive experience: senators sit in the senate and never see a battle or a construction site, so they grow with time
+
+    public const int SenatorXpTurnsPerLevel = 10;    // a senator gets a level every ~10 turns (until SenatorLevelMax)
+    public const int DictatorXpTurnsPerLevel = 6;    // the dictator grows faster: he is the ruler of the faction
+
+    /// <summary>Experience a senator hero gains each turn: the share of the experience his next level asks for.</summary>
+    public static float PassiveExperience(float nextLevelExperience, bool dictator)
+    {
+        if (nextLevelExperience <= 0f) return 0f;
+        return nextLevelExperience / (dictator ? DictatorXpTurnsPerLevel : SenatorXpTurnsPerLevel);
+    }
+
+    /// <summary>Skill points shown as unspent: a hero who took his ultimate has nothing left to spend them on, so later levels do not ask for them.</summary>
+    public static int VisibleSkillPoints(int points, bool fixedByUltimate)
+    {
+        return fixedByUltimate ? 0 : points;
+    }
+
+    // ---- name of the definition of a dictator hero: HeroDefinitionGCDictator_<faction>_<politics>
+
+    public const string DictatorDefinitionPrefix = "HeroDefinitionGCDictator_";
+
+    public static string DictatorDefinitionName(string faction, string politics)
+    {
+        return DictatorDefinitionPrefix + faction + "_" + politics;
+    }
+
+    public static bool IsDictatorDefinitionName(string name)
+    {
+        return name != null && name.StartsWith(DictatorDefinitionPrefix, StringComparison.Ordinal);
+    }
+
     /// <summary>The level cap to put on a hero's level-up rule: negative = leave the rule alone.</summary>
     public static int LevelCapFor(HeroKind kind, bool dictator, int ruleLevelMax)
     {
