@@ -13,6 +13,14 @@ public static class Patcher
     static Cloner cl;
     static ModuleDefinition mod;
 
+    // Diagnostic bisection: PATCH_SKIP=gui,hero,council,hooks,repair (comma separated) leaves hook groups out
+    // of the produced assembly. Empty = the full patch. "hooks" = cloned types only (publicizing still applies,
+    // it happens while cloning).
+    static readonly HashSet<string> SkipSet = new HashSet<string>(
+        (Environment.GetEnvironmentVariable("PATCH_SKIP") ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim().ToLowerInvariant()));
+    static bool Skip(string token) { return SkipSet.Contains("hooks") || SkipSet.Contains(token); }
+
     public static int Main(string[] args)
     {
         if (args.Length < 4) { Console.Error.WriteLine("usage: Patcher base.dll council.dll out.dll managedDir"); return 2; }
@@ -28,8 +36,9 @@ public static class Patcher
         mod = asm.MainModule;
         int selfRefsBefore = CountSelfReferences();
         if (mod.GetType("CouncilGame") != null) throw new Exception("base assembly already contains the Council; start from the baseline assembly");
+        Console.WriteLine("PATCH_SKIP=" + (SkipSet.Count == 0 ? "<none>" : string.Join(",", SkipSet.OrderBy(x => x).ToArray())));
 
-        RepairHackingModes();
+        if (!SkipSet.Contains("repair")) RepairHackingModes(); else Console.WriteLine("skip: RepairHackingModes");
 
         var council = AssemblyDefinition.ReadAssembly(councilPath, new ReaderParameters { AssemblyResolver = resolver });
         cl = new Cloner(council.MainModule, mod);
@@ -41,32 +50,40 @@ public static class Patcher
         var voteOrder = cl.Mapped("OrderCouncilVote");
         if (game == null || ui == null || voteOrder == null) throw new Exception("council types missing");
 
-        HookClientBeginTurn(game);
-        HookSerialize(game);
-        HookTreasury(game, voteOrder);
-        HookBackdoor(game);
-        HookSleepers(game);
-        HookAcademyWindow(ui);
-        HookMarket(game);
-        HookLoot(game);
-        HookShipBlocks(game);
-        HookProductionCost(game);
-        HookBattleLaws(game);
-        HookCompany(game);
-        HookDecolonize(game);
-        HookWarCreated(game);
-        HookBeforeTurnEnd(game);
-        HookVictoryContext(game);
-        HookDebugTabs(cl.Mapped("CouncilDebug"));
+        if (!Skip("council"))
+        {
+            HookClientBeginTurn(game);
+            HookSerialize(game);
+            HookTreasury(game, voteOrder);
+            HookBackdoor(game);
+            HookSleepers(game);
+            HookMarket(game);
+            HookLoot(game);
+            HookShipBlocks(game);
+            HookProductionCost(game);
+            HookBattleLaws(game);
+            HookCompany(game);
+            HookDecolonize(game);
+            HookWarCreated(game);
+            HookBeforeTurnEnd(game);
+            HookVictoryContext(game);
+            HookDebugTabs(cl.Mapped("CouncilDebug"));
+            HideHackingNotice();
+            DisableHackingEndTurnWarning();
+        }
+        else Console.WriteLine("skip: council hooks");
+        if (!Skip("council") && !Skip("gui")) HookAcademyWindow(ui); else Console.WriteLine("skip: AcademyModalWindow hooks");
         var hero = cl.Mapped("HeroRework");
         if (hero == null) throw new Exception("HeroRework missing");
         var academyOrder = cl.Mapped("OrderAcademyHeroKind");
         if (academyOrder == null) throw new Exception("OrderAcademyHeroKind missing");
-        HookHeroRework(hero);
-        HookEducation(hero, academyOrder);
-        HookScience(hero);
-        HideHackingNotice();
-        DisableHackingEndTurnWarning();
+        if (!Skip("hero"))
+        {
+            HookHeroRework(hero);
+            HookEducation(hero, academyOrder);
+            HookScience(hero);
+        }
+        else Console.WriteLine("skip: hero hooks");
 
         Console.WriteLine("publicized members: " + cl.PublicizedLog.Count);
         foreach (var s in cl.PublicizedLog.OrderBy(x => x)) Console.WriteLine("  + " + s);
@@ -690,8 +707,12 @@ public static class Patcher
 
         n = WrapReturns(Method("Hero", "get_SkillTrees"), GameMethod(hero, "TreesFor"), new[] { OpCodes.Ldarg_0 });
         Console.WriteLine("hook: Hero.get_SkillTrees returns wrapped: " + n);
-        n = WrapReturns(Method("GuiHero", "get_Title"), GameMethod(hero, "TitleWithKind"), new[] { OpCodes.Ldarg_0 });
-        Console.WriteLine("hook: GuiHero.get_Title returns wrapped: " + n);
+        if (!Skip("gui"))
+        {
+            n = WrapReturns(Method("GuiHero", "get_Title"), GameMethod(hero, "TitleWithKind"), new[] { OpCodes.Ldarg_0 });
+            Console.WriteLine("hook: GuiHero.get_Title returns wrapped: " + n);
+        }
+        else Console.WriteLine("skip: GuiHero.get_Title hook");
 
         // assignment rules: if (!HeroRework.AllowAssign(hero, ref info, toFleet)) return false;
         var allow = GameMethod(hero, "AllowAssign");
@@ -785,6 +806,7 @@ public static class Patcher
 
         // variant 2b: HeroRecruitmentNotificationWindow.Refresh start => HeroRework.OnRecruitNoteRefresh(this)
         // (a fresh vanilla trio makes the local player first pick the kind of hero)
+        if (!Skip("gui"))
         {
             var m = Method("HeroRecruitmentNotificationWindow", "Refresh");
             var il = m.Body.GetILProcessor();
@@ -793,6 +815,7 @@ public static class Patcher
             il.InsertBefore(first, il.Create(OpCodes.Call, GameMethod(hero, "OnRecruitNoteRefresh")));
             Console.WriteLine("hook: HeroRecruitmentNotificationWindow.Refresh asks the hero kind");
         }
+        else Console.WriteLine("skip: HeroRecruitmentNotificationWindow.Refresh hook");
     }
 
     // H3: GroundBattleOutcomeLootDefinition.FillLoot(battle, loot, populations) => ...; AdjustLoot(battle, loot)
