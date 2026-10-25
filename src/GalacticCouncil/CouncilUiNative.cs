@@ -54,6 +54,7 @@ public class CouncilModalWindow : GuiModalWindow
     public int Tab;                            // 0 vote, 1 laws, 2 mandates, 3 history
     public int SelCard;
     public int ChairQ = -1;                    // chairman flow: question picked for replacement
+    public int SelFleet = -1;                  // terror purchase: fleet picked to be held in fear
     public readonly Dictionary<int, int> SelOption = new Dictionary<int, int>();   // question -> option
 
     CouncilNativeCallbacks callbacks;
@@ -336,6 +337,7 @@ public class CouncilModalWindow : GuiModalWindow
         bool voting = c.Phase == CouncilCore.PhaseVoting && member;
         int budget = c.Budget(me.Index);
         int left = budget - CouncilUi.PendingTotal();
+        if (!voting) SelFleet = -1;
 
         // the ballot: cast / reset
         var ballot = new StringBuilder();
@@ -398,11 +400,140 @@ public class CouncilModalWindow : GuiModalWindow
             cards.Add(new NativeCard(CouncilGame.Tr("Право Председателя", "The Chairman's right"), null, null, null));
         }
 
-        // details of the selected proposal / option cards / chairman flow
+        // ---- votes bought during the session (the senator class line): one card per method
+        int buyStart = -1;
+        if (member)
+        {
+            int[] limits = new int[CouncilCore.BuyMethodCount];
+            int[] bought = c.BuysOf(me.Index);
+            int total = 0, boughtTotal = 0;
+            for (int m = 0; m < CouncilCore.BuyMethodCount; m++) { limits[m] = CouncilGame.BuyLimitOf(me, m); total += limits[m]; boughtTotal += bought[m]; }
+            if (total > 0 || boughtTotal > 0)
+            {
+                buyStart = cards.Count;
+                for (int m = 0; m < CouncilCore.BuyMethodCount; m++)
+                {
+                    string title = BuyMethodTitle(m) + (bought[m] > 0 ? "  •" + bought[m] : "");
+                    cards.Add(new NativeCard(title, BuyMethodUnit(m), null, null));
+                }
+            }
+        }
+
+        // details of the selected proposal / option cards / chairman flow / purchase of votes
         if (SelCard > 0 && SelCard <= c.Proposals.Count)
             FillProposalDetails(me, c, SelCard - 1);
         else if (chairCard >= 0 && SelCard == chairCard)
             FillChairmanDetails(c);
+        else if (buyStart >= 0 && SelCard >= buyStart && SelCard < buyStart + CouncilCore.BuyMethodCount)
+            FillBuyDetails(me, c, SelCard - buyStart);
+    }
+
+    static string BuyMethodTitle(int m)
+    {
+        switch (m)
+        {
+            case 0: return CouncilGame.Tr("Подкуп избирателей", "Bribing the Electorate");
+            case 1: return CouncilGame.Tr("Задавить авторитетом", "Crushing Authority");
+            case 2: return CouncilGame.Tr("Принудительное участие", "Compulsory Turnout");
+            default: return CouncilGame.Tr("Держать в страхе", "Keeping Them in Fear");
+        }
+    }
+
+    static string BuyMethodUnit(int m)
+    {
+        switch (m)
+        {
+            case 0: return CouncilGame.Tr("за Пыль", "for Dust");
+            case 1: return CouncilGame.Tr("за Влияние", "for Influence");
+            case 2: return CouncilGame.Tr("за счастье систем", "for the happiness of the systems");
+            default: return CouncilGame.Tr("за неподвижный флот", "for an immobilised fleet");
+        }
+    }
+
+    /// <summary>The details pane of one purchase method: price, limits and (for terror) the fleet cards.</summary>
+    void FillBuyDetails(Empire me, CouncilCore c, int method)
+    {
+        var card = cards[SelCard];
+        int cardIdx = SelCard;
+        int limit = CouncilGame.BuyLimitOf(me, method);
+        int bought = c.BoughtStacks(me.Index, method);
+        int price = CouncilGame.BuyPriceOf(me, method);
+
+        var body = new StringBuilder();
+        string conceptKey = method == 0 ? "BribeVotes" : method == 1 ? "PressureVotes" : method == 2 ? "CivicVotes" : "TerrorVotes";
+        Concept cc = HeroDesign.Get(HeroChannel.Senate, conceptKey);
+        body.AppendLine(cc != null ? cc.Note(CouncilGame.IsRussian()) : "");
+        body.AppendLine();
+        body.Append(CouncilGame.Tr("Куплено покупок: ", "Purchases made: ")).Append(bought).Append(" / ").Append(limit)
+            .Append(CouncilGame.Tr(" · каждая покупка = +10 голосов до конца сессии.", " · every purchase = +10 votes until the session ends.")).AppendLine();
+
+        if (method == 0 || method == 1)
+        {
+            body.Append(CouncilGame.Tr("Следующая покупка: ", "Next purchase: ")).Append(price).Append(' ').Append(CouncilGame.BuyUnitName(method, CouncilGame.IsRussian())).AppendLine();
+            card.Counter = bought + " / " + limit + "  ·  " + price + " " + CouncilGame.BuyUnitName(method, CouncilGame.IsRussian());
+            card.Action = new NativeAction(
+                CouncilGame.Tr("Купить 10 голосов — ", "Buy 10 votes - ") + price,
+                CouncilGame.Tr("Покупка необратима и действует до конца голосования.", "The purchase is final and lasts until the vote ends."),
+                delegate (bool right)
+                {
+                    if (right) return;
+                    CouncilNative.Confirm(BuyMethodTitle(method) + ": " + CouncilGame.Tr("купить 10 голосов за ", "buy 10 votes for ") + price + " " + CouncilGame.BuyUnitName(method, CouncilGame.IsRussian()) + "?",
+                        CouncilGame.Tr("Купить", "Buy"), delegate { CouncilGame.CastBuy(me, method, 0ul); });
+                },
+                bought < limit);
+            if (bought >= limit)
+                card.Counter = CouncilGame.Tr("лимит достигнут: ", "limit reached: ") + bought + " / " + limit;
+        }
+        else if (method == 2)
+        {
+            int penalty = bought * CouncilCore.CivicHappinessPerStack;
+            body.Append(CouncilGame.Tr("Каждая покупка: −", "Every purchase: -")).Append(CouncilCore.CivicHappinessPerStack)
+                .Append(CouncilGame.Tr(" счастья каждой системе империи до начала следующего голосования", " happiness on every system of the empire until the next vote opens")
+                + (bought > 0 ? CouncilGame.Tr(" (сейчас −", " (currently -") + penalty + ")" : "")).AppendLine();
+            card.Counter = bought + " / " + limit + (bought > 0 ? "  ·  −" + penalty + CouncilGame.Tr(" счастья", " happiness") : "");
+            card.Action = new NativeAction(
+                CouncilGame.Tr("Согнать на участки: +10 голосов", "Drive them to the polls: +10 votes"),
+                CouncilGame.Tr("Население потеряет счастье до следующего голосования.", "The population loses happiness until the next vote opens."),
+                delegate (bool right)
+                {
+                    if (right) return;
+                    CouncilNative.Confirm(BuyMethodTitle(method) + ": " + CouncilGame.Tr("купить 10 голосов за счастье населения?", "buy 10 votes for the happiness of the population?"),
+                        CouncilGame.Tr("Согнать", "Drive them"), delegate { CouncilGame.CastBuy(me, method, 0ul); });
+                },
+                bought < limit);
+        }
+        else
+        {
+            body.Append(CouncilGame.Tr("Выберите флот (от ", "Pick a fleet (")).Append(CouncilCore.TerrorFleetCp)
+                .Append(CouncilGame.Tr(" командных очков): он не сможет двигаться до начала следующего голосования и даст +10 голосов.", " command points or more): it cannot move until the next vote opens and gives +10 votes.")).AppendLine();
+            var fleets = CouncilGame.BuyFleetsOf(me);
+            if (fleets.Count == 0) body.AppendLine(CouncilGame.Tr("У империи нет флотов.", "The empire has no fleets."));
+            card.Counter = bought + " / " + limit + (bought > 0 ? CouncilGame.Tr("  ·  заморожено флотов: ", "  ·  frozen fleets: ") + bought : "");
+            for (int i = 0; i < fleets.Count; i++)
+            {
+                var f = fleets[i];
+                bool sel = i == SelFleet;
+                string mark = f.Frozen ? CouncilGame.Tr("  ❄ заморожен", "  (frozen)") : (sel ? CouncilGame.Tr("  ← выбран", "  <- selected") : "");
+                var fc = new NativeCard("→ " + f.Name + "  ·  " + Mathf.CeilToInt(f.Cp) + CouncilGame.Tr(" КО", " CP") + mark, null, null, null);
+                fc.Kind = NativeCard.KBuyFleet;
+                fc.A = i;
+                cards.Insert(++cardIdx, fc);
+            }
+            int selFleet = SelFleet >= 0 && SelFleet < fleets.Count ? SelFleet : -1;
+            bool can = bought < limit && selFleet >= 0 && !fleets[selFleet].Frozen && fleets[selFleet].Cp >= CouncilCore.TerrorFleetCp;
+            card.Action = new NativeAction(
+                selFleet >= 0 ? CouncilGame.Tr("Держать в страхе: +10 голосов", "Keep them in fear: +10 votes") : CouncilGame.Tr("Выберите флот ниже", "Pick a fleet below"),
+                CouncilGame.Tr("Флот обездвижен до начала следующего голосования.", "The fleet cannot move until the next vote opens."),
+                delegate (bool right)
+                {
+                    if (right || selFleet < 0) return;
+                    var fl = fleets[selFleet];
+                    CouncilNative.Confirm(BuyMethodTitle(method) + ": " + CouncilGame.Tr("купить 10 голосов, задержав флот «", "buy 10 votes by holding the fleet \"") + fl.Name + CouncilGame.Tr("»?", "\"?"),
+                        CouncilGame.Tr("Задержать", "Hold it"), delegate { CouncilGame.CastBuy(me, method, fl.Guid); });
+                },
+                can);
+        }
+        card.Detail = body.ToString();
     }
 
     static string OptionsSummary(CouncilCore c, int q, CouncilLawDef d)
@@ -623,6 +754,14 @@ public class CouncilModalWindow : GuiModalWindow
                                               "MARKED SYSTEMS (Strategic Presence): at the next session every held marked system gives +10 votes (max +50)."));
             for (int i = 0; i < marks.Count; i++) sources.AppendLine("• " + marks[i]);
         }
+        int boughtTotal = 0;
+        foreach (var kv in c.Buys) if (kv.Value != null) for (int i = 0; i < kv.Value.Length; i++) boughtTotal += kv.Value[i];
+        if (boughtTotal > 0)
+        {
+            sources.AppendLine();
+            sources.AppendLine(CouncilGame.Tr("КУПЛЕННЫЕ ГОЛОСА: сенаторы с классовым деревом «Корпорат» могут докупать голоса на открытой сессии (Пыль, Влияние, счастье систем или неподвижный флот) — они входят в числа выше до конца сессии.",
+                                              "BOUGHT VOTES: senators with the Corporate class tree can buy extra votes during an open session (Dust, Influence, the happiness of the systems or an immobilised fleet) - they are included in the numbers above until the session ends."));
+        }
         cards.Add(new NativeCard(CouncilGame.Tr("Откуда берутся голоса", "Where the votes come from"), null, sources.ToString(), null));
 
         if (c.Active.Count == 0)
@@ -821,6 +960,14 @@ public class CouncilModalWindow : GuiModalWindow
             Rebuild();
             return;
         }
+        if (card.Kind == NativeCard.KBuyFleet)
+        {
+            SelFleet = card.A;
+            // keep the terror method card selected: it is the card right before the fleet cards
+            if (SelCard > idx) SelCard = idx - 1;
+            Rebuild();
+            return;
+        }
         if (card.Kind == NativeCard.KChairQuestion)
         {
             ChairQ = card.A;
@@ -866,6 +1013,7 @@ public sealed class NativeCard
     public const int KOption = 1;        // option row under a proposal (A = question, B = option value)
     public const int KChairQuestion = 2; // chairman flow: question to replace (A = question index)
     public const int KChairLaw = 3;      // chairman flow: replacement law (A = index in CouncilLaws.All)
+    public const int KBuyFleet = 4;      // terror purchase: a fleet to hold in fear (A = index in the fleet list)
 
     public string Title;
     public string Subtitle;

@@ -57,6 +57,17 @@ static class HeroClassTreeTests
             "stage thresholds " + a + "/" + b + "/" + c + "/" + d + " (got " + t.Stages[0].RequiredLevel + "/" + t.Stages[1].RequiredLevel + "/" + t.Stages[2].RequiredLevel + "/" + t.Stages[3].RequiredLevel + ")");
     }
 
+    static bool NoConceptRepeat(DesignTree t)
+    {
+        if (t == null) return true;
+        var seen = new HashSet<string>();
+        for (int s = 0; s < 3; s++)
+            foreach (DesignSkill sk in t.Stages[s].Skills)
+                foreach (Concept c in sk.Concepts)
+                    if (!seen.Add(c.Key)) return false;
+        return true;
+    }
+
     static int Main()
     {
         // ================= Guardian (ClassAdmiral@A): the line of the hero's PERSONAL warship.
@@ -230,6 +241,73 @@ static class HeroClassTreeTests
             else Check(false, "A.Flak has exactly two modifiers (got " + (flak == null || flak.Mods == null ? "?" : flak.Mods.Length.ToString()) + ")");
         }
 
+        // ================= The Senator (ClassCorporate@S): the whole line is Council votes.
+        {
+            DesignTree corp = HeroDesign.Build("ClassCorporate", 'S');
+            Check(corp != null, "ClassCorporate@S builds");
+            if (corp != null)
+            {
+                CheckStages(corp, 0, 2, 4, 6);          // the senator has seven level-ups (seven skill points)
+                Check(corp.Stages[0].Skills.Count == 4, "tier 1 holds the four active purchase skills (got " + corp.Stages[0].Skills.Count + ")");
+                string[] want = { "S.BribeVotes", "S.PressureVotes", "S.CivicVotes", "S.TerrorVotes" };
+                var t1 = new List<string>(); foreach (DesignSkill sk in corp.Stages[0].Skills) t1.Add(sk.Concepts[0].Key);
+                for (int i = 0; i < want.Length; i++) Check(t1.Contains(want[i]), "tier 1 holds " + want[i]);
+                foreach (DesignSkill sk in corp.Stages[0].Skills)
+                {
+                    Check(sk.Concepts[0].Special != null && sk.Concepts[0].Special.StartsWith("Buy", StringComparison.Ordinal), sk.Name + " is an active purchase hook");
+                    Check(sk.Levels == 4, sk.Name + " has four levels (one purchase per level, got " + sk.Levels + ")");
+                    Check(sk.Values[sk.Levels - 1][0] == 4, sk.Name + " level 4 = four purchases");
+                    Check(sk.Concepts[0].Mods != null && sk.Concepts[0].Mods.Length == 0, sk.Name + " carries no static modifiers");
+                }
+                Check(TierOf(corp, 2).Concepts[0].Key == "S.Votes5" && TierOf(corp, 2).Levels == 3 && TierOf(corp, 2).Values[2][0] == 15,
+                    "tier 2 is +5 votes per level (up to +15)");
+                Check(TierOf(corp, 3).Concepts[0].Key == "S.Votes10" && TierOf(corp, 3).Levels == 3 && TierOf(corp, 3).Values[2][0] == 30,
+                    "tier 3 is +10 votes per level (up to +30)");
+                DesignSkill cu = UltOf(corp);
+                var ukeys = new List<string>(); foreach (Concept c in cu.Concepts) ukeys.Add(c.Key);
+                Check(ukeys.Count == 2 && ukeys.Contains("S.VotesUlt") && ukeys.Contains("S.VoteBoost"), "the ultimate = the voice of the nation + the vote headquarters");
+                Check(cu.TitleRu == "Голос нации" && cu.TitleEn == "The Voice of the Nation", "the Senator ultimate is the voice of the nation");
+                Check(cu.Values[0][ukeys.IndexOf("S.VotesUlt")] == 40, "the ultimate gives +40 votes");
+                Check(cu.Values[0][ukeys.IndexOf("S.VoteBoost")] == 2, "the ultimate gives +2 purchases to every method");
+            }
+
+            // the buy hooks resolve to database names; the four methods + the ultimate booster
+            Check(HeroDesign.BuyMethodIds.Length == CouncilCore.BuyMethodCount, "four buy methods everywhere");
+            for (int m = 0; m < HeroDesign.BuyMethodIds.Length; m++)
+            {
+                string n = HeroDesign.BuySkillName(HeroDesign.BuyMethodIds[m]);
+                Check(n != null && n.StartsWith("HRClassCorporate_", StringComparison.Ordinal) && n.EndsWith("@S", StringComparison.Ordinal),
+                    "buy skill name of " + HeroDesign.BuyMethodIds[m] + " (got " + (n ?? "null") + ")");
+            }
+            Check(HeroDesign.BuySkillName("Nonsense") == null, "unknown buy methods have no skill");
+            string boostName = HeroDesign.BuyBoostSkillName();
+            string ultimateName = null;
+            {
+                DesignTree t = HeroDesign.Build("ClassCorporate", 'S');
+                if (t != null) ultimateName = t.Stages[3].Skills[0].Name;
+            }
+            Check(boostName != null && boostName == ultimateName, "the class ultimate boosts the purchases (got " + (boostName ?? "null") + ")");
+
+            // the party and race senator lines no longer carry votes
+            foreach (string key in HeroDesign.AllKeys('S'))
+            {
+                if (key == "ClassCorporate") continue;
+                DesignTree t = HeroDesign.Build(key, 'S');
+                if (t == null) continue;
+                foreach (DesignStage st in t.Stages)
+                    foreach (DesignSkill sk in st.Skills)
+                        foreach (Concept c in sk.Concepts)
+                            Check(!c.CouncilVotes, "no passive votes outside the class tree: " + sk.Name);
+            }
+
+            // the price inflation: base x stage x (1 + half of the purchases already made)
+            Check(CouncilCore.BuyStackCost(0, 1, 1) == 250 && CouncilCore.BuyStackCost(0, 1, 3) == 750, "dust: 250 at stage 1, 750 at stage 3");
+            Check(CouncilCore.BuyStackCost(0, 3, 3) == 1500 && CouncilCore.BuyStackCost(0, 4, 3) == 1880, "dust: the third purchase costs 1500, the fourth 1880 (rounded to tens)");
+            Check(CouncilCore.BuyStackCost(1, 1, 2) == 200 && CouncilCore.BuyStackCost(1, 2, 2) == 300, "influence: 200 then 300 at stage 2");
+            Check(CouncilCore.BuyStackCost(2, 1, 5) == 0 && CouncilCore.BuyStackCost(3, 4, 5) == 0, "civic and terror cost no resource");
+            Check(CouncilCore.CivicHappinessPerStack == 5 && CouncilCore.TerrorFleetCp == 4 && CouncilCore.BuyVotesPerStack == 10 && CouncilCore.BuyBoostStacks == 2, "buy constants");
+        }
+
         // ================= library invariants the game relies on
         // every concept of every tree of every role must build and produce a positive number for each level
         int skillsChecked = 0;
@@ -252,7 +330,7 @@ static class HeroClassTreeTests
                             {
                                 int v = sk.Values[lvl][c];
                                 Check(v > 0, sk.Name + " level " + (lvl + 1) + " effect '" + sk.Concepts[c].Ru + "' is positive (got " + v + ")");
-                                Check(sk.Concepts[c].Mods != null && sk.Concepts[c].Mods.Length > 0 || sk.Concepts[c].Special != null || sk.Concepts[c].Key == "S.Votes",
+                                Check(sk.Concepts[c].Mods != null && sk.Concepts[c].Mods.Length > 0 || sk.Concepts[c].Special != null || sk.Concepts[c].CouncilVotes,
                                     sk.Name + " effect '" + sk.Concepts[c].Ru + "' has modifiers, a special hook or counted votes");
                                 foreach (DesignMod m in sk.Concepts[c].Mods)
                                     Check(m.Path == null || m.Path.Length == 0 || m.Path.StartsWith("./", StringComparison.Ordinal) || m.Path.StartsWith("../", StringComparison.Ordinal) || m.Path.StartsWith("Class", StringComparison.Ordinal),
@@ -265,17 +343,12 @@ static class HeroClassTreeTests
         Check(skillsChecked > 200, "the whole library was walked (checked " + skillsChecked + " skills)");
 
         // the tier skills of the class trees do not repeat a concept (the ultimate may combine them)
+        Check(NoConceptRepeat(HeroDesign.Build("ClassCorporate", 'S')), "no repeating concept in the tiers of ClassCorporate@S");
         foreach (string key in new[] { "ClassAdmiral", "ClassAdventurer" })
         {
             DesignTree t = HeroDesign.Build(key, 'A');
             if (t == null) continue;
-            var seen = new HashSet<string>();
-            bool noRepeat = true;
-            for (int s = 0; s < 3; s++)
-                foreach (DesignSkill sk in t.Stages[s].Skills)
-                    foreach (Concept c in sk.Concepts)
-                        if (!seen.Add(c.Key)) noRepeat = false;
-            Check(noRepeat, "no repeating concept in the tiers of " + key + "@A");
+            Check(NoConceptRepeat(t), "no repeating concept in the tiers of " + key + "@A");
         }
 
         Console.WriteLine(bad == 0 ? "HeroClassTreeTests: all OK (" + skillsChecked + " skills)" : "HeroClassTreeTests: " + bad + " FAILURES");

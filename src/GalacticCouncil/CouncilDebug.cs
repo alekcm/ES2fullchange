@@ -72,6 +72,10 @@ public static class CouncilDebug
             if (Btn(T("Окно Совета", "Council window"))) CouncilUi.Visible = true;
             GUILayout.EndHorizontal();
 
+            GUILayout.BeginHorizontal();
+            if (Btn(T("Выдать класс сенатора (покупки голосов)", "Give the senator class (vote purchases)"))) CouncilGame.DebugSend(player, CouncilGame.DbgGiveBuySkills, 0);
+            GUILayout.EndHorizontal();
+
             // ---- votes
             GUILayout.Label(T("Голоса:", "Votes:"));
             GUILayout.BeginHorizontal();

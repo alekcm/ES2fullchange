@@ -33,9 +33,9 @@ public static partial class HeroDesign
         Spec("Party06", 'G', "T1:Garrison;T2:Prod;T3:Money;U:Garrison,Prod,Money,Happy");
         Spec("Party01", 'S', "T1:Prod;T2:Hp;T3:Money;U:Prod,Hp,Money,Upkeep");
         Spec("Party02", 'S', "T1:Sci;T2:Vision;T3:Infl;U:Sci,Vision,Infl,Money");
-        Spec("Party03", 'S', "T1:Happy;T2:Votes;T3:Diplo;U:Happy,Votes,Diplo,Upkeep");
+        Spec("Party03", 'S', "T1:Happy;T2:Food;T3:Diplo;U:Happy,Food,Diplo,Upkeep");
         Spec("Party04", 'S', "T1:Food;T2:Happy;T3:Regen;U:Food,Happy,Regen,Upkeep");
-        Spec("Party05", 'S', "T1:Infl;T2:Votes;T3:Happy;U:Infl,Votes,Happy,Diplo");
+        Spec("Party05", 'S', "T1:Infl;T2:Sci;T3:Happy;U:Infl,Sci,Happy,Diplo");
         Spec("Party06", 'S', "T1:Dmg;T2:Hp;T3:Move;U:Dmg,Hp,Move,Prod");
         Ult("Party01", "Промышленный джаггернаут", "Industrial Juggernaut");
         Ult("Party02", "Научное превосходство", "Scientific Supremacy");
@@ -74,7 +74,7 @@ public static partial class HeroDesign
         Spec("RaceSophons", 'S', "T1:Sci;T2:Vision;T3:Food;U:Sci,Vision,Food,Infl");
         Spec("RaceCravers", 'S', "T1:Dmg;T2:Hp;T3:Prod;U:Dmg,Hp,Prod,Move");
         Spec("RaceTerrans", 'S', "T1:Prod;T2:Money;T3:Happy;U:Prod,Money,Happy,Infl");
-        Spec("RaceVenetians", 'S', "T1:Money;T2:Votes;T3:Diplo;U:Money,Votes,Diplo,Upkeep");
+        Spec("RaceVenetians", 'S', "T1:Money;T2:Infl;T3:Diplo;U:Money,Infl,Diplo,Upkeep");
         Spec("RaceVampirilis", 'S', "T1:Infl;T2:Regen;T3:Dmg;U:Infl,Regen,Dmg,Happy");
         Spec("RaceTimeLords", 'S', "T1:Sci;T2:Move;T3:Infl;U:Sci,Move,Infl,Vision");
         Spec("RaceUnfallen", 'S', "T1:Hp;T2:Happy;T3:Food;U:Hp,Happy,Food,Regen");
@@ -106,11 +106,13 @@ public static partial class HeroDesign
         Spec("ClassAdmiral", 'A', "T1:ShipDmg;T2:ShipHp;T3:ShipCrit;U:ShipDmg,ShipHp,ShipCrit,ShipCrewKill");
         Spec("ClassAdventurer", 'A', "T1:Move,Vision;T2:Flak;T3:Stealth,Detect;U:Mothership");
         Spec("ClassAdministrator", 'G', "T1:Happy;T2:Prod;T3:Upkeep;U:Happy,Prod,Upkeep,Infl");
-        Spec("ClassCorporate", 'S', "T1:Money;T2:Upkeep;T3:Prod;U:Money,Upkeep,Prod,Infl");
+        // The senator class line is ALL about Council votes (no system buffs): four active ways to buy 10 votes
+        // during a session (the skill level = number of purchases), then passive votes. See CouncilGameBuys.
+        Spec("ClassCorporate", 'S', "T1:BribeVotes,PressureVotes,CivicVotes,TerrorVotes;T2:Votes5;T3:Votes10;U:VotesUlt,VoteBoost");
         Ult("ClassAdmiral", "Личный флагман", "Personal Flagship");
         Ult("ClassAdventurer", "Материнский корабль", "Mothership");
         Ult("ClassAdministrator", "Образцовый управитель", "Model Administrator");
-        Ult("ClassCorporate", "Корпоративный магнат", "Corporate Magnate");
+        Ult("ClassCorporate", "Голос нации", "The Voice of the Nation");
 
         // ------------------------------------------------ dictator trees of the factions (written for the dictator, two skills in each tier)
         Spec("DictSophons", 'D', "T1:Sci,Food;T2:Vision,Infl;T3:Money,Happy;U:Sci,Food,Infl,Happy");
@@ -357,7 +359,7 @@ public static partial class HeroDesign
                         DesignSkill sk = tree.Stages[s].Skills[i];
                         for (int c = 0; c < sk.Concepts.Length; c++)
                         {
-                            if (sk.Concepts[c].Key != "S.Votes") continue;
+                            if (!sk.Concepts[c].CouncilVotes) continue;
                             var v = new int[sk.Levels];
                             for (int l = 0; l < v.Length; l++) v[l] = sk.Values[l][c];
                             table[sk.Name] = v;
@@ -382,6 +384,51 @@ public static partial class HeroDesign
         int[] v = VotesByLevel(skillName);
         if (v == null || v.Length == 0 || level <= 0) return 0;
         return v[Math.Max(0, Math.Min(v.Length - 1, level - 1))];
+    }
+
+    // ---------------------------------------------------------------- purchases of votes (the senator class line)
+
+    /// <summary>The four active ways to buy 10 votes during a session; the array index is the method id used everywhere.</summary>
+    public static readonly string[] BuyMethodIds = { "Bribe", "Pressure", "Civic", "Terror" };
+
+    static Dictionary<string, string> buySkillNames;      // "Bribe" ... -> database name of the class-tree skill
+    static string buyBoostSkillName;
+
+    static void BuildBuyNames()
+    {
+        var map = new Dictionary<string, string>();
+        string boost = null;
+        DesignTree tree = Build("ClassCorporate", 'S');
+        if (tree != null)
+            foreach (DesignStage st in tree.Stages)
+                foreach (DesignSkill sk in st.Skills)
+                {
+                    for (int c = 0; c < sk.Concepts.Length; c++)
+                    {
+                        string special = sk.Concepts[c].Special;
+                        if (special == null || !special.StartsWith("Buy", StringComparison.Ordinal)) continue;
+                        if (special == "BuyBoost") { if (sk.Tier == 4) boost = sk.Name; continue; }
+                        for (int m = 0; m < BuyMethodIds.Length; m++)
+                            if (special == "Buy" + BuyMethodIds[m]) map[BuyMethodIds[m]] = sk.Name;
+                    }
+                }
+        buySkillNames = map;
+        buyBoostSkillName = boost;
+    }
+
+    /// <summary>Database name of the buy skill of a method ("Bribe"/"Pressure"/"Civic"/"Terror"), or null when the tree has none.</summary>
+    public static string BuySkillName(string methodId)
+    {
+        if (buySkillNames == null) BuildBuyNames();
+        string n;
+        return buySkillNames.TryGetValue(methodId, out n) ? n : null;
+    }
+
+    /// <summary>Database name of the class-tree ultimate that grants extra purchases, or null.</summary>
+    public static string BuyBoostSkillName()
+    {
+        if (buySkillNames == null) BuildBuyNames();
+        return buyBoostSkillName;
     }
 
     // ---------------------------------------------------------------- lookups by skill name (hooks)

@@ -146,7 +146,7 @@ static class HeroKindsTests
                     Check(st.RequiredLevel > prev, "thresholds grow in " + tree.TreeName); prev = st.RequiredLevel;
                     Check(st.RequiredLevel == HeroFlavors.StageThreshold(si, role == 'A' ? HeroKind.Admiral : role == 'G' ? HeroKind.Governor : HeroKind.Senator, role == 'D'), "threshold of stage " + si + " in " + tree.TreeName);
                     if (si == 3) Check(st.Skills.Count == 1 && st.Skills[0].Levels == 1, "single one-level ultimate in " + tree.TreeName);
-                    else Check(st.Skills.Count >= 1 && st.Skills.Count <= 3, "skills per stage in " + tree.TreeName);
+                    else Check(st.Skills.Count >= 1 && st.Skills.Count <= (tree.TreeName == "HRTreeClassCorporate@S" ? 4 : 3), "skills per stage in " + tree.TreeName);
                     foreach (DesignSkill sk in st.Skills)
                     {
                         skillsTotal++;
@@ -180,7 +180,9 @@ static class HeroKindsTests
         Check(HeroDesign.TreeKeyOfVanilla("HeroSkillTreeGeneric") == null && HeroDesign.TreeKeyOfVanilla("Nonsense") == null, "unknown tree keys");
 
         // ---- votes of the Galactic Council given by senator and dictator skills
-        int voteSkills = 0;
+        // The votes live ONLY in the senator class tree (passive skills) and in the dictator trees; the party and
+        // race trees of the senators no longer carry any.
+        int voteSkills = 0, classVoteSkills = 0, dictVoteSkills = 0, partyRaceVoteSkills = 0;
         foreach (char role in new[] { 'S', 'D' })
             foreach (string key in HeroDesign.AllKeys(role))
             {
@@ -190,11 +192,17 @@ static class HeroKindsTests
                     int[] v = HeroDesign.VotesByLevel(sk.Name);
                     if (v == null) continue;
                     voteSkills++;
+                    if (key == "ClassCorporate") classVoteSkills++;
+                    else if (key.StartsWith("Dict", StringComparison.Ordinal)) dictVoteSkills++;
+                    else partyRaceVoteSkills++;
                     Check(v.Length == sk.Levels && v[0] > 0 && HeroDesign.VotesOfSkill(sk.Name, 1) == v[0] && HeroDesign.VotesOfSkill(sk.Name, sk.Levels + 5) == v[v.Length - 1] && HeroDesign.VotesOfSkill(sk.Name, 0) == 0, "votes table of " + sk.Name);
                     for (int l = 1; l < v.Length; l++) Check(v[l] > v[l - 1], "votes grow in " + sk.Name);
                 }
             }
-        Check(voteSkills >= 12, "skills that give votes: " + voteSkills);
+        Check(partyRaceVoteSkills == 0, "no votes in the party and race trees of the senators (got " + partyRaceVoteSkills + ")");
+        Check(classVoteSkills == 3, "the senator class tree holds the three passive vote skills (got " + classVoteSkills + ")");
+        Check(dictVoteSkills >= 4, "dictator vote skills (got " + dictVoteSkills + ")");
+        Check(voteSkills == classVoteSkills + dictVoteSkills, "votes counted: " + voteSkills);
         Check(HeroDesign.VotesOfSkill("HeroSkillSomething", 1) == 0 && HeroDesign.VotesOfSkill(null, 1) == 0, "vanilla skills give no votes");
         Check(HeroDesign.VotesByLevel("HRParty03_0@A") == null, "admiral skills give no votes");
 

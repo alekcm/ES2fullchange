@@ -20,11 +20,13 @@ public class OrderCouncilVote : Order
     public const int KindReportTask = 4;          // unused (the manual assignment stub was removed; conditions are read from the game)
     public const int KindLeave = 5;
     public const int KindDebug = 6;               // God-Mod menu: A = CouncilGame.Dbg* action, B = parameter (every client runs it, so the game stays in sync)
+    public const int KindBuyVotes = 7;            // senator class line: A = method (0 bribe / 1 pressure / 2 civic / 3 terror), Fleet = frozen fleet (terror)
 
     public List<int[]> Entries = new List<int[]>();
     public int Kind;
     public int A;
     public int B;
+    public ulong Fleet;                           // GUID of the fleet held "in fear" (KindBuyVotes, method 3)
 
     public OrderCouncilVote(int empireIndex, List<int[]> entries) : base(empireIndex)
     {
@@ -36,6 +38,12 @@ public class OrderCouncilVote : Order
     {
         Entries = new List<int[]>();
         Kind = kind; A = a; B = b;
+    }
+
+    public OrderCouncilVote(int empireIndex, int kind, int a, int b, ulong fleet) : base(empireIndex)
+    {
+        Entries = new List<int[]>();
+        Kind = kind; A = a; B = b; Fleet = fleet;
     }
 
     public override StaticString Path { get { return AuthenticationPath; } }
@@ -53,6 +61,7 @@ public class OrderCouncilVote : Order
             writer.Write(Entries[i][1]);
             writer.Write(Entries[i][2]);
         }
+        writer.Write(Fleet);
     }
 
     public override void Unpack(BinaryReader reader)
@@ -68,5 +77,6 @@ public class OrderCouncilVote : Order
             int q = reader.ReadInt32(), o = reader.ReadInt32(), v = reader.ReadInt32();
             Entries.Add(new[] { q, o, v });
         }
+        try { Fleet = reader.ReadUInt64(); } catch (EndOfStreamException) { Fleet = 0ul; }
     }
 }

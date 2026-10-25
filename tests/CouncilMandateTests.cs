@@ -290,10 +290,41 @@ static class M
             rm = CouncilCore.Deserialize(m.Serialize());
             Check(rm.RecentWars(1, 8) == 1, "declared wars survive serialization");
             Check(m.BudgetText(0, 10, true).Length > 0 && m.BudgetText(1, 8, false).Contains("war"), "budget explanation");
-            // older saves (without the vote fields) still load
-            string oldState = m.Serialize(); int cut = oldState.LastIndexOf("|", oldState.LastIndexOf("|") - 1); oldState = oldState.Substring(0, cut);
+            // older saves (without the vote and purchase fields) still load
+            string oldState = m.Serialize();
+            for (int strip = 0; strip < 4; strip++) { int cut = oldState.LastIndexOf('|'); if (cut < 0) break; oldState = oldState.Substring(0, cut); }
             var ro = CouncilCore.Deserialize(oldState);
             Check(ro.Enabled && ro.Holds(0, CouncilLaws.Supreme) && ro.SessionVotesOf(0) == 0, "state without vote fields loads");
+            Check(ro.BoughtVotesOf(0) == 0 && !ro.IsTerrorFleet(0, 1ul), "state without purchase fields loads");
+        }
+        // ---- purchases of votes during a session (the senator class line)
+        {
+            var b = new CouncilCore(); b.Found(0, new[] { 0, 1 }, 20);
+            Check(b.BoughtVotesOf(0) == 0 && b.Budget(0) == 100, "no purchases, plain budget");
+            Check(!b.CanBuyVotes(0, 0, 4), "cannot buy while no vote is open");
+            b.OpenVote(10, new List<string> { "ResearchDevUp" });
+            Check(b.CanBuyVotes(0, 0, 4) && b.CanBuyVotes(0, 2, 1) && !b.CanBuyVotes(0, 2, 0) && !b.CanBuyVotes(2, 0, 4), "buy gates: voting phase, membership, limit");
+            Check(b.TryBuyVotes(0, 0, 4) && b.TryBuyVotes(0, 2, 1) && !b.TryBuyVotes(0, 2, 1), "stacks register up to the limit");
+            Check(b.BoughtStacks(0, 0) == 1 && b.BoughtStacks(0, 2) == 1 && b.BoughtVotesOf(0) == 20 && b.Budget(0) == 120, "10 votes per purchase enter the budget");
+            Check(!b.CanBuyVotes(0, 2, 1), "civic limit of one reached");
+            // terror: the stack and the immobilised fleet register together
+            Check(b.TryBuyTerror(0, 4, 77ul) && b.IsTerrorFleet(0, 77ul) && b.BoughtStacks(0, 3) == 1, "a terror purchase freezes its fleet");
+            Check(!b.TryBuyTerror(0, 4, 77ul), "the same fleet cannot be frozen twice");
+            Check(b.TryBuyTerror(0, 2, 78ul) && !b.TryBuyTerror(0, 2, 79ul), "the limit of terror purchases holds");
+            Check(b.BoughtVotesOf(0) == 40 && b.Budget(0) == 140, "four purchases = 40 votes");
+            // serialization round trip
+            var rb = CouncilCore.Deserialize(b.Serialize());
+            Check(rb.BoughtStacks(0, 0) == 1 && rb.BoughtStacks(0, 2) == 1 && rb.BoughtStacks(0, 3) == 2 && rb.BoughtVotesOf(0) == 40, "purchases survive serialization");
+            Check(rb.IsTerrorFleet(0, 77ul) && rb.IsTerrorFleet(0, 78ul) && !rb.IsTerrorFleet(0, 79ul), "frozen fleets survive serialization");
+            Check(rb.Budget(0) == 140, "the budget of a loaded state counts the purchases");
+            Check(rb.BudgetText(0, 10, true).Contains("куплено"), "the budget explanation mentions the purchases");
+            // a new session wipes everything (the penalties end when it opens)
+            b.OpenVote(30, new List<string> { "ResearchDevUp" });
+            Check(b.BoughtVotesOf(0) == 0 && !b.IsTerrorFleet(0, 77ul) && b.Budget(0) == 100, "a new session clears the purchases and the frozen fleets");
+            // leaving the council drops the state too
+            b.TryBuyVotes(1, 1, 4);
+            b.RemoveMember(1);
+            Check(b.BoughtVotesOf(1) == 0, "leaving the council drops the purchases");
         }
         // ---- mandate powers of an AI empire
         {

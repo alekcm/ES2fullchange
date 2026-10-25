@@ -353,6 +353,7 @@ public static class CouncilUiImgui
         GUILayout.EndHorizontal();
 
         DrawChairmanPanel(me);
+        DrawBuyPanel(me);
 
         GUILayout.FlexibleSpace();
         GUILayout.BeginHorizontal();
@@ -376,6 +377,80 @@ public static class CouncilUiImgui
 
     static int chairQ = -1;
     static Vector2 chairScroll;
+
+    // ---- purchases of votes (the senator class line) - fallback IMGUI panel
+
+    static int buyFleetSel = -1;
+
+    static string BuyMethodName(int m)
+    {
+        switch (m)
+        {
+            case 0: return CouncilGame.Tr("Подкуп избирателей (Пыль)", "Bribing the Electorate (Dust)");
+            case 1: return CouncilGame.Tr("Задавить авторитетом (Влияние)", "Crushing Authority (Influence)");
+            case 2: return CouncilGame.Tr("Принудительное участие (счастье)", "Compulsory Turnout (happiness)");
+            default: return CouncilGame.Tr("Держать в страхе (флот)", "Keeping Them in Fear (a fleet)");
+        }
+    }
+
+    /// <summary>The four ways to buy 10 votes while the vote is open; the buttons post the same order as the native window.</summary>
+    static void DrawBuyPanel(Empire me)
+    {
+        var c = CouncilGame.Core;
+        int[] limits = new int[CouncilCore.BuyMethodCount];
+        int[] bought = c.BuysOf(me.Index);
+        int total = 0;
+        for (int m = 0; m < CouncilCore.BuyMethodCount; m++) { limits[m] = CouncilGame.BuyLimitOf(me, m); total += limits[m]; }
+        if (total <= 0 && c.BoughtVotesOf(me.Index) == 0) return;
+        GUILayout.BeginVertical(boxStyle);
+        GUILayout.Label(CouncilGame.Tr("Докупить голоса (классовая ветка сенатора): каждая покупка = +10 голосов до конца сессии.",
+                                       "Buy extra votes (the senator class line): every purchase = +10 votes until the session ends."), smallStyle);
+        for (int m = 0; m < CouncilCore.BuyMethodCount; m++)
+        {
+            GUILayout.BeginHorizontal();
+            int price = CouncilGame.BuyPriceOf(me, m);
+            string pay = m == 0 || m == 1 ? price + " " + CouncilGame.BuyUnitName(m, CouncilGame.IsRussian())
+                        : m == 2 ? "-" + CouncilCore.CivicHappinessPerStack + CouncilGame.Tr(" счастья системам", " happiness on systems")
+                        : CouncilGame.Tr("флот от ", "a fleet of ") + CouncilCore.TerrorFleetCp + CouncilGame.Tr(" КО", " CP");
+            GUILayout.Label(BuyMethodName(m) + ": " + bought[m] + " / " + limits[m] + "  ·  " + pay, wrapStyle, GUILayout.Width(430));
+            GUI.enabled = bought[m] < limits[m];
+            List<CouncilGame.CouncilBuyFleet> fleets = null;
+            string[] names = null;
+            if (m != 3)
+            {
+                if (GUILayout.Button(CouncilGame.Tr("Купить 10 голосов", "Buy 10 votes"), GUILayout.Width(170)))
+                    CouncilGame.CastBuy(me, m, 0ul);
+            }
+            else
+            {
+                fleets = CouncilGame.BuyFleetsOf(me);
+                names = new string[fleets.Count];
+                bool anyEligible = false;
+                for (int i = 0; i < fleets.Count; i++)
+                {
+                    names[i] = fleets[i].Name + " (" + Mathf.CeilToInt(fleets[i].Cp) + CouncilGame.Tr(" КО", " CP") + (fleets[i].Frozen ? " ❄" : "") + ")";
+                    if (!fleets[i].Frozen && fleets[i].Cp >= CouncilCore.TerrorFleetCp) anyEligible = true;
+                }
+                GUI.enabled = GUI.enabled && anyEligible;
+                if (GUILayout.Button(CouncilGame.Tr("Заморозить выбранный флот", "Freeze the selected fleet"), GUILayout.Width(220)))
+                {
+                    int pick = buyFleetSel >= 0 && buyFleetSel < fleets.Count ? buyFleetSel : -1;
+                    if (pick >= 0 && !fleets[pick].Frozen && fleets[pick].Cp >= CouncilCore.TerrorFleetCp)
+                        CouncilGame.CastBuy(me, 3, fleets[pick].Guid);
+                }
+            }
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+            if (m == 3 && limits[3] > 0)
+            {
+                if (names != null && names.Length > 0)
+                    buyFleetSel = GUILayout.SelectionGrid(buyFleetSel, names, Math.Max(1, names.Length));
+                else
+                    GUILayout.Label(CouncilGame.Tr("У империи нет флотов.", "The empire has no fleets."), smallStyle);
+            }
+        }
+        GUILayout.EndVertical();
+    }
 
     /// <summary>Chairman of the Council: once per cycle replace one ordinary question before anybody has voted.</summary>
     static void DrawChairmanPanel(Empire me)

@@ -434,4 +434,41 @@ public static partial class HeroRework
             if (s != null && s.RepresentativeHero != null) total += CouncilVotesOf(s.RepresentativeHero);
         return total;
     }
+
+    // ---------------------------------------------------------------- purchases of votes (the senator class line)
+
+    static int LevelOfSkill(Hero hero, string skillName)
+    {
+        if (hero == null || skillName == null) return 0;
+        var skills = hero.UnlockedSkills;
+        if (skills == null) return 0;
+        for (int i = 0; i < skills.Count; i++)
+        {
+            HeroSkill sk = skills[i];
+            if (sk == null || sk.Definition == null) continue;
+            if (sk.Definition.Name.ToString() == skillName) return sk.Level;
+        }
+        return 0;
+    }
+
+    /// <summary>How often the empire may buy 10 votes with a method during a session: the skill levels of its
+    /// representing senators, +2 per method for the held class ultimate (the "Vote Headquarters").</summary>
+    public static int BuyLimitOf(Empire empire, int method)
+    {
+        if (!Enabled || empire == null || method < 0 || method >= CouncilCore.BuyMethodCount) return 0;
+        Senate senate = SenateOf(empire);
+        if (senate == null || senate.Senators == null) return 0;
+        string skill = HeroDesign.BuySkillName(HeroDesign.BuyMethodIds[method]);
+        string boost = HeroDesign.BuyBoostSkillName();
+        if (skill == null) return 0;
+        int total = 0;
+        foreach (Senator s in senate.Senators)
+        {
+            Hero h = s == null ? null : s.RepresentativeHero;
+            if (h == null) continue;
+            total += LevelOfSkill(h, skill);
+            if (boost != null && LevelOfSkill(h, boost) > 0) total += CouncilCore.BuyBoostStacks;
+        }
+        return total;
+    }
 }

@@ -302,13 +302,16 @@ static class HeroSmoke
         if (!again.EndsWith("~2:50:10,3:44:12")) { Console.WriteLine("  triumph state round trip: " + again); bad++; }
         deser.Invoke(null, new object[] { ";" });
         if (((string)ser.Invoke(null, null)).EndsWith(",") || ((string)ser.Invoke(null, null)).Contains("2:50")) { Console.WriteLine("  triumph state not cleared"); bad++; }
-        // votes of the Council are read by name
+        // votes of the Council are read by name (the passive votes live in the senator CLASS tree)
         var votesOf = design.GetMethod("VotesOfSkill");
         object voteSk = null; string voteName = null;
-        foreach (string cand in new[] { "HRParty03_2@S", "HRParty03_3@S", "HRParty03_1@S" })
+        foreach (string cand in new[] { "HRClassCorporate_5@S", "HRClassCorporate_6@S", "HRClassCorporate_7@S" })
             if (voteSk == null && (int)votesOf.Invoke(null, new object[] { cand, 1 }) > 0) { voteSk = DbGet(skillDb, cand); voteName = cand; }
-        if (voteSk == null) { Console.WriteLine("  no votes skill found in the Pacifist senator tree"); bad++; }
+        if (voteSk == null) { Console.WriteLine("  no votes skill found in the senator class tree"); bad++; }
         else Console.WriteLine("votes skill " + voteName + ": " + votesOf.Invoke(null, new object[] { voteName, 1 }) + " / " + votesOf.Invoke(null, new object[] { voteName, 3 }));
+        // the party trees carry no votes any more
+        foreach (string cand in new[] { "HRParty03_2@S", "HRParty05_2@S", "HRRaceVenetians_2@S" })
+            if ((int)votesOf.Invoke(null, new object[] { cand, 1 }) > 0) { Console.WriteLine("  party/race tree still gives votes: " + cand); bad++; }
         // idempotent
         int before = (int)skillDb.GetType().GetMethod("GetValues").Invoke(skillDb, null).GetType().GetProperty("Length").GetValue(skillDb.GetType().GetMethod("GetValues").Invoke(skillDb, null), null);
         rework.GetMethod("EnsureContent").Invoke(null, null);

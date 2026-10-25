@@ -77,6 +77,7 @@ public sealed partial class CouncilCore
         b += PresenceBonusOf(emp);
         b += SessionVotesOf(emp);              // system levels, Republic, senator skills, minus the war penalty
         b += MandateVotesOf(emp);              // +50 for every ordinary mandate
+        b += BoughtVotesOf(emp);               // votes bought during this session (senator class line)
         if (b < 0) b = 0;
         if (Holds(emp, CouncilLaws.Supreme)) b += SupremeMandateVotes;           // supreme (victory) mandate: simply +100 votes
         return b;
@@ -128,6 +129,7 @@ public sealed partial class CouncilCore
         Members.Clear(); for (int i = 0; i < members.Count; i++) Members.Add(members[i]);
         Proposals.Clear(); LastProposals.Clear(); Ballots.Clear(); Active.Clear();
         VoteBonus.Clear(); ColonyDelta.Clear(); History.Clear();
+        Buys.Clear(); TerrorFleets.Clear();
         ResetMandates();
         VictoryTurns = Math.Max(1, (int)Math.Round(VictoryBaseTurns * IntervalTurns / (double)BaseIntervalTurns));
     }
@@ -136,6 +138,7 @@ public sealed partial class CouncilCore
     {
         Enabled = false; Destroyed = true; Phase = PhaseIdle;
         Proposals.Clear(); Ballots.Clear(); Active.Clear();
+        Buys.Clear(); TerrorFleets.Clear();
         ResetMandates();
     }
 
@@ -146,6 +149,8 @@ public sealed partial class CouncilCore
         VoteBonus.Remove(emp);
         PresenceBonus.Remove(emp);
         ColonyDelta.Remove(emp);
+        Buys.Remove(emp);
+        TerrorFleets.Remove(emp);
         for (int i = Active.Count - 1; i >= 0; i--) if (Active[i].Target == emp) Active.RemoveAt(i);
         RemoveHoldsOf(emp);
         MandateCandidates.Remove(emp);
@@ -173,6 +178,8 @@ public sealed partial class CouncilCore
         Proposals.Clear();
         for (int i = 0; i < proposals.Count && i < MaxQuestions; i++) Proposals.Add(proposals[i]);
         Ballots.Clear();
+        Buys.Clear();               // a new session: the votes bought last time stop counting...
+        TerrorFleets.Clear();       // ...and the happiness / fleet penalties of those purchases end here
         Phase = PhaseVoting;
         VoteOpenTurn = turn;
         VoteIndex++;

@@ -136,6 +136,7 @@ public static partial class CouncilGame
             case OrderCouncilVote.KindQuartermaster: return Core.CanUseQuartermaster(emp, CurTurn());
             case OrderCouncilVote.KindReportTask: return false;     // the manual assignment stub is gone: conditions are read from the game
             case OrderCouncilVote.KindLeave: return Core.IsMember(emp);
+            case OrderCouncilVote.KindBuyVotes: return BuyPreprocessor(o);
             case OrderCouncilVote.KindDebug: return true;
         }
         return false;
@@ -158,6 +159,9 @@ public static partial class CouncilGame
                 break;
             case OrderCouncilVote.KindQuartermaster:
                 if (Core.TryQuartermaster(emp, turn)) GrantSupply(emp);
+                break;
+            case OrderCouncilVote.KindBuyVotes:
+                BuyProcess(o);
                 break;
             case OrderCouncilVote.KindDebug:
                 DebugProcess(o);

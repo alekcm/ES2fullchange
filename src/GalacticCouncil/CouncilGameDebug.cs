@@ -7,6 +7,7 @@ using Amplitude;
 using Amplitude.Unity.Framework;
 using Amplitude.Unity.Event;
 using Amplitude.Unity.Game;
+using Amplitude.Unity.Simulation;
 
 public static partial class CouncilGame
 {
@@ -28,6 +29,7 @@ public static partial class CouncilGame
     public const int DbgClearVoteBonus = 15;  // forget the manual vote changes of the empire
 
     public const int DbgOpenAcademy = 16;     // discover the Academy for everybody (any turn) and convene the Council
+    public const int DbgGiveBuySkills = 17;   // give every senator of the empire the class vote skills (free, for playtests)
 
     static AcademyRequestsManager lastMgr;
     public static int AllianceOverride = -1;
@@ -65,6 +67,9 @@ public static partial class CouncilGame
             {
                 case DbgOpenAcademy:
                     DebugOpenAcademy(emp, game, turn);
+                    break;
+                case DbgGiveBuySkills:
+                    DebugGiveBuySkills(emp, game);
                     break;
                 case DbgFound:
                     if (Core.Enabled) { DebugNote("Совет уже создан", "The Council already exists"); break; }
@@ -158,6 +163,37 @@ public static partial class CouncilGame
             }
         }
         catch (Exception e) { Fail("DebugProcess", e); }
+    }
+
+    /// <summary>Playtest helper: every senator that represents a party of the empire gets the whole Corporate
+    /// class tree (the four purchases, the passive votes and the ultimate) at full level, free.</summary>
+    static void DebugGiveBuySkills(int emp, Game game)
+    {
+        var me = GetMajor(emp);
+        if (me == null) return;
+        var server = ServerController(null);
+        if (server == null) { DebugNote("Нет сервера: навыки не выданы", "No server: skills not given"); return; }
+        var db = Databases.GetDatabase<HeroSkillDefinition>(false);
+        DesignTree tree = HeroDesign.Build("ClassCorporate", 'S');
+        if (db == null || tree == null) return;
+        var domestic = me.GetAgency<DepartmentOfDomesticAffairs>();
+        Senate senate = domestic == null ? null : domestic.Senate;
+        if (senate == null || senate.Senators == null) { DebugNote("Нет Сената", "No senate"); return; }
+        int given = 0;
+        foreach (Senator s in senate.Senators)
+        {
+            Hero h = s == null ? null : s.RepresentativeHero;
+            if (h == null) continue;
+            foreach (DesignStage st in tree.Stages)
+                foreach (DesignSkill sk in st.Skills)
+                {
+                    HeroSkillDefinition def;
+                    if (!db.TryGetValue(new StaticString(sk.Name), out def) || def == null) continue;
+                    server.PostOrder(new OrderUnlockHeroSkill(emp, h, def, def.SkillLevels.Length, true, false));
+                    given++;
+                }
+        }
+        DebugNote("Выдано навыков класса сенатора: " + given + " (проверьте дерево героя)", "Senator class skills given: " + given + " (check the hero tree)");
     }
 
     /// <summary>Does what the first exploration of the Academy system does: the Academy is discovered (event for every empire), the first-request delay is removed, then the Council is convened.</summary>

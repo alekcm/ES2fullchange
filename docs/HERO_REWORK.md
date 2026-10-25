@@ -101,7 +101,36 @@ The class trees of the two admiral classes are built around the hero's **persona
 * **The tech mirror is implemented** (see the class-tree section above): `FilterShip`-time injection plus the end hook of `DepartmentOfScience.UnlockTechnology` (IL postfix; the event itself is private, the hook covers both overloads). `RefreshHeroDescriptors` otherwise runs only on skill updates and game load, so without the hook the mirror level would lag behind a freshly researched tech.
 * **Flak formulas:** the flak salvo damage equals the flak module's `Damage` (`Salvo_InitEffectiveDamage`), kinetic guns carry `FlakDPSMissile`/`EfficiencyAgainstSquadron`, and squadrons resist flak via `FlakEvasionSquadron` (the `ModuleSupportFlakScrambler` module - a candidate for the stage-3 mothership that carries squadrons).
 
-* **Tests:** `tests/HeroClassTreeTests.cs` - both trees build with the right concepts, thresholds and ultimate titles; the tier-1 weapon damage reaches the vanilla +40% at level 5; every "own ship" modifier has the empty path and the vanilla-proven property; the flak pair and the jammer mechanic are checked property-by-property; the Seeker stage layout is checked (flak at tier 2, mirrors at tier 3, the jammer gone, the mothership-alone ultimate); `HeroMirror.LevelOf` is checked against every research combination (0 / 1 / 2 / 3, runtime module resolution and the fallback names, no fallback for detection II/III); `HeroMothership.ModuleFor` is checked for every slot kind (squadron / large / support / defense / weapon-only / hybrid) plus the CP-forcing modifier of the hull swap; the whole library (447 skills, all roles) is walked for positive values and anchored paths.
+* **Tests:** `tests/HeroClassTreeTests.cs` - both trees build with the right concepts, thresholds and ultimate titles; the tier-1 weapon damage reaches the vanilla +40% at level 5; every "own ship" modifier has the empty path and the vanilla-proven property; the flak pair and the jammer mechanic are checked property-by-property; the Seeker stage layout is checked (flak at tier 2, mirrors at tier 3, the jammer gone, the mothership-alone ultimate); `HeroMirror.LevelOf` is checked against every research combination (0 / 1 / 2 / 3, runtime module resolution and the fallback names, no fallback for detection II/III); `HeroMothership.ModuleFor` is checked for every slot kind (squadron / large / support / defense / weapon-only / hybrid) plus the CP-forcing modifier of the hull swap; the whole library (450 skills, all roles) is walked for positive values and anchored paths.
+
+## Senator class tree: all about Council votes (2026-10-25)
+
+Following the admiral rule "the class tree is the hero's personal power", the senator class line (`ClassCorporate@S`)
+is **entirely about the votes of the Galactic Council** and carries no system buffs; the party and race senator trees
+keep the system buffs but lost their vote skills (Party03 T2 -> `Food` "Аграрная реформа", Party05 T2 -> `Sci`
+"Научный комитет", RaceVenetians T2 -> `Infl` "Имперская идеология"; the ultimates got the same replacement).
+The dictator keeps his own vote skills (`DictVenetians`, `DictHoratio`).
+
+* **Tier 1 - four ACTIVE skills** (one per method, 4 levels each, no static descriptors - hooks):
+  `BribeVotes` «Подкуп избирателей» (buy 10 votes for **Dust**), `PressureVotes` «Задавить авторитетом»
+  (**Influence**), `CivicVotes` «Принудительное участие» (**-5 happiness on every system** until the next vote opens),
+  `TerrorVotes` «Держать в страхе» (**immobilise a fleet of 4+ CP** until the next vote opens).
+  Each skill level = one purchase of 10 votes during an open session; the purchase buttons live in the native
+  Council window (see `docs/GALACTIC_COUNCIL.md`, "Buying votes during a session"). Prices inflate with the game
+  stage and with every purchase already made (`CouncilCore.BuyStackCost`).
+* **Tier 2** `Votes5` «Партийная дисциплина»: +5 votes per level (3 levels).
+* **Tier 3** `Votes10` «Политическая машина»: +10 votes per level (3 levels).
+* **Ultimate** «Голос нации» / The Voice of the Nation: +40 votes (`VotesUlt`) **and** +2 purchases for every method
+  (`VoteBoost` «Штаб голосования»).
+* The passive votes are read from the design vote table (`Concept.CouncilVotes` flags `S.Votes`, `S.Votes5`,
+  `S.Votes10`, `S.VotesUlt`) through `HeroDesign.VotesOfSkill`, exactly like before; the buy limits are
+  `HeroRework.BuyLimitOf` (skill levels of the representing senators + 2 per held ultimate). The new game-side logic
+  is `src/GalacticCouncil/CouncilGameBuys.cs` (prices, the order `OrderCouncilVote.KindBuyVotes`, the live
+  happiness/fleet penalties, the AI), the pure state is `CouncilCore.Buys` / `TerrorFleets` (serialized in
+  `CouncilState` fields 32-33, wiped when the next session opens).
+* The senator economy is untouched: 7 skill points (Level-1), thresholds 0/2/4/6 - a senator can fully develop one
+  T1 method and still reach the ultimate, or spread the points. For playtests the God-Mod Council section has
+  "Give the senator class (vote purchases)": every representing senator gets the whole tree at full level for free.
 
 ## Hooks
 | Method | Hook |

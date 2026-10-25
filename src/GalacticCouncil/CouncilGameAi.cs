@@ -43,4 +43,38 @@ public static partial class CouncilGame
         if (!treasury.TryGetResourceStockAndNet(e.SimulationObject, DepartmentOfTheTreasury.Resources.EmpireMoney, out stock, out net)) return false;
         return CouncilCore.AiCanAffordMarshal(stock, net, GameStage(GetGame(), e));
     }
+
+    // ---------------------------------------------------------------- purchases of votes (the senator class line)
+    // The AI bribes and pressures (Dust and Influence) at the end of the voting turn, right before the tally:
+    // deterministic, the same on every machine. It keeps a comfortable resource reserve and never touches the
+    // civic or terror purchases (their penalties need a judgement the AI does not have).
+
+    static void AiBuyVotes(Game game)
+    {
+        foreach (MajorEmpire e in game.EnumerableMajorEmpires)
+        {
+            if (!e.IsControlledByAI || e.HasBeenEliminated || !Core.IsMember(e.Index)) continue;
+            for (int method = 0; method < 2; method++)
+            {
+                int limit = BuyLimitOf(e, method);
+                int guard = 0;
+                while (guard++ < 8)
+                {
+                    int price = BuyPriceOf(e, method);
+                    if (price <= 0 || !Core.CanBuyVotes(e.Index, method, limit)) break;
+                    if (!AiCanAffordBuy(e, method, price)) break;
+                    if (!TryPayBuy(e, method, price) || !Core.TryBuyVotes(e.Index, method, limit)) break;
+                }
+            }
+        }
+    }
+
+    static bool AiCanAffordBuy(MajorEmpire e, int method, int price)
+    {
+        var treasury = e.GetAgency<DepartmentOfTheTreasury>();
+        if (treasury == null || e.SimulationObject == null) return false;
+        float stock, net;
+        if (!treasury.TryGetResourceStockAndNet(e.SimulationObject, BuyResource(method), out stock, out net)) return false;
+        return stock - price > price * 4f;      // keep a reserve the AI will not eat into
+    }
 }

@@ -34,6 +34,7 @@ public sealed class Concept
     public int DictMul = 1;     // dictator step = step * DictMul
     public DesignMod[] Mods;
     public string Special;      // id of a hook handled in code (null = plain modifiers)
+    public bool CouncilVotes;   // passive votes of the Galactic Council, read from the vote table (no modifiers needed)
     public string NoteRu, NoteEn;
 
     public int LevelCount(char role) { return role == 'S' ? LevelsS : role == 'D' ? LevelsD : Levels; }
@@ -292,6 +293,46 @@ public static partial class HeroDesign
         Def(S, "Votes", "Голоса в Галактическом Совете", "Galactic Council Votes", " голосов", " votes", false, Flavor.Votes, "votes", new[] { 3, 4, 5 }, 0, 3, 5, 1, 18, 40,
             "Дополнительные голоса вашей империи в Галактическом Совете, пока герой представляет партию в Сенате.",
             "Extra votes of your empire in the Galactic Council while the hero represents his party in the Senate.");
+
+        // ---------------------------------------------------------------- senator class line: the votes of the Galactic Council
+        // The corporate class tree is entirely about Council votes and carries no system buffs. Tier 1 holds four
+        // ACTIVE skills: each level is one purchase of 10 votes during an open session, paid the way the method
+        // describes; the purchase buttons appear in the Council window while the vote is open (CouncilGameBuys).
+        // Tiers 2/3 and the ultimate are passive votes read from the vote table. None of these concepts carries
+        // static modifiers.
+        Def(S, "BribeVotes", "Подкуп избирателей", "Bribing the Electorate", "×10 голосов", "x10 votes", false, Flavor.Money, "buybribe", new[] { 1, 1, 1 }, 0, 4, 0, 1, 0, 0,
+            "Во время открытого голосования в Совете можно докупить голоса за Пыль: одна покупка = 10 голосов, не больше уровня навыка. Цена растёт с инфляцией — со стадией игры и с каждой следующей покупкой.",
+            "While a Council vote is open you can buy extra votes with Dust: one purchase = 10 votes, at most once per skill level. The price grows with inflation - with the game stage and with every next purchase.");
+        Def(S, "PressureVotes", "Задавить авторитетом", "Crushing Authority", "×10 голосов", "x10 votes", false, Flavor.Influence, "buypressure", new[] { 1, 1, 1 }, 0, 4, 0, 1, 0, 0,
+            "Во время открытого голосования в Совете можно докупить голоса за Влияние: одна покупка = 10 голосов, не больше уровня навыка. Цена растёт с инфляцией — со стадией игры и с каждой следующей покупкой.",
+            "While a Council vote is open you can buy extra votes with Influence: one purchase = 10 votes, at most once per skill level. The price grows with inflation - with the game stage and with every next purchase.");
+        Def(S, "CivicVotes", "Принудительное участие", "Compulsory Turnout", "×10 голосов", "x10 votes", false, Flavor.Happiness, "buycivic", new[] { 1, 1, 1 }, 0, 4, 0, 1, 0, 0,
+            "Во время открытого голосования в Совете можно согнать население на избирательные участки: одна покупка = 10 голосов, не больше уровня навыка, но все системы империи теряют счастье до начала следующего голосования.",
+            "While a Council vote is open you can drive the population to the polls: one purchase = 10 votes, at most once per skill level, but every system of the empire loses happiness until the next vote opens.");
+        Def(S, "TerrorVotes", "Держать в страхе", "Keeping Them in Fear", "×10 голосов", "x10 votes", false, Flavor.Offense, "buyterror", new[] { 1, 1, 1 }, 0, 4, 0, 1, 0, 0,
+            "Во время открытого голосования в Совете можно задержать флот (от 4 командных очков) «для поддержания порядка»: одна покупка = 10 голосов, не больше уровня навыка, флот обездвижен до начала следующего голосования.",
+            "While a Council vote is open you can hold a fleet (4 command points or more) 'to keep order': one purchase = 10 votes, at most once per skill level, the fleet cannot move until the next vote opens.");
+        Def(S, "Votes5", "Партийная дисциплина", "Party Discipline", " голосов", " votes", false, Flavor.Votes, "votes5", new[] { 5, 5, 5 }, 0, 3, 0, 1, 0, 0,
+            "Сенатор приводит на голосование партийный актив: постоянные голоса вашей империи в Галактическом Совете.",
+            "The senator brings the party rank and file to the vote: permanent votes of your empire in the Galactic Council.");
+        Def(S, "Votes10", "Политическая машина", "Political Machine", " голосов", " votes", false, Flavor.Votes, "votes10", new[] { 10, 10, 10 }, 0, 3, 0, 1, 0, 0,
+            "Отлаженная машина агитации и ротации: постоянные голоса вашей империи в Галактическом Совете.",
+            "A well-oiled machine of campaigning and rotation: permanent votes of your empire in the Galactic Council.");
+        Def(S, "VotesUlt", "Голос нации", "The Voice of the Nation", " голосов", " votes", false, Flavor.Votes, "votesult", new[] { 40, 40, 40 }, 0, 1, 0, 1, 40, 0,
+            "Сенатор говорит от имени всей империи: постоянные голоса вашей империи в Галактическом Совете.",
+            "The senator speaks for the whole empire: permanent votes of your empire in the Galactic Council.");
+        Def(S, "VoteBoost", "Штаб голосования", "The Vote Headquarters", " покупок", " purchases", false, Flavor.Votes, "buyboost", new[] { 2, 2, 2 }, 0, 1, 0, 1, 2, 0,
+            "Штаб избирательной кампании: каждый способ добычи голосов позволяет на 2 покупки больше.",
+            "The campaign headquarters: every way of getting votes allows 2 more purchases.");
+        Get(S, "Votes").CouncilVotes = true;
+        Get(S, "Votes5").CouncilVotes = true;
+        Get(S, "Votes10").CouncilVotes = true;
+        Get(S, "VotesUlt").CouncilVotes = true;
+        Get(S, "BribeVotes").Special = "BuyBribe";
+        Get(S, "PressureVotes").Special = "BuyPressure";
+        Get(S, "CivicVotes").Special = "BuyCivic";
+        Get(S, "TerrorVotes").Special = "BuyTerror";
+        Get(S, "VoteBoost").Special = "BuyBoost";
         LoadSpecs();
     }
 

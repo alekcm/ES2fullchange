@@ -167,6 +167,7 @@ public static partial class CouncilGame
             try { AiMandateActions(game, turn); } catch (Exception ex) { Fail("AiMandateActions", ex); }
             PerTurn(game, turn);
             RefreshEffects(game);
+            try { RefreshBuyPenalties(game); } catch (Exception ex) { Fail("RefreshBuyPenalties", ex); }
         }
         catch (Exception e) { Fail("ClientBeginTurn", e); }
     }
@@ -244,8 +245,9 @@ public static partial class CouncilGame
         {
             if (!Core.IsMember(e.Index) || !e.IsControlledByAI || Core.HasVoted(e.Index)) continue;
             int aiSeed = unchecked(Core.VoteOpenTurn * 1103515245 + Core.VoteIndex * 12345 + e.Index * 131 + 17);
-            Core.TrySetBallot(e.Index, Core.BuildAiBallot(e.Index, aiSeed, ScoreOf));
+                Core.TrySetBallot(e.Index, Core.BuildAiBallot(e.Index, aiSeed, ScoreOf));
         }
+        try { AiBuyVotes(game); } catch (Exception ex) { Fail("AiBuyVotes", ex); }
         RefreshAllianceFlag();
         var enacted = Core.Tally(turn);
         for (int i = 0; i < enacted.Count; i++)
