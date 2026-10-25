@@ -26,32 +26,63 @@ public static partial class HeroRework
 
     // ---------------------------------------------------------------- kind
 
+    // IsRegular/KindOf sit inside every hero-descriptor refresh (Empire.Refresh at turn end, fleet
+    // moves...): both depend only on the hero DEFINITION, so cache them there. The uncached versions
+    // converted StaticStrings to string several times per Filter call (IsRegular + KindOf + Fixable).
+    static readonly Dictionary<HeroDefinition, bool> aiHeroByDefinition = new Dictionary<HeroDefinition, bool>();
+    static readonly Dictionary<HeroDefinition, int> kindByDefinition = new Dictionary<HeroDefinition, int>();   // kind+1; 0 = unknown class (guid fallback)
+
     public static bool IsRegular(Hero hero)
     {
-        try { return Enabled && hero != null && hero.Definition != null && !CustomHackingHelper.IsAiHero(hero); }
+        try
+        {
+            if (!Enabled || hero == null || hero.Definition == null) return false;
+            bool ai;
+            if (!aiHeroByDefinition.TryGetValue(hero.Definition, out ai))
+            {
+                ai = CustomHackingHelper.IsAiHero(hero);
+                aiHeroByDefinition[hero.Definition] = ai;
+            }
+            return !ai;
+        }
         catch (Exception) { return false; }
     }
 
     public static HeroKind KindOf(Hero hero)
     {
+        var def = hero != null ? hero.Definition : null;
+        int cached;
+        if (def != null && kindByDefinition.TryGetValue(def, out cached))
+            return cached == 0 ? HeroKinds.KindOfGuid((ulong)hero.GUID) : (HeroKind)(cached - 1);
         string className = null;
-        try { if (hero.Definition != null && hero.Definition.Class != null) className = hero.Definition.Class.Name.ToString(); }
+        try { if (def != null && def.Class != null) className = def.Class.Name.ToString(); }
         catch (Exception) { }
-        return HeroKinds.KindOf(className, (ulong)hero.GUID);
+        HeroKind kind;
+        bool known = HeroKinds.TryKindOfClass(className, out kind);
+        if (def != null) kindByDefinition[def] = known ? (int)kind + 1 : 0;
+        return known ? kind : HeroKinds.KindOfGuid((ulong)hero.GUID);
     }
 
     // ---------------------------------------------------------------- effect channels (Hero.Get*SkillDescriptors, return hooks)
 
     static List<SimulationDescriptor> Filter(List<SimulationDescriptor> list, Hero hero, HeroChannel channel)
     {
+        long t0 = ModPerf.Now();
+        try { return FilterCore(list, hero, channel); }
+        finally { ModPerf.Add(ModPerf.FilterBucket, t0); }
+    }
+
+    static List<SimulationDescriptor> FilterCore(List<SimulationDescriptor> list, Hero hero, HeroChannel channel)
+    {
         try
         {
             if (!IsRegular(hero)) return list;
-            if (!HeroKinds.Allows(KindOf(hero), channel)) return new List<SimulationDescriptor>();
+            HeroKind kind = KindOf(hero);
+            if (!HeroKinds.Allows(kind, channel)) return new List<SimulationDescriptor>();
             // an empty list is normal for a ship hero whose skills are all special (no static modifiers):
             // the mirror skills below still have to be injected, so null/empty is replaced with a fresh list
             if (list == null) list = new List<SimulationDescriptor>();
-            List<SimulationDescriptor> result = WithAutoBonus(list, hero);
+            List<SimulationDescriptor> result = WithAutoBonus(list, hero, kind);
             if (channel == HeroChannel.Ship) result = AddMirrorSkills(result, hero);
             return result;
         }
@@ -71,6 +102,9 @@ public static partial class HeroRework
     static readonly Dictionary<string, string> mirrorSpecials = new Dictionary<string, string>();
 
     public static void RegisterMirrorSkill(string skillName, string special) { mirrorSpecials[skillName] = special; }
+
+    // definition -> mirror special (null = not a mirror skill): avoids a Name.ToString() per skill per refresh
+    static readonly Dictionary<HeroSkillDefinition, string> mirrorByDefinition = new Dictionary<HeroSkillDefinition, string>();
 
     static readonly Dictionary<string, string> moduleTechCache = new Dictionary<string, string>();
     static readonly Dictionary<string, SimulationDescriptor> mirrorCache = new Dictionary<string, SimulationDescriptor>();
@@ -92,7 +126,12 @@ public static partial class HeroRework
             {
                 string special;
                 if (skills[i] == null || skills[i].Definition == null) continue;
-                if (!mirrorSpecials.TryGetValue(skills[i].Definition.Name.ToString(), out special)) continue;
+                if (!mirrorByDefinition.TryGetValue(skills[i].Definition, out special))
+                {
+                    mirrorSpecials.TryGetValue(skills[i].Definition.Name.ToString(), out special);
+                    mirrorByDefinition[skills[i].Definition] = special;
+                }
+                if (special == null) continue;
                 if (descriptorNames == null)
                 {
                     var empire = hero.Empire;
@@ -484,12 +523,14 @@ public static partial class HeroRework
             bool dictator = IsDictator(hero);
             TreeCache c;
             if (treeCache.TryGetValue(id, out c) && c.Dictator == dictator && c.Generation == contentGeneration && SameTrees(c.Original, original)) return c.Filtered;
+            long t0 = ModPerf.Now();
             EnsureContent();
             HeroKind kind = KindOf(hero);
             HeroSkillTreeDefinition[] built = null;
             try { built = BuildHeroTrees(original, hero, kind, dictator); }
             catch (Exception e) { Fail("BuildHeroTrees", e); }
             if (built == null) built = BuildTrees(original, kind);
+            ModPerf.Add(ModPerf.TreesBucket, t0);
             c = new TreeCache { Original = original, Filtered = built, Dictator = dictator, Generation = contentGeneration };
             treeCache[id] = c;
             return c.Filtered;
@@ -729,6 +770,13 @@ public static partial class HeroRework
     /// <summary>End hook of Hero.ComputeAvailableSkills: detects the ultimate and, once taken, offers no more skills.</summary>
     public static void AfterComputeAvailable(Hero hero)
     {
+        long t0 = ModPerf.Now();
+        try { AfterComputeAvailableCore(hero); }
+        finally { ModPerf.Add(ModPerf.AfterComputeBucket, t0); }
+    }
+
+    static void AfterComputeAvailableCore(Hero hero)
+    {
         try
         {
             if (!Fixable(hero)) return;
@@ -747,9 +795,10 @@ public static partial class HeroRework
 
     // ---- scaled copies of the descriptors of the learned skills
 
-    static List<SimulationDescriptor> WithAutoBonus(List<SimulationDescriptor> list, Hero hero)
+    static List<SimulationDescriptor> WithAutoBonus(List<SimulationDescriptor> list, Hero hero, HeroKind kind)
     {
-        if (!Fixable(hero)) return list;
+        // the Fixable gate with IsRegular/kind already known (Fixable recomputed both per call)
+        if (kind == HeroKind.Senator && !IsDictator(hero) && !ultimates.ContainsKey((ulong)hero.GUID)) return list;
         int ult;
         if (!ultimates.TryGetValue((ulong)hero.GUID, out ult)) return list;
         float fraction = HeroKinds.TotalBonusFraction(ult, hero.Level, IsDictator(hero));

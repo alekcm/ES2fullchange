@@ -355,6 +355,7 @@ public static partial class CouncilGame
         finally
         {
             long ms = perfWatch.ElapsedMilliseconds;
+            ModPerf.AddMs(ModPerf.BeforeTurnEndBucket, ms);
             if (ms > 50) Perf("BeforeTurnEnd took " + ms + "ms");
         }
     }
@@ -409,6 +410,13 @@ public static partial class CouncilGame
     /// <summary>Tradable.GetValue / TradableResource.GetValue return hook (purchase price of a lot).</summary>
     public static float AdjustTradableValue(float value, Tradable tradable, TradableTransactionType type)
     {
+        long t0 = ModPerf.Now();
+        try { return AdjustTradableValueCore(value, tradable, type); }
+        finally { ModPerf.Add(ModPerf.TradableBucket, t0); }
+    }
+
+    static float AdjustTradableValueCore(float value, Tradable tradable, TradableTransactionType type)
+    {
         try
         {
             if (!Core.Enabled || type != TradableTransactionType.Buyout || tradable == null) return value;
@@ -428,6 +436,13 @@ public static partial class CouncilGame
 
     /// <summary>ITradingManagementService.GetTradablePrice return hook: Trade Restrictions makes the target's trades twice as bad.</summary>
     public static float AdjustTradePrice(float price, TradableTransactionType type, Empire empire)
+    {
+        long t0 = ModPerf.Now();
+        try { return AdjustTradePriceCore(price, type, empire); }
+        finally { ModPerf.Add(ModPerf.TradePriceBucket, t0); }
+    }
+
+    static float AdjustTradePriceCore(float price, TradableTransactionType type, Empire empire)
     {
         try
         {
@@ -487,6 +502,13 @@ public static partial class CouncilGame
     /// <summary>Return hook of DepartmentOfTheTreasury.GetProductionCostWithBonus(context, provider, cost, float):
     /// research +-50% speed per branch (as a cost factor) and the Infrastructure Program (cheaper improvements).</summary>
     public static float AdjustProductionCost(float value, ICostResolutionContext context, ICostProvider provider, ICost cost)
+    {
+        long t0 = ModPerf.Now();
+        try { return AdjustProductionCostCore(value, context, provider, cost); }
+        finally { ModPerf.Add(ModPerf.ProdCostBucket, t0); }
+    }
+
+    static float AdjustProductionCostCore(float value, ICostResolutionContext context, ICostProvider provider, ICost cost)
     {
         try
         {

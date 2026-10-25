@@ -138,10 +138,22 @@ public static class CouncilUi
         try { if (CouncilGame.Core != null && CouncilGame.Core.Enabled) CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }
     }
 
-    /// <summary>Called from AcademyModalWindow.OnBeginShow so the existing Academy button opens the council.</summary>
+    /// <summary>Called from AcademyModalWindow.OnBeginShow. The Academy window is the Council's home,
+    /// but it also hosts the vanilla requests/roles - so the Council only comes to the front by itself
+    /// while a vote is open and the player has not cast it yet; otherwise the Academy stays usable
+    /// and the Council is one HUD-button click away (the launcher is (re)created here as a retry).</summary>
     public static void OnAcademyWindowShown()
     {
-        try { if (CouncilGame.Core.Enabled) { Visible = true; if (CouncilNative.Window != null) CouncilNative.Window.Tab = 0; } } catch (Exception) { }
+        try
+        {
+            var c = CouncilGame.Core;
+            if (c == null || !c.Enabled) return;
+            try { CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }
+            var me = CouncilGame.LocalEmpire();
+            bool voting = c.Phase == CouncilCore.PhaseVoting && me != null && c.IsMember(me.Index) && !c.HasVoted(me.Index);
+            if (voting) { Visible = true; if (CouncilNative.Window != null) CouncilNative.Window.Tab = 0; }
+        }
+        catch (Exception) { }
     }
 
     public static void OnAcademyWindowHidden()

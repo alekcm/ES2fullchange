@@ -1221,6 +1221,7 @@ public static class CouncilNative
     static AgePrimitiveLabel launcherLabel;
     static AgeTransform launcherTransform;
     static AgeTransform launcherParent;
+    static bool launcherFailLogged;
 
     public static string[] TabNames()
     {
@@ -1240,6 +1241,7 @@ public static class CouncilNative
     {
         if (Window != null) return true;
         if (BuildFailed) return false;
+        var buildWatch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var gui = Services.GetService<IGuiService>();
@@ -1287,7 +1289,8 @@ public static class CouncilNative
             {
                 Diagnostics.LogWarning("[GalacticCouncil] native window ready: loaded=" + win.Loaded
                     + " gameReady=" + win.GameReady + " shown=" + win.Shown
-                    + " rootVisible=" + (win.AgeTransform != null && win.AgeTransform.Visible));
+                    + " rootVisible=" + (win.AgeTransform != null && win.AgeTransform.Visible)
+                    + " buildMs=" + buildWatch.ElapsedMilliseconds);
             }
             catch (Exception) { }
 
@@ -1367,13 +1370,38 @@ public static class CouncilNative
             Transform prefab = null;
             if (Window != null && Window.ActionButton != null && Window.ActionButton.AgeTransform != null)
                 prefab = Window.ActionButton.AgeTransform.transform;
+            string prefabSource = prefab != null ? "council-window" : null;
             if (prefab == null)
             {
                 var donor = gui.GetWindow<LawsManagementModalWindow>(false);
                 if (donor != null && donor.VoteButton != null && donor.VoteButton.AgeTransform != null)
+                {
                     prefab = donor.VoteButton.AgeTransform.transform;
+                    prefabSource = "laws-window";
+                }
             }
-            if (prefab == null) return;
+            if (prefab == null)
+            {
+                // The laws screen may not be loaded yet in a fresh session (its VoteButton unbound):
+                // fall back to any real button of the overlay itself - the wiring/geometry is ours anyway.
+                var buttons = ((Component)overlay.AgeTransform).GetComponentsInChildren<AgeControlButton>(true);
+                for (int i = 0; i < buttons.Length; i++)
+                {
+                    if (buttons[i] == null || buttons[i].AgeTransform == null) continue;
+                    prefab = buttons[i].AgeTransform.transform;
+                    prefabSource = "overlay-button";
+                    break;
+                }
+            }
+            if (prefab == null)
+            {
+                if (!launcherFailLogged)
+                {
+                    launcherFailLogged = true;
+                    try { Diagnostics.LogWarning("[GalacticCouncil] launcher: no button prefab found (window/laws/overlay all empty) - will retry"); } catch (Exception) { }
+                }
+                return;
+            }
             var at = overlay.AgeTransform.InstantiateChild<Transform>(prefab, "CouncilLauncherButton");
             var lat = at.GetComponent<AgeTransform>();
             if (lat == null) return;
@@ -1397,6 +1425,7 @@ public static class CouncilNative
             if (launcherHost.GetComponent<CouncilNativeCallbacks>() == null)
                 launcherHost.AddComponent<CouncilNativeCallbacks>();
             WireLauncher();
+            try { Diagnostics.LogWarning("[GalacticCouncil] launcher created (prefab: " + prefabSource + ")"); } catch (Exception) { }
             var tip = at.GetComponentInChildren<AgeTooltip>();
             if (tip != null) tip.Content = CouncilGame.Tr("Галактический совет Академии", "The Galactic Council of the Academy");
         }

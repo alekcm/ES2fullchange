@@ -50,6 +50,7 @@ public static partial class HeroRework
             HeroSkillTreeDefinition[] vanilla = treeDb.GetValues();
             if (vanilla == null || vanilla.Length == 0) return;
 
+            var contentWatch = System.Diagnostics.Stopwatch.StartNew();
             ResetContent();
             var bases = new List<HeroSkillDefinition>();
             var seen = new HashSet<string>();
@@ -86,7 +87,7 @@ public static partial class HeroRework
             end.SkillLevels = new HeroSkillDefinition.HeroSkillLevelDefinition[0];
             db.Add(end);
             contentGeneration++;
-            try { UnityEngine.Debug.Log("[HeroRework] registered " + contentSkills.Count + " hero skills"); } catch (Exception) { }
+            try { Diagnostics.LogWarning("[GalacticCouncil] hero content registered: " + contentSkills.Count + " skills in " + contentWatch.ElapsedMilliseconds + "ms (one-time)"); } catch (Exception) { }
         }
         catch (Exception e) { Fail("EnsureContent", e); }
         finally { inContent = false; }

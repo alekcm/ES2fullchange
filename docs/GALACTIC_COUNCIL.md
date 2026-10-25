@@ -168,7 +168,7 @@ purchases in a compact form at the bottom of the vote tab, with a fleet picker (
 ## Hooks in the game assembly
 | Where | What |
 |---|---|
-| `AcademyRequestsManager.ClientBeginTurn` | body replaced by `CouncilGame.ClientBeginTurn(this)` |
+| `AcademyRequestsManager.ClientBeginTurn` | `CouncilGame.ClientBeginTurn(this)` is called first, then the **vanilla body runs unchanged** (the Academy's own Dormant → Request → Role cycle and leading table keep working next to the Council; replacing the body froze Academy diplomacy in "deliberating") |
 | `AcademyRequestsManager.SerializeAttributes` | appends `CouncilGame.SerializeAttributes` (attribute `CouncilState`, save version >= 7) |
 | `DepartmentOfTheTreasury` | new order processor `CouncilVote` (`OrderCouncilVote`) |
 | `GameClient.SpawnHackingOperationBackdoorProcessor` | exits early while Counterintel is active |

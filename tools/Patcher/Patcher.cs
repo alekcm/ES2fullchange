@@ -302,18 +302,19 @@ public static class Patcher
 
     // ------------------------------------------------------------------ hooks
 
-    // AcademyRequestsManager.ClientBeginTurn() => CouncilGame.ClientBeginTurn(this)
+    // AcademyRequestsManager.ClientBeginTurn() => CouncilGame.ClientBeginTurn(this); <vanilla body>
+    // The vanilla body MUST keep running: it drives the Academy's own cycle
+    // (Dormant -> Request -> Role, UpdateLeadingTable). Replacing it wholesale (the old approach)
+    // froze the Academy in Dormant forever - its diplomacy panels never showed anything else.
     static void HookClientBeginTurn(TypeDefinition game)
     {
         var m = Method("AcademyRequestsManager", "ClientBeginTurn");
+        LengthenBranches(m);
         var il = m.Body.GetILProcessor();
-        m.Body.Instructions.Clear();
-        m.Body.ExceptionHandlers.Clear();
-        m.Body.Variables.Clear();
-        il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Call, GameMethod(game, "ClientBeginTurn"));
-        il.Emit(OpCodes.Ret);
-        Console.WriteLine("hook: AcademyRequestsManager.ClientBeginTurn replaced");
+        var first = m.Body.Instructions[0];
+        il.InsertBefore(first, il.Create(OpCodes.Ldarg_0));
+        il.InsertBefore(first, il.Create(OpCodes.Call, GameMethod(game, "ClientBeginTurn")));
+        Console.WriteLine("hook: AcademyRequestsManager.ClientBeginTurn prepended (vanilla cycle kept)");
     }
 
     // AcademyRequestsManager.SerializeAttributes(...) : append CouncilGame.SerializeAttributes(serializer, versionProvider)

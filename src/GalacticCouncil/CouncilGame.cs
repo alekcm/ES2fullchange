@@ -18,6 +18,7 @@ public static partial class CouncilGame
     static readonly List<SimulationObject> appliedTargets = new List<SimulationObject>();
     static string appliedSignature = "";
     static int lastHandledTurn = int.MinValue;
+    static bool buildStampLogged;
 
     // ---------------------------------------------------------------- helpers
 
@@ -137,7 +138,7 @@ public static partial class CouncilGame
         squadScanNeeded = true;
     }
 
-    // ---------------------------------------------------------------- turn hook (replaces AcademyRequestsManager.ClientBeginTurn)
+    // ---------------------------------------------------------------- turn hook (prepended to AcademyRequestsManager.ClientBeginTurn; the vanilla cycle runs after us)
 
     public static void ClientBeginTurn(AcademyRequestsManager mgr)
     {
@@ -152,6 +153,11 @@ public static partial class CouncilGame
             if (game == null) return;
             int turn = game.Turn;
             perfTurn = turn;
+            if (!buildStampLogged)
+            {
+                buildStampLogged = true;
+                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-25.3 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
+            }
             // No UI work from the turn hook: building the native Council window (cloning the whole laws
             // screen) on the main thread here froze the game for many seconds at the first turns / vote open.
             // The window is built lazily on the first explicit open (Academy window hook, HUD launcher).
@@ -173,6 +179,8 @@ public static partial class CouncilGame
 
             if (turn == lastHandledTurn) return;     // never process a turn twice
             lastHandledTurn = turn;
+            ModPerf.Flush(turn);                    // one aggregate line per turn (previous turn incl. end-turn)
+            try { CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }   // retry until the HUD button exists
 
             PruneMembers(game);
             RefreshAllianceFlag();
@@ -190,6 +198,7 @@ public static partial class CouncilGame
         finally
         {
             long total = perfWatch.ElapsedMilliseconds;
+            ModPerf.AddMs(ModPerf.CouncilTurnBucket, total);
             if (total > 50)
                 Perf("ClientBeginTurn turn=" + perfTurn + " total=" + total + "ms hero/texts=" + perfHero
                     + " detect=" + (perfDetect < 0 ? -1 : perfDetect - perfHero)
@@ -224,8 +233,9 @@ public static partial class CouncilGame
         try { interval = CustomHackingHelper.ScaleTurns(CouncilCore.BaseIntervalTurns, any); } catch (Exception) { }
         Core = new CouncilCore();
         Core.Found(turn, members, interval);
-        // the old resource-demand cycle is replaced by the council
-        try { mgr.CurrentState = RequestState.Dormant; mgr.ShowAlert = false; } catch (Exception) { }
+        // The vanilla Academy cycle (requests/roles) keeps running next to the Council: do NOT touch
+        // CurrentState/ShowAlert here. Pinning Dormant made the Academy's own diplomacy panels
+        // permanently empty ("deliberating") even though the Council itself worked.
         // No toast here: the game already pops up its own Academy-discovered notification.
         // Make the Council reachable right away (cheap single HUD button, window itself builds on open).
         try { CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }
@@ -433,6 +443,7 @@ public static partial class CouncilGame
         try { ActionProcess(order); }
         catch (Exception e) { Fail("VoteProcessor", e); }
         long ms = perfWatch.ElapsedMilliseconds;
+        ModPerf.AddMs(ModPerf.VoteOrderBucket, ms);
         if (ms > 50) Perf("OrderCouncilVote kind=" + (order != null ? order.Kind : -1) + " took " + ms + "ms");
         yield break;
     }
@@ -451,5 +462,57 @@ public static partial class CouncilGame
         var server = ServerController(null);
         if (server == null || guids.Count == 0) return;
         server.PostOrder(new OrderAddLevelsToHeroes(guids.ToArray(), 3f));
+    }
+}
+
+/// <summary>Aggregate timings of every mod entry point that can run inside the game's hot loops
+/// (Empire.Refresh in GameServerState_Turn_End, market/cost evaluations, fleet moves...).
+/// Two Stopwatch.GetTimestamp calls per hit; flushed as ONE Diagnostics line per turn from
+/// CouncilGame.ClientBeginTurn. If a turn still stalls while every bucket is ~0ms, the stall
+/// is not in mod code (baseline/vanilla) - the numbers say so directly instead of guessing.</summary>
+static class ModPerf
+{
+    public const int FilterBucket = 0, TreesBucket = 1, AfterComputeBucket = 2, ProdCostBucket = 3,
+                     TradableBucket = 4, TradePriceBucket = 5, CompanyBucket = 6, CouncilTurnBucket = 7,
+                     BeforeTurnEndBucket = 8, VoteOrderBucket = 9;
+    static readonly string[] Names = { "HeroFilter", "HeroTreesBuild", "AfterCompute", "ProdCost",
+                                       "TradableValue", "TradePrice", "Company", "CouncilClientBeginTurn",
+                                       "BeforeTurnEnd", "VoteOrder" };
+    static readonly long[] Ticks = new long[Names.Length];
+    static readonly long[] Calls = new long[Names.Length];
+
+    public static long Now() { return System.Diagnostics.Stopwatch.GetTimestamp(); }
+
+    public static void Add(int bucket, long t0)
+    {
+        Ticks[bucket] += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+        Calls[bucket]++;
+    }
+
+    public static void AddMs(int bucket, long ms)
+    {
+        Ticks[bucket] += ms * System.Diagnostics.Stopwatch.Frequency / 1000;
+        Calls[bucket]++;
+    }
+
+    public static void Flush(int turn)
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.Append("[GalacticCouncil][perf] turn ").Append(turn).Append(':');
+            long freq = System.Diagnostics.Stopwatch.Frequency;
+            bool any = false;
+            for (int i = 0; i < Names.Length; i++)
+            {
+                if (Calls[i] == 0) continue;
+                any = true;
+                sb.Append(' ').Append(Names[i]).Append('=').Append(Ticks[i] * 1000 / freq).Append("ms/").Append(Calls[i]);
+                Ticks[i] = 0; Calls[i] = 0;
+            }
+            if (!any) sb.Append(" (mod hooks idle)");
+            Diagnostics.LogWarning(sb.ToString());
+        }
+        catch (Exception) { }
     }
 }

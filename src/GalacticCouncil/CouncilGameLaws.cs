@@ -67,6 +67,13 @@ public static partial class CouncilGame
     /// <summary>Return hook of DepartmentOfCommerce.GetTradingCompanyIncomeMultiplier(company).</summary>
     public static float AdjustCompanyIncome(float value, TradingCompany company)
     {
+        long t0 = ModPerf.Now();
+        try { return AdjustCompanyIncomeCore(value, company); }
+        finally { ModPerf.Add(ModPerf.CompanyBucket, t0); }
+    }
+
+    static float AdjustCompanyIncomeCore(float value, TradingCompany company)
+    {
         try
         {
             if (Core.Enabled && company != null && Core.IsLawActive(LawAntitrust) && Core.IsLawActiveFor(LawAntitrust, company.OwnedByEmpireIndex))
