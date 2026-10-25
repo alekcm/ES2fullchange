@@ -27,8 +27,10 @@ public static class Verify
         try { types = asm.GetTypes(); }
         catch (ReflectionTypeLoadException e) { foreach (var x in e.LoaderExceptions) Console.WriteLine("LOAD " + x.Message); return 1; }
         string[] names = { "CouncilGame", "CouncilUi", "CouncilUiBehaviour", "OrderCouncilVote", "CouncilCore", "CouncilLaws" };
-        foreach (var t in types) if (t.Name.StartsWith("Council") || t.Name == "OrderCouncilVote" || t.Name.StartsWith("Hero") && (t.Name == "HeroRework" || t.Name == "HeroKinds")) PrepType(t);
-        foreach (var n in new[] { "AcademyRequestsManager", "AcademyModalWindow", "DepartmentOfTheTreasury", "OverhaulOutcomeDefinition", "CustomHackingHelper", "Tradable", "TradableResource", "Marketplace", "GroundBattleOutcomeLootDefinition", "DepartmentOfDefense", "DepartmentOfCommerce", "ServerEncounterState_RunSimpleBattle", "ServerGroundBattle", "DepartmentOfTheInterior", "VictoryManager", "Hero", "GuiHero", "Senator" })
+        // every cloned type (Council*, the hero-rework Hero* classes and both new orders)
+        foreach (var t in types) if (t.Name.StartsWith("Council") || t.Name.StartsWith("OrderCouncil") || t.Name.StartsWith("OrderAcademy") || t.Name.StartsWith("Hero")) PrepType(t);
+        // every game type the patcher hooks into (keep in sync with tools/Patcher/Patcher.cs)
+        foreach (var n in new[] { "AcademyRequestsManager", "AcademyModalWindow", "DepartmentOfTheTreasury", "OverhaulOutcomeDefinition", "CustomHackingHelper", "Tradable", "TradableResource", "Marketplace", "GroundBattleOutcomeLootDefinition", "DepartmentOfDefense", "DepartmentOfCommerce", "ServerEncounterState_RunSimpleBattle", "ServerGroundBattle", "DepartmentOfTheInterior", "VictoryManager", "Hero", "GuiHero", "Senator", "Senate", "HeroSkill", "HeroRecruitmentNotificationWindow", "DepartmentOfEducation", "DepartmentOfScience", "DepartmentOfIntelligence", "GameClient", "NotificationMinorAndPirateHackingEnabled" })
             PrepType(asm.GetType(n));
         PrepType(asm.GetType("GameClient").GetNestedTypes(BindingFlags.NonPublic | BindingFlags.Public).First(t => t.Name.StartsWith("<SpawnHackingOperationBackdoorProcessor>")));
         Console.WriteLine("jitted ok=" + ok + " fail=" + fail);

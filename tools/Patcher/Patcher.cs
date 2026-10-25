@@ -73,6 +73,7 @@ public static class Patcher
 
         CheckSelfReferences(selfRefsBefore);
         CheckBranches();
+        CheckBranchRanges();
         asm.Write(outPath);
         Console.WriteLine("written " + outPath);
     }
@@ -159,6 +160,70 @@ public static class Patcher
         foreach (var t in mod.Types) walk(t);
         if (bad > 0) throw new Exception("broken branches: " + bad);
         Console.WriteLine("branch check: ok");
+    }
+
+    // Cecil writes a short branch whose target no longer fits in an sbyte by silently truncating the offset
+    // (verified with this Cecil version): the written assembly then jumps to a wrong instruction, while every
+    // operand still resolves, so CheckBranches cannot see it. Compute the instruction offsets in memory and
+    // make sure every short branch target is in range before writing.
+    static int InstrSize(Instruction i)
+    {
+        int s = i.OpCode.Size;
+        switch (i.OpCode.OperandType)
+        {
+            case OperandType.InlineNone: return s;
+            case OperandType.ShortInlineBrTarget:
+            case OperandType.ShortInlineI:
+            case OperandType.ShortInlineVar:
+            case OperandType.ShortInlineArg: return s + 1;
+            case OperandType.InlineVar:
+            case OperandType.InlineArg: return s + 2;
+            case OperandType.ShortInlineR:
+            case OperandType.InlineI:
+            case OperandType.InlineBrTarget:
+            case OperandType.InlineField:
+            case OperandType.InlineMethod:
+            case OperandType.InlineType:
+            case OperandType.InlineTok:
+            case OperandType.InlineString:
+            case OperandType.InlineSig: return s + 4;
+            case OperandType.InlineI8:
+            case OperandType.InlineR: return s + 8;
+            case OperandType.InlineSwitch: return s + 4 + 4 * ((Instruction[])i.Operand).Length;
+            default: throw new Exception("unknown operand type " + i.OpCode.OperandType);
+        }
+    }
+
+    static void CheckBranchRanges()
+    {
+        int bad = 0;
+        Action<TypeDefinition> walk = null;
+        walk = t =>
+        {
+            foreach (var md in t.Methods)
+            {
+                if (!md.HasBody) continue;
+                var offs = new Dictionary<Instruction, int>();
+                int off = 0;
+                foreach (var i in md.Body.Instructions) { offs[i] = off; off += InstrSize(i); }
+                foreach (var i in md.Body.Instructions)
+                {
+                    if (i.OpCode.OperandType != OperandType.ShortInlineBrTarget) continue;
+                    var target = i.Operand as Instruction;
+                    if (target == null || !offs.ContainsKey(target)) continue;   // CheckBranches reports those
+                    int delta = offs[target] - (offs[i] + InstrSize(i));
+                    if (delta < -128 || delta > 127)
+                    {
+                        bad++;
+                        Console.WriteLine("SHORT BRANCH OUT OF RANGE " + t.FullName + "::" + md.Name + " IL_" + offs[i].ToString("x4") + " delta=" + delta);
+                    }
+                }
+            }
+            foreach (var n in t.NestedTypes) walk(n);
+        };
+        foreach (var t in mod.Types) walk(t);
+        if (bad > 0) throw new Exception("short branches out of range: " + bad);
+        Console.WriteLine("branch range check: ok");
     }
 
     static MethodDefinition Method(string type, string name, int paramCount = -1)
