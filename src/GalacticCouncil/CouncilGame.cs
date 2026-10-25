@@ -140,7 +140,9 @@ public static partial class CouncilGame
             var game = GetGame();
             if (game == null) return;
             int turn = game.Turn;
-            CouncilUi.EnsureHost();
+            // No UI work from the turn hook: building the native Council window (cloning the whole laws
+            // screen) on the main thread here froze the game for many seconds at the first turns / vote open.
+            // The window is built lazily on the first explicit open (Academy window hook, HUD launcher).
             HeroRework.PerTurn(game);
             EnsureVoteTexts();
 

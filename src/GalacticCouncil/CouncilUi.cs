@@ -73,8 +73,11 @@ public static class CouncilUi
 
     public static void Toast(string text)
     {
-        EnsureHost();
-        if (CouncilNative.Window != null) { CouncilNative.Toast(text); return; }
+        // Never build the Council window just to show a toast: toasts fire from turn processing,
+        // where cloning the laws screen blocked the main thread for many seconds. The native
+        // MessageBoxNonBlockingWindow toast needs no Council window; the IMGUI copy below only
+        // renders when the IMGUI fallback host already exists.
+        CouncilNative.Toast(text);
         ToastText = text;
         ToastUntil = Time.realtimeSinceStartup + 12f;
     }
@@ -113,20 +116,10 @@ public static class CouncilUi
 
     public static void OnVoteOpened(int expiredLaws)
     {
-        var c = CouncilGame.Core;
+        // No auto-popup: voting lives in the game interface - it is opened from the Academy window
+        // (AcademyModalWindow.OnBeginShow hook) or the HUD launcher, which gets highlighted instead.
         Toast(CouncilGame.Tr("Галактический совет: открыто голосование. Итоги будут подведены в начале следующего хода.",
                               "Galactic Council: voting is open. Results will be counted at the start of next turn."));
-        // pop the window up once for human players
-        var me = CouncilGame.LocalEmpire();
-        if (me != null && c.IsMember(me.Index))
-        {
-            try
-            {
-                if (CouncilNative.Window != null) { CouncilNative.Window.Tab = 0; CouncilNative.Show(); }
-                else { CouncilUiImgui.Visible = true; CouncilUiImgui.Tab = 0; }
-            }
-            catch (Exception) { }
-        }
         CouncilNative.RebuildIfVisible();
     }
 

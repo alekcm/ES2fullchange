@@ -1281,13 +1281,16 @@ public static class CouncilNative
     public static void Show()
     {
         if (!EnsureWindow() || Window == null) return;
+        bool wasVisible = IsVisible;
         try
         {
             var gui = Services.GetService<IGuiService>();
             if (gui != null) gui.ShowWindow(Window, false);
         }
         catch (Exception e) { NoteFailure("show", e); }
-        try { Window.Rebuild(); } catch (Exception e) { NoteFailure("show-rebuild", e); }
+        // OnBeginShow already rebuilds on the show transition; only refresh explicitly when the
+        // window was already up (no transition, no OnBeginShow). Rebuilding twice doubled the hitch.
+        if (wasVisible) { try { Window.Rebuild(); } catch (Exception e) { NoteFailure("show-rebuild", e); } }
         RefreshLauncher();
     }
 
