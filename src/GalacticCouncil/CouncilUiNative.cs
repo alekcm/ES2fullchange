@@ -99,6 +99,14 @@ public class CouncilModalWindow : GuiModalWindow
         try { Rebuild(); } catch (Exception e) { CouncilNative.NoteFailure("OnBeginShow", e); }
     }
 
+    /// <summary>Last-resort hide for CouncilNative.Hide when the windows stack did not take the hide
+    /// (same lifecycle entry the stack itself calls, so the modal bookkeeping stays consistent).</summary>
+    public void ForceHide()
+    {
+        OnBeginHide(true);
+        if (AgeTransform != null) { AgeTransform.Visible = false; AgeTransform.Enable = false; }
+    }
+
     // ------------------------------------------------------------------ setup
 
     /// <summary>Called by CouncilNative.EnsureWindow once, right after the clone was created
@@ -1075,62 +1083,128 @@ public sealed class NativeAction
     }
 }
 
-/// <summary>Receives the AGE SendMessage callbacks and routes them to the window.</summary>
+/// <summary>Receives the AGE SendMessage callbacks and routes them to the window.
+/// The methods are public on purpose: AGE delivers them through Unity SendMessage, and the launcher
+/// instance of this component lives on the cloned HUD button itself (see EnsureLauncher), so the
+/// message target is by construction the active object that was clicked.</summary>
 public class CouncilNativeCallbacks : MonoBehaviour
 {
     CouncilModalWindow win;
 
     public void Init(CouncilModalWindow window) { win = window; }
 
-    void OnCouncilTab(GameObject sender) { if (win != null) win.OnTab(sender); }
-    void OnCouncilCard(GameObject sender) { if (win != null) win.OnCard(sender); }
-    void OnCouncilAction(GameObject sender) { if (win != null) win.OnAction(false); }
-    void OnCouncilActionRight(GameObject sender) { if (win != null) win.OnAction(true); }
-    void OnCouncilSecond(GameObject sender) { if (win != null) win.OnSecond(false); }
-    void OnCouncilSecondRight(GameObject sender) { if (win != null) win.OnSecond(true); }
-    void OnCouncilLauncher(GameObject sender) { CouncilNative.Toggle(); }
+    public void OnCouncilTab(GameObject sender) { if (win != null) win.OnTab(sender); }
+    public void OnCouncilCard(GameObject sender) { if (win != null) win.OnCard(sender); }
+    public void OnCouncilAction(GameObject sender) { if (win != null) win.OnAction(false); }
+    public void OnCouncilActionRight(GameObject sender) { if (win != null) win.OnAction(true); }
+    public void OnCouncilSecond(GameObject sender) { if (win != null) win.OnSecond(false); }
+    public void OnCouncilSecondRight(GameObject sender) { if (win != null) win.OnSecond(true); }
+    public void OnCouncilLauncher(GameObject sender)
+    {
+        // Temporary click-path diagnostics (log only, a handful of lines per session): if this line is
+        // missing from Diagnostics, AGE never delivered the click; if it is there, Show() logs the result.
+        try { Diagnostics.LogWarning("[GalacticCouncil] launcher click received"); } catch (Exception) { }
+        CouncilNative.Toggle();
+    }
 }
 
 // ---------------------------------------------------------------------- non-public GuiWindow plumbing
 
 /// <summary>Reflection access to the few non-public members of the game's GuiWindow/GuiManager that a
-/// runtime-created window needs (they live in Assembly-CSharp-firstpass, which is not publicized).</summary>
+/// runtime-created window needs (they live in Assembly-CSharp-firstpass, which is not publicized).
+/// Loaded/GameReady are written through their backing fields, not PropertyInfo.SetValue: both setters
+/// are non-public (internal / protected internal), and on the game's old Mono a SetValue through a
+/// publicly-obtained PropertyInfo is not guaranteed to reach them. A window stuck at Loaded=false is
+/// exactly the "click does nothing, no error anywhere" failure: GuiWindowsStack.ShowWindow then just
+/// starts a coroutine that waits forever for a Loaded that never comes.</summary>
 static class WinPriv
 {
-    static readonly MethodInfo initializeMethod = typeof(GuiWindow).GetMethod("Initialize",
-        BindingFlags.Instance | BindingFlags.NonPublic);
-    static readonly PropertyInfo loadedProperty = typeof(GuiWindow).GetProperty("Loaded");
-    static readonly PropertyInfo gameReadyProperty = typeof(GuiWindow).GetProperty("GameReady");
-    static readonly FieldInfo windowListField = typeof(Amplitude.Unity.Gui.GuiManager).GetField("guiWindowsFromBackToFront",
-        BindingFlags.Instance | BindingFlags.NonPublic);
+    const BindingFlags Inst = BindingFlags.Instance | BindingFlags.NonPublic;
+    static readonly MethodInfo initializeMethod = typeof(GuiWindow).GetMethod("Initialize", Inst);
+    static readonly FieldInfo nameField = typeof(GuiWindow).GetField("<Name>k__BackingField", Inst);
+    static readonly FieldInfo loadedField = typeof(GuiWindow).GetField("<Loaded>k__BackingField", Inst);
+    static readonly FieldInfo gameReadyField = typeof(GuiWindow).GetField("<GameReady>k__BackingField", Inst);
+    static readonly FieldInfo stackField = typeof(GuiWindow).GetField("<GuiWindowsStack>k__BackingField", Inst);
+    static readonly FieldInfo windowListField = typeof(Amplitude.Unity.Gui.GuiManager).GetField("guiWindowsFromBackToFront", Inst);
+    static readonly FieldInfo byNameField = typeof(Amplitude.Unity.Gui.GuiManager).GetField("guiWindowsByName", Inst);
+    static readonly FieldInfo byTypeField = typeof(Amplitude.Unity.Gui.GuiManager).GetField("guiWindowsByType", Inst);
+    static readonly FieldInfo stackWindowsField = typeof(GuiWindowsStack).GetField("guiWindows", Inst);
 
     public static void Initialize(GuiWindow window, GuiWindowsStack stack)
     {
         if (initializeMethod == null) throw new Exception("GuiWindow.Initialize not found");
         initializeMethod.Invoke(window, new object[] { stack, false });
+        if (stackField != null && stackField.GetValue(window) == null)
+            throw new Exception("GuiWindow.Initialize did not set the windows stack");
+    }
+
+    public static void SetName(GuiWindow window, string name)
+    {
+        if (nameField == null) throw new Exception("GuiWindow.Name backing field not found");
+        nameField.SetValue(window, new StaticString(name));
     }
 
     public static void SetLoaded(GuiWindow window, bool value)
     {
-        if (loadedProperty == null) throw new Exception("GuiWindow.Loaded not found");
-        loadedProperty.SetValue(window, value, null);
+        if (loadedField == null) throw new Exception("GuiWindow.Loaded backing field not found");
+        loadedField.SetValue(window, value);
+        if (window.Loaded != value) throw new Exception("GuiWindow.Loaded did not stick");
     }
 
     public static void SetGameReady(GuiWindow window, bool value)
     {
-        if (gameReadyProperty == null) throw new Exception("GuiWindow.GameReady not found");
-        gameReadyProperty.SetValue(window, value, null);
+        if (gameReadyField == null) throw new Exception("GuiWindow.GameReady backing field not found");
+        gameReadyField.SetValue(window, value);
+        if (window.GameReady != value) throw new Exception("GuiWindow.GameReady did not stick");
     }
 
-    /// <summary>Adds the window to the manager's window list, like GuiManager.InstantiateWindows does;
-    /// the list drives input dispatch (ESC/right-click), HideAllWindows and the game-ready pulses.</summary>
-    public static void Register(GuiManager guiManager, GuiWindow window)
+    /// <summary>Registers the window exactly like the vanilla GuiManager.InstantiateWindows +
+    /// GuiWindowsStack.InstantiateWindows + the game GuiManager's Load_IGuiGamePanelService do:
+    /// stack list, manager back-to-front list, by-name/by-type dictionaries, and (for a modal window)
+    /// the game manager's modal list with its VisibilityChanged subscription. The back-to-front list
+    /// is required; the rest is best-effort and only logged, never fatal.</summary>
+    public static void Register(GuiManager guiManager, GuiWindowsStack stack, GuiWindow window)
     {
         var list = guiManager != null && windowListField != null
             ? windowListField.GetValue(guiManager) as List<GuiWindow>
             : null;
         if (list == null) throw new Exception("GuiManager.guiWindowsFromBackToFront not found");
         if (!list.Contains(window)) list.Add(window);
+
+        try
+        {
+            var stackList = stack != null && stackWindowsField != null
+                ? stackWindowsField.GetValue(stack) as List<GuiWindow> : null;
+            if (stackList != null && !stackList.Contains(window)) stackList.Add(window);
+        }
+        catch (Exception e) { try { Diagnostics.LogWarning("[GalacticCouncil] optional registration (stack list): " + e.GetType().Name + ": " + e.Message); } catch (Exception) { } }
+
+        try
+        {
+            var byName = byNameField != null ? byNameField.GetValue(guiManager) as Dictionary<StaticString, GuiWindow> : null;
+            if (byName != null && !byName.ContainsKey(window.Name)) byName.Add(window.Name, window);
+            var byType = byTypeField != null ? byTypeField.GetValue(guiManager) as Dictionary<Type, GuiWindow> : null;
+            if (byType != null && !byType.ContainsKey(window.GetType())) byType.Add(window.GetType(), window);
+        }
+        catch (Exception e) { try { Diagnostics.LogWarning("[GalacticCouncil] optional registration (dictionaries): " + e.GetType().Name + ": " + e.Message); } catch (Exception) { } }
+
+        try
+        {
+            var modal = window as GuiModalWindow;
+            if (modal == null) return;
+            Type gmType = guiManager.GetType();
+            var modalField = gmType.GetField("guiModalWindows", Inst);
+            var modalList = modalField != null ? modalField.GetValue(guiManager) as List<GuiModalWindow> : null;
+            if (modalList != null && !modalList.Contains(modal)) modalList.Add(modal);
+            var handlerMethod = gmType.GetMethod("ModalWindow_VisibilityChanged", Inst);
+            var ev = typeof(GuiWindow).GetEvent("VisibilityChanged");
+            if (handlerMethod != null && ev != null)
+            {
+                var handler = Delegate.CreateDelegate(typeof(EventHandler), guiManager, handlerMethod);
+                ev.AddEventHandler(window, handler);
+            }
+        }
+        catch (Exception e) { try { Diagnostics.LogWarning("[GalacticCouncil] optional registration (modal list): " + e.GetType().Name + ": " + e.Message); } catch (Exception) { } }
     }
 }
 
@@ -1147,7 +1221,6 @@ public static class CouncilNative
     static AgePrimitiveLabel launcherLabel;
     static AgeTransform launcherTransform;
     static AgeTransform launcherParent;
-    static GameObject launcherCallbacksHost;   // message target for the launcher before the window exists
 
     public static string[] TabNames()
     {
@@ -1200,10 +1273,23 @@ public static class CouncilNative
             // 5. register the window the way GuiManager.InstantiateWindows would
             //    (the non-public GuiWindow plumbing lives in firstpass -> reflection)
             WinPriv.Initialize(win, stack);
+            WinPriv.SetName(win, "CouncilModalWindow");
             WinPriv.SetLoaded(win, true);
             WinPriv.SetGameReady(win, true);
-            if (win.AgeTransform != null && win.AgeTransform.Visible) gui.HideWindow(win, true);
-            WinPriv.Register(gui as GuiManager, win);
+            // Park the clone hidden directly instead of asking the stack to hide it: HideWindow goes
+            // through the same Loaded/GameReady gate as ShowWindow, and if that gate ever misfires the
+            // donor clone stays AgeTransform.Visible=true — the old root-Visible-based Toggle then
+            // mistook the window for open (every click just "closed" it again), and a visible but
+            // fully transparent hierarchy keeps being re-traversed every frame.
+            if (win.AgeTransform != null) { win.AgeTransform.Visible = false; win.AgeTransform.Enable = false; }
+            WinPriv.Register(gui as GuiManager, stack, win);
+            try
+            {
+                Diagnostics.LogWarning("[GalacticCouncil] native window ready: loaded=" + win.Loaded
+                    + " gameReady=" + win.GameReady + " shown=" + win.Shown
+                    + " rootVisible=" + (win.AgeTransform != null && win.AgeTransform.Visible));
+            }
+            catch (Exception) { }
 
             Window = win;
             EnsureLauncher(gui);
@@ -1304,35 +1390,43 @@ public static class CouncilNative
                 launcherLabel.DisableAutoLocalize = true;
                 launcherLabel.Visible = true;
             }
-            GameObject callbacksHost = null;
-            if (Window != null)
-            {
-                var callbacks = ((Component)Window).GetComponent<CouncilNativeCallbacks>();
-                callbacksHost = callbacks != null ? callbacks.gameObject : ((Component)Window).gameObject;
-            }
-            if (callbacksHost == null)
-            {
-                if (launcherCallbacksHost == null)
-                {
-                    launcherCallbacksHost = new GameObject("__ES2CouncilLauncherCallbacks__");
-                    UnityEngine.Object.DontDestroyOnLoad(launcherCallbacksHost);
-                    launcherCallbacksHost.AddComponent<CouncilNativeCallbacks>();
-                }
-                callbacksHost = launcherCallbacksHost;
-            }
-            launcher.UseLeftClick = true;
-            launcher.UseRightClick = false;
-            launcher.UseDoubleClick = false;
-            launcher.OnActivateObject = callbacksHost;
-            launcher.OnActivateMethod = "OnCouncilLauncher";
-            launcher.OnRightClickMethod = null;
-            launcher.Visible = true;
-            launcher.Enable = true;
-            lat.Visible = true;
+            // The click receiver lives on the button's own GameObject. Targeting a separate window or
+            // DontDestroyOnLoad host meant AGE's SendMessage had to reach an object whose active state
+            // is tied to the (hidden) modal window; the button itself is active whenever it is clickable.
+            var launcherHost = ((Component)lat).gameObject;
+            if (launcherHost.GetComponent<CouncilNativeCallbacks>() == null)
+                launcherHost.AddComponent<CouncilNativeCallbacks>();
+            WireLauncher();
             var tip = at.GetComponentInChildren<AgeTooltip>();
             if (tip != null) tip.Content = CouncilGame.Tr("Галактический совет Академии", "The Galactic Council of the Academy");
         }
         catch (Exception e) { NoteFailure("launcher", e); }
+    }
+
+    /// <summary>(Re)arms the launcher's AGE click routing. Idempotent and cheap; called on creation and
+    /// on every HUD refresh so a donor-prefab callback can never silently come back.</summary>
+    static void WireLauncher()
+    {
+        if (launcher == null || launcherTransform == null) return;
+        var host = ((Component)launcherTransform).gameObject;
+        launcher.UseLeftClick = true;
+        launcher.UseRightClick = false;
+        launcher.UseMiddleClick = false;
+        launcher.UseDoubleClick = false;
+        launcher.OnActivateObject = host;
+        launcher.OnActivateMethod = "OnCouncilLauncher";
+        launcher.OnRightClickObject = null;
+        launcher.OnRightClickMethod = null;
+        launcher.OnMiddleClickObject = null;
+        launcher.OnMiddleClickMethod = null;
+        launcher.OnDoubleClickObject = null;
+        launcher.OnDoubleClickMethod = null;
+        launcher.Visible = true;
+        launcher.Enable = true;
+        launcherTransform.Visible = true;
+        launcherTransform.Enable = true;
+        launcherTransform.CoversMouse = true;
+        launcherTransform.Z = 0.9f;
     }
 
     /// <summary>Highlights the launcher button while a vote is open and not yet cast.</summary>
@@ -1342,8 +1436,7 @@ public static class CouncilNative
         try
         {
             PositionLauncher();
-            launcher.Visible = true;
-            launcher.Enable = true;
+            WireLauncher();
             if (launcherLabel == null) return;
             launcherLabel.DisableAutoLocalize = true;
             launcherLabel.Visible = true;
@@ -1358,21 +1451,50 @@ public static class CouncilNative
 
     // ------------------------------------------------------------------ show / hide
 
+    // GuiPanel.Shown is the window's own truth (root visible and not mid-hide). Root AgeTransform.Visible
+    // alone is NOT: a freshly cloned donor starts Visible=true before it is ever shown, which made
+    // Toggle "close" the Council on every click while nothing was on screen.
     public static bool IsVisible
     {
-        get { return Window != null && Window.AgeTransform != null && Window.AgeTransform.Visible; }
+        get { return Window != null && Window.Shown; }
     }
 
     public static void Show()
     {
-        if (!EnsureWindow() || Window == null) return;
+        if (!EnsureWindow() || Window == null)
+        {
+            try { Diagnostics.LogWarning("[GalacticCouncil] Show aborted: window not built, BuildFailed=" + BuildFailed + " (" + BuildError + ")"); }
+            catch (Exception) { }
+            return;
+        }
         bool wasVisible = IsVisible;
         try
         {
             var gui = Services.GetService<IGuiService>();
             if (gui != null) gui.ShowWindow(Window, false);
+            if (!Window.Shown)
+            {
+                // The stack deferred the show (its Loaded/GameReady gate) or dropped it: retry instant,
+                // and if the window still is not shown, drive the panel lifecycle directly. OnBeginShow
+                // is the same entry the stack itself ends up calling; GuiWindow.Show(bool) would throw.
+                if (gui != null) gui.ShowWindow(Window, true);
+                if (!Window.Shown)
+                {
+                    Diagnostics.LogWarning("[GalacticCouncil] ShowWindow left the window hidden (loaded=" + Window.Loaded
+                        + " gameReady=" + Window.GameReady + "); forcing OnBeginShow");
+                    Window.OnBeginShow(true);
+                    if (Window.AgeTransform != null) { Window.AgeTransform.Visible = true; Window.AgeTransform.Enable = true; }
+                }
+            }
         }
         catch (Exception e) { NoteFailure("show", e); }
+        try
+        {
+            Diagnostics.LogWarning("[GalacticCouncil] Show result: shown=" + Window.Shown
+                + " rootVisible=" + (Window.AgeTransform != null && Window.AgeTransform.Visible)
+                + " loaded=" + Window.Loaded + " gameReady=" + Window.GameReady);
+        }
+        catch (Exception) { }
         // OnBeginShow already rebuilds on the show transition; only refresh explicitly when the
         // window was already up (no transition, no OnBeginShow). Rebuilding twice doubled the hitch.
         if (wasVisible) { try { Window.Rebuild(); } catch (Exception e) { NoteFailure("show-rebuild", e); } }
@@ -1386,6 +1508,8 @@ public static class CouncilNative
         {
             var gui = Services.GetService<IGuiService>();
             if (gui != null) gui.HideWindow(Window, false);
+            if (Window.Shown && gui != null) gui.HideWindow(Window, true);
+            if (Window.Shown) Window.ForceHide();
         }
         catch (Exception e) { NoteFailure("hide", e); }
         RefreshLauncher();

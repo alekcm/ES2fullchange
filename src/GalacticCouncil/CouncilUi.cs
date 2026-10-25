@@ -91,6 +91,9 @@ public static class CouncilUi
         }
         set
         {
+            // Hiding must never build the window just to close it (the Academy window's OnEndHide hook
+            // lands here; building the laws-screen clone there was a visible hitch for nothing).
+            if (!value && CouncilNative.Window == null) { CouncilUiImgui.Visible = false; return; }
             EnsureHost();
             if (CouncilNative.Window != null)
             {
@@ -104,9 +107,9 @@ public static class CouncilUi
     /// <summary>Builds the native window once the game GUI is up; on failure keeps the IMGUI fallback.</summary>
     public static void EnsureHost()
     {
-        if (CouncilNative.Window != null) return;
+        if (CouncilNative.Window != null) { CouncilUiImgui.DestroyHost(); return; }
         if (CouncilNative.BuildFailed) { CouncilUiImgui.EnsureHost(); return; }
-        if (CouncilNative.EnsureWindow()) return;         // false = GUI not loaded yet, retry on the next call
+        if (CouncilNative.EnsureWindow()) { CouncilUiImgui.DestroyHost(); return; }   // false = GUI not loaded yet, retry on the next call
         if (CouncilNative.BuildFailed) CouncilUiImgui.EnsureHost();
     }
 
@@ -182,6 +185,21 @@ public static class CouncilUiImgui
         catch (Exception) { }
     }
 
+    /// <summary>Once the native window exists the IMGUI host must go away entirely: its OnGUI runs on
+    /// every IMGUI event for the rest of the session, which is pure per-frame overhead (and it would
+    /// draw a second, duplicate launcher).</summary>
+    public static void DestroyHost()
+    {
+        try
+        {
+            Visible = false;
+            if (host == null) return;
+            UnityEngine.Object.Destroy(host);
+            host = null;
+        }
+        catch (Exception) { }
+    }
+
     public static void DrawFailed(Exception e)
     {
         uiError = e.GetType().Name + ": " + e.Message;
@@ -202,6 +220,7 @@ public static class CouncilUiImgui
 
     public static void Draw()
     {
+        if (CouncilNative.Window != null) return;   // native UI owns the Council; never draw twice
         var c = CouncilGame.Core;
         if (!c.Enabled) return;
         var me = CouncilGame.LocalEmpire();

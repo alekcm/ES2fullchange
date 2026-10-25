@@ -79,25 +79,31 @@ public static partial class HeroRework
     /// researched technology) and keeps a rebuilt mothership at 0 command points.</summary>
     static List<SimulationDescriptor> AddMirrorSkills(List<SimulationDescriptor> list, Hero hero)
     {
-        var result = new List<SimulationDescriptor>(list);
+        // Hot path: this runs inside hero descriptor refreshes. The common case (no mirror/mothership
+        // skill on this hero) must not allocate: previously the list was copied unconditionally and the
+        // technology check rescanned (and ToString'ed) every empire descriptor per module.
+        if (mirrorSpecials.Count == 0 && mothershipSkills.Count == 0) return list;
+        List<SimulationDescriptor> extra = null;
         var skills = hero.UnlockedSkills;
         if (skills != null && mirrorSpecials.Count > 0)
         {
-            Empire empire = null;
+            HashSet<string> descriptorNames = null;
             for (int i = 0; i < skills.Count; i++)
             {
                 string special;
                 if (skills[i] == null || skills[i].Definition == null) continue;
                 if (!mirrorSpecials.TryGetValue(skills[i].Definition.Name.ToString(), out special)) continue;
-                if (empire == null)
+                if (descriptorNames == null)
                 {
-                    empire = hero.Empire;
+                    var empire = hero.Empire;
                     if (empire == null) break;
+                    descriptorNames = DescriptorNames(empire);
                 }
-                int level = Math.Min(skills[i].Level, HeroMirror.LevelOf(HeroMirror.TableOf(special), ModuleTech, delegate(string t) { return EmpireHasDescriptor(empire, t); }));
+                var names = descriptorNames;
+                int level = Math.Min(skills[i].Level, HeroMirror.LevelOf(HeroMirror.TableOf(special), ModuleTech, delegate(string t) { return t != null && names.Contains(t); }));
                 if (level <= 0) continue;
                 SimulationDescriptor d = MirrorDescriptor(special, level);
-                if (d != null) result.Add(d);
+                if (d != null) { if (extra == null) extra = new List<SimulationDescriptor>(); extra.Add(d); }
             }
         }
         // the mothership rebuild replaces the hero role with the carrier role on the ship; the skill keeps
@@ -105,16 +111,35 @@ public static partial class HeroRework
         if (mothershipSkills.Count > 0 && HasMothershipUlt(hero))
         {
             SimulationDescriptor cp = MirrorDescriptor("Mothership", 1);
-            if (cp != null) result.Add(cp);
+            if (cp != null) { if (extra == null) extra = new List<SimulationDescriptor>(); extra.Add(cp); }
         }
+        if (extra == null) return list;
+        var result = new List<SimulationDescriptor>(list);
+        result.AddRange(extra);
         return result;
+    }
+
+    /// <summary>Snapshot of the empire's descriptor names (one pass, reused for every technology check).</summary>
+    static HashSet<string> DescriptorNames(Empire empire)
+    {
+        var set = new HashSet<string>();
+        try
+        {
+            SimulationDescriptor[] descriptors = empire.GetSimulationDescriptors();
+            if (descriptors != null)
+                for (int i = 0; i < descriptors.Length; i++)
+                    if (descriptors[i] != null) set.Add(descriptors[i].Name.ToString());
+        }
+        catch (Exception e) { Fail("DescriptorNames", e); }
+        return set;
     }
 
     /// <summary>Best mirror level the empire's researched technologies allow for the special.</summary>
     public static int MirrorTechLevel(string special, Empire empire)
     {
         if (empire == null) return 0;
-        return HeroMirror.LevelOf(HeroMirror.TableOf(special), ModuleTech, delegate(string t) { return EmpireHasDescriptor(empire, t); });
+        var names = DescriptorNames(empire);
+        return HeroMirror.LevelOf(HeroMirror.TableOf(special), ModuleTech, delegate(string t) { return t != null && names.Contains(t); });
     }
 
     /// <summary>Technology descriptor the module requires (the TechnologyPrerequisite of the module), cached; null when unknown.</summary>
@@ -845,6 +870,7 @@ public static partial class HeroRework
             if (!Enabled || game == null) return;
             int turn = game.Turn;
             if (turn < lastTurn) { ultimates.Clear(); appliedSteps.Clear(); bonusCache.Clear(); ultimateSets.Clear(); dictatorState.Clear(); ClearDictators(); ResetSpecials(); }
+            if (turn == lastTurn) return;   // ClientBeginTurn fires per controller; never redo a turn
             lastTurn = turn;
             RefreshEuphoria(game);
             UpdateDictatorships(game);

@@ -116,6 +116,8 @@ public static partial class CouncilGame
     const string NoteMarker = "\u200B\u200B";           // invisible marker: the note is already there
     static List<string[]> noteTargets;                  // { localization key (no %), note ru, note en }
     static bool noteKeysResolved;
+    static bool voteTextsApplied;
+    static bool voteTextsRussian;
     public static string TextsStatus = "";
 
     static bool IsStageName(string name, out int stage)
@@ -183,6 +185,8 @@ public static partial class CouncilGame
     {
         try
         {
+            bool russian = IsRussian();
+            if (voteTextsApplied && voteTextsRussian == russian) return;   // once per language, not per turn
             if (!noteKeysResolved) ResolveNoteKeys();
             var db = Databases.GetDatabase<LocalizationDatatableElement>(false);
             if (db == null) return;
@@ -193,9 +197,11 @@ public static partial class CouncilGame
                 string cur = "";
                 if (db.TryGetValue(t[0], out el) && el != null) cur = el.Value.ToString();
                 if (cur.IndexOf(NoteMarker, StringComparison.Ordinal) >= 0) continue;
-                string note = IsRussian() ? t[1] : t[2];
+                string note = russian ? t[1] : t[2];
                 CustomHackingHelper.RegisterLoc(t[0], (cur.Length > 0 ? cur + "\n\n" : "") + NoteMarker + note);
             }
+            voteTextsApplied = true;
+            voteTextsRussian = russian;
         }
         catch (Exception e) { Fail("EnsureVoteTexts", e); }
     }

@@ -195,6 +195,12 @@ public static partial class HeroRework
             var gone = new List<int>();
             foreach (var kv in euphoria) if (kv.Value[0] < now) gone.Add(kv.Key);
             for (int i = 0; i < gone.Count; i++) euphoria.Remove(gone[i]);
+            if (euphoria.Count == 0)
+            {
+                if (euphoriaDescriptors.Count > 0) ClearEuphoria();
+                euphoriaSignature = "";
+                return;
+            }
 
             var wanted = new List<ColonizedStarSystem>();
             var strength = new List<int>();

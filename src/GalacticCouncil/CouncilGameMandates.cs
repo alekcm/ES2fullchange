@@ -251,6 +251,7 @@ public static partial class CouncilGame
     /// The fleet carries a marker in its name so every machine can find (and later recall) the ships.</summary>
     static void SpawnSquad(int empIndex, string tag, int count, bool heavy)
     {
+        squadScanNeeded = true;
         try
         {
             var emp = GetMajor(empIndex);
@@ -301,8 +302,22 @@ public static partial class CouncilGame
         return int.TryParse(name.Substring(i + 4, name.Length - i - 5), out emp);
     }
 
+    // Set whenever a squad spawn was posted (and on load): without it, discovery rescanned and
+    // name-parsed every fleet of every empire twice per turn for the whole game.
+    static bool squadScanNeeded = true;
+
+    static bool SquadsIncomplete()
+    {
+        string[] tags = { CouncilCore.TagMarshal, CouncilCore.TagEscort, CouncilCore.TagAcademy, CouncilCore.TagStealth };
+        for (int i = 0; i < Core.Members.Count; i++)
+            for (int t = 0; t < tags.Length; t++)
+                if (Core.SquadNeeded(tags[t], Core.Members[i]) && Core.FindSquad(tags[t], Core.Members[i]) == null) return true;
+        return false;
+    }
+
     static void DiscoverSquadShips(Game game)
     {
+        if (!squadScanNeeded) return;
         foreach (MajorEmpire e in game.EnumerableMajorEmpires)
         {
             var def = e.GetAgency<DepartmentOfDefense>();
@@ -317,6 +332,9 @@ public static partial class CouncilGame
                 if (ids.Count > 0) Core.AddSquadShips(tag, owner, ids);
             }
         }
+        // Keep scanning while a needed squad has not materialized yet (its creation order may only be
+        // processed next turn); stop for good once everything that should exist is registered.
+        squadScanNeeded = SquadsIncomplete();
     }
 
     /// <summary>Called right before the end-of-turn bailiff check and resource collection (server bailiff state and the client
@@ -324,6 +342,7 @@ public static partial class CouncilGame
     /// would otherwise be charged in full - bankrupting a small empire (the Bailiff defeat quest then eliminates it).</summary>
     public static void BeforeTurnEnd()
     {
+        var perfWatch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             if (!Core.Enabled) return;
@@ -333,6 +352,11 @@ public static partial class CouncilGame
             RefreshEffects(game);
         }
         catch (Exception e) { Fail("BeforeTurnEnd", e); }
+        finally
+        {
+            long ms = perfWatch.ElapsedMilliseconds;
+            if (ms > 50) Perf("BeforeTurnEnd took " + ms + "ms");
+        }
     }
 
     /// <summary>Finds freshly created squad fleets by their name marker, and recalls squads whose contract/law has ended.</summary>

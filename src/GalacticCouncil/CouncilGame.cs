@@ -27,6 +27,13 @@ public static partial class CouncilGame
         try { Debug.LogWarning("[GalacticCouncil] " + LastError); } catch (Exception) { }
     }
 
+    /// <summary>Thresholded perf line into the game's Diagnostics html (Unity's Debug log is not in it).
+    /// Only emitted when a mod section actually stalls, so a laggy session names the exact culprit.</summary>
+    static void Perf(string text)
+    {
+        try { Diagnostics.LogWarning("[GalacticCouncil][perf] " + text); } catch (Exception) { }
+    }
+
     public static Game GetGame()
     {
         try
@@ -127,12 +134,16 @@ public static partial class CouncilGame
         appliedTargets.Clear();
         appliedSignature = "";
         lastHandledTurn = int.MinValue;
+        squadScanNeeded = true;
     }
 
     // ---------------------------------------------------------------- turn hook (replaces AcademyRequestsManager.ClientBeginTurn)
 
     public static void ClientBeginTurn(AcademyRequestsManager mgr)
     {
+        var perfWatch = System.Diagnostics.Stopwatch.StartNew();
+        long perfHero = -1, perfDetect = -1, perfActions = -1;
+        int perfTurn = -1;
         try
         {
             if (mgr == null || mgr.AcademyEmpire == null) return;
@@ -140,11 +151,13 @@ public static partial class CouncilGame
             var game = GetGame();
             if (game == null) return;
             int turn = game.Turn;
+            perfTurn = turn;
             // No UI work from the turn hook: building the native Council window (cloning the whole laws
             // screen) on the main thread here froze the game for many seconds at the first turns / vote open.
             // The window is built lazily on the first explicit open (Academy window hook, HUD launcher).
             HeroRework.PerTurn(game);
             EnsureVoteTexts();
+            perfHero = perfWatch.ElapsedMilliseconds;
 
             if (Core.Enabled && AcademyIsGone(mgr))
             {
@@ -164,14 +177,25 @@ public static partial class CouncilGame
             PruneMembers(game);
             RefreshAllianceFlag();
             DetectQualifications(game);
+            perfDetect = perfWatch.ElapsedMilliseconds;
             if (Core.NextAction(turn) == CouncilCore.ActionTally) DoTally(game, turn);
             if (Core.NextAction(turn) == CouncilCore.ActionOpen) DoOpen(mgr, game, turn);
             try { AiMandateActions(game, turn); } catch (Exception ex) { Fail("AiMandateActions", ex); }
             PerTurn(game, turn);
+            perfActions = perfWatch.ElapsedMilliseconds;
             RefreshEffects(game);
             try { RefreshBuyPenalties(game); } catch (Exception ex) { Fail("RefreshBuyPenalties", ex); }
         }
         catch (Exception e) { Fail("ClientBeginTurn", e); }
+        finally
+        {
+            long total = perfWatch.ElapsedMilliseconds;
+            if (total > 50)
+                Perf("ClientBeginTurn turn=" + perfTurn + " total=" + total + "ms hero/texts=" + perfHero
+                    + " detect=" + (perfDetect < 0 ? -1 : perfDetect - perfHero)
+                    + " tally/open/ai=" + (perfActions < 0 ? -1 : perfActions - perfDetect)
+                    + " effects/buys=" + (perfActions < 0 ? -1 : total - perfActions));
+        }
     }
 
     static bool AcademyIsGone(AcademyRequestsManager mgr)
@@ -405,8 +429,11 @@ public static partial class CouncilGame
 
     public static System.Collections.IEnumerator VoteProcessor(OrderCouncilVote order)
     {
+        var perfWatch = System.Diagnostics.Stopwatch.StartNew();
         try { ActionProcess(order); }
         catch (Exception e) { Fail("VoteProcessor", e); }
+        long ms = perfWatch.ElapsedMilliseconds;
+        if (ms > 50) Perf("OrderCouncilVote kind=" + (order != null ? order.Kind : -1) + " took " + ms + "ms");
         yield break;
     }
 
