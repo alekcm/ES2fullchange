@@ -1,5 +1,19 @@
 # Диагностика зависания главного меню (25.10.2026)
 
+## Итог (причина найдена, фикс в Managed/Assembly-CSharp.dll)
+
+`GuiBoundAttribute.BindAllProperties` (firstpass) ищет свойства окна через
+`GetMember("*", Property, FlattenHierarchy|NonPublic|Instance|IgnoreCase)` —
+только non-public. Клонер публицизировал геттеры
+`GuiModalWindow.BackgroundGroup` / `MainContainer` (код Совета читал их
+напрямую), свойства становились публичными, AGE-биндинг их пропускал, и у
+всех модальных окон «хром» оставался null → NullReferenceException в
+корутине загрузки окон и вечный экран загрузки.
+
+Фикс: чтение хрома перенесено внутрь класса окна
+(`CouncilModalWindow.ChromeBound`), а клонеру запрещено публицизировать
+аксессоры `[GuiBound]`-свойств (лог сборки: `kept non-public (GuiBound)`).
+
 ## Раунд 2 (по результатам первого: висят все, включая CloneOnly)
 
 Первый раунд показал, что висит даже вариант без единого хука. Проверяем

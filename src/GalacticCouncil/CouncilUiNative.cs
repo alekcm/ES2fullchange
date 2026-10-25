@@ -51,6 +51,13 @@ public class CouncilModalWindow : GuiModalWindow
 
     // ---- state ----
     public bool Ready;
+
+    /// <summary>True once GuiBoundAttribute.BindAllProperties assigned the modal chrome of the clone. Read here,
+    /// inside the derived class, on purpose: BackgroundGroup/MainContainer must stay protected - BindAllProperties
+    /// looks properties up with NonPublic binding flags only, and publicizing their getters (which the patcher's
+    /// cloner would happily do for a direct reference from CouncilNative) silently unbinds the chrome of EVERY
+    /// modal window, which hangs the game on the main-menu loading screen.</summary>
+    public bool ChromeBound { get { return BackgroundGroup != null && MainContainer != null; } }
     public int Tab;                            // 0 vote, 1 laws, 2 mandates, 3 history
     public int SelCard;
     public int ChairQ = -1;                    // chairman flow: question picked for replacement
@@ -1184,7 +1191,7 @@ public static class CouncilNative
 
             // 4. bind the modal chrome (BackgroundGroup/MainContainer) by child names, like GuiModalWindow.Load
             GuiBoundAttribute.BindAllProperties(win);
-            if (win.BackgroundGroup == null || win.MainContainer == null)
+            if (!win.ChromeBound)
                 throw new Exception("modal chrome was not bound on the clone");
 
             // 5. register the window the way GuiManager.InstantiateWindows would

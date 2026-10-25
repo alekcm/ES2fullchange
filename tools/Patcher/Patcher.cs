@@ -93,6 +93,7 @@ public static class Patcher
 
         Console.WriteLine("publicized members: " + cl.PublicizedLog.Count);
         foreach (var s in cl.PublicizedLog.OrderBy(x => x)) Console.WriteLine("  + " + s);
+        foreach (var s in cl.KeptNonPublicLog.OrderBy(x => x).Distinct()) Console.WriteLine("  = kept non-public (GuiBound): " + s);
       }
       else Console.WriteLine("skip: clone (pure Cecil round-trip)");
 

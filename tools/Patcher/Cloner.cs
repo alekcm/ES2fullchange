@@ -16,6 +16,7 @@ public class Cloner
     readonly Dictionary<string, TypeDefinition> dstTypes = new Dictionary<string, TypeDefinition>();
     public readonly List<TypeDefinition> NewTypes = new List<TypeDefinition>();
     public readonly HashSet<string> PublicizedLog = new HashSet<string>();
+    public readonly List<string> KeptNonPublicLog = new List<string>();
     // Diagnostic bisection (PATCH_SKIP=publicize): clone the types without flipping any game member public.
     public bool DoPublicize = true;
 
@@ -314,9 +315,27 @@ public class Cloner
         }
     }
 
+    // Accessors of [GuiBound] properties must stay non-public: GuiBoundAttribute.BindAllProperties finds them
+    // with BindingFlags NonPublic|Instance|FlattenHierarchy only. Publicizing the getter makes the property
+    // public, the binding silently skips it, and every GuiModalWindow keeps BackgroundGroup/MainContainer null
+    // -> NullReferenceException in a window Load coroutine and a stuck main-menu loading screen. Cloned code
+    // must read such properties from inside the derived window class instead (see CouncilModalWindow.ChromeBound).
+    static bool IsGuiBoundAccessor(MethodDefinition m)
+    {
+        if ((m.SemanticsAttributes & (MethodSemanticsAttributes.Getter | MethodSemanticsAttributes.Setter)) == 0) return false;
+        foreach (var p in m.DeclaringType.Properties)
+        {
+            if (p.GetMethod != m && p.SetMethod != m) continue;
+            foreach (var a in p.CustomAttributes)
+                if (a.AttributeType.Name == "GuiBoundAttribute") return true;
+        }
+        return false;
+    }
+
     public void Publicize(MethodDefinition m)
     {
         if (!DoPublicize) return;
+        if (IsGuiBoundAccessor(m)) { KeptNonPublicLog.Add(m.FullName); return; }
         if (typeMap.ContainsValue(m.DeclaringType)) return;
         Publicize(m.DeclaringType);
         if (!m.IsPublic) { m.IsPublic = true; PublicizedLog.Add(m.FullName); }
