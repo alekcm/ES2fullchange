@@ -72,7 +72,8 @@ public static class Patcher
             HookDecolonize(game);
             HookWarCreated(game);
             HookBeforeTurnEnd(game);
-            HookVictoryContext(game);
+            HookVictoryContext(game, cl.Mapped("TempleGame"));
+            HookTemples(cl.Mapped("TempleGame"));
             HookDebugTabs(cl.Mapped("CouncilDebug"));
             HideHackingNotice();
             DisableHackingEndTurnWarning();
@@ -746,24 +747,60 @@ public static class Patcher
     }
 
     // VictoryManager.SetupInterpreterContextForContender(contender) end => AdjustVictoryContext(this, contender.Empires)
-    static void HookVictoryContext(TypeDefinition game)
+    // plus TempleGame.AdjustScienceAllianceVictory(this, contender.Empires, contender.Definition):
+    // the alliance science victory counts the best single member instead of the summed technologies.
+    static void HookVictoryContext(TypeDefinition game, TypeDefinition temple)
     {
+        if (temple == null) throw new Exception("TempleGame missing");
         var vm = mod.GetType("VictoryManager");
         var m = vm.Methods.First(x => x.Name == "SetupInterpreterContextForContender");
         var contender = vm.NestedTypes.First(t => t.Name == "VictoryContender");
         var empires = contender.Fields.First(f => f.Name == "Empires");
+        var definition = contender.Fields.First(f => f.Name == "Definition");
         LengthenBranches(m);
         var il = m.Body.GetILProcessor();
         var rets = m.Body.Instructions.Where(i => i.OpCode == OpCodes.Ret).ToList();
         foreach (var r in rets)
         {
-            // rewrite the ret in place (branches may target it), append the call after it
+            // rewrite the ret in place (branches may target it), append the calls after it
             r.OpCode = OpCodes.Ldarg_0; r.Operand = null;
-            var seq = new List<Instruction> { il.Create(OpCodes.Ldarg_1), il.Create(OpCodes.Ldfld, empires), il.Create(OpCodes.Call, GameMethod(game, "AdjustVictoryContext")), il.Create(OpCodes.Ret) };
+            var seq = new List<Instruction> {
+                il.Create(OpCodes.Ldarg_1), il.Create(OpCodes.Ldfld, empires), il.Create(OpCodes.Call, GameMethod(game, "AdjustVictoryContext")),
+                il.Create(OpCodes.Ldarg_0), il.Create(OpCodes.Ldarg_1), il.Create(OpCodes.Ldfld, empires),
+                il.Create(OpCodes.Ldarg_1), il.Create(OpCodes.Ldfld, definition), il.Create(OpCodes.Call, GameMethod(temple, "AdjustScienceAllianceVictory")),
+                il.Create(OpCodes.Ret) };
             var at = r;
             foreach (var x in seq) { il.InsertAfter(at, x); at = x; }
         }
         Console.WriteLine("hook: victory interpreter context returns wrapped: " + rets.Count);
+    }
+
+    // Endless Temples (science victory): DepartmentOfScience.GetTechnologyState(element) returns pass through
+    // TempleGame.AdjustTechState (Endless victory technologies stay NotAvailable until their temple is opened),
+    // and UnlockTechnology(element, ...) starts with TempleGame.BlocksUnlock so no side channel can grant them.
+    static void HookTemples(TypeDefinition temple)
+    {
+        if (temple == null) throw new Exception("TempleGame missing");
+        var dos = mod.GetType("DepartmentOfScience");
+        var gts = dos.Methods.Where(x => x.Name == "GetTechnologyState" && x.HasBody && !x.IsStatic
+            && x.Parameters.Count == 1 && x.Parameters[0].ParameterType.Name == "ScienceConstructibleElement").ToList();
+        if (gts.Count != 1) throw new Exception("DepartmentOfScience.GetTechnologyState(ScienceConstructibleElement) not found/ambiguous: " + gts.Count);
+        int n = WrapReturns(gts[0], GameMethod(temple, "AdjustTechState"), new[] { OpCodes.Ldarg_0, OpCodes.Ldarg_1 });
+        Console.WriteLine("hook: GetTechnologyState returns wrapped by temples: " + n);
+
+        var unlock = dos.Methods.Where(x => x.Name == "UnlockTechnology" && x.HasBody && !x.IsStatic
+            && x.Parameters.Count >= 1 && x.Parameters[0].ParameterType.Name == "ScienceConstructibleElement").ToList();
+        if (unlock.Count != 1) throw new Exception("DepartmentOfScience.UnlockTechnology(ScienceConstructibleElement, ...) not found/ambiguous: " + unlock.Count);
+        var m = unlock[0];
+        LengthenBranches(m);
+        var il = m.Body.GetILProcessor();
+        var first = m.Body.Instructions[0];
+        il.InsertBefore(first, il.Create(OpCodes.Ldarg_0));
+        il.InsertBefore(first, il.Create(OpCodes.Ldarg_1));
+        il.InsertBefore(first, il.Create(OpCodes.Call, GameMethod(temple, "BlocksUnlock")));
+        il.InsertBefore(first, il.Create(OpCodes.Brfalse, first));
+        il.InsertBefore(first, il.Create(OpCodes.Ret));
+        Console.WriteLine("hook: UnlockTechnology guarded by temples");
     }
 
     // Hero rework: effect channels per hero kind, assignment rules, senate representative, skill trees, window title

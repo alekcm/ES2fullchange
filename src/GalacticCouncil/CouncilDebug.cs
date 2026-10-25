@@ -11,7 +11,7 @@ using Amplitude.Unity.Simulation;
 
 public static class CouncilDebug
 {
-    static bool councilOpen, heroOpen;
+    static bool councilOpen, heroOpen, templeOpen;
     static int recruitFilter;               // 0 all, 1 admirals, 2 governors, 3 senators
     static int recruitLevel = 1;
     static Vector2 recruitScroll, heroScroll;
@@ -27,6 +27,7 @@ public static class CouncilDebug
     {
         try
         {
+            DrawTempleTools(game, player);   // Endless Temples: independent of the Council state below
             GUILayout.Space(10);
             councilOpen = GUILayout.Toggle(councilOpen, T("══ ОТЛАДКА: Галактический совет ══", "══ DEBUG: Galactic Council ══"));
             if (!councilOpen || player == null) return;
@@ -132,6 +133,33 @@ public static class CouncilDebug
             if (status.Length > 0) GUILayout.Label(status);
         }
         catch (Exception e) { GUILayout.Label("Council debug: " + e.Message); }
+    }
+
+    // ============================================================ Endless Temples (science victory)
+
+    static void DrawTempleTools(Game game, MajorEmpire player)
+    {
+        try
+        {
+            GUILayout.Space(10);
+            templeOpen = GUILayout.Toggle(templeOpen, T("══ ОТЛАДКА: Храмы Древних (научная победа) ══", "══ DEBUG: Temples of the Ancients (science victory) ══"));
+            if (!templeOpen || player == null) return;
+            int emp = player.Index;
+            GUILayout.Label(T("Империя: ", "Empire: ") + CouncilGame.EmpireName(emp)
+                + T("   (храм каждой технологии общий для всех; узел выбирается при первом открытии координат)", "   (each technology's temple is shared by everybody; the node is chosen at the first reveal)"));
+            var lines = TempleGame.DebugLines(emp);
+            for (int i = 0; i < lines.Count && i < TempleCore.TechCount; i++)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(lines[i], GUILayout.Width(620));
+                if (Btn(T("Показать храм", "Reveal temple"))) CouncilGame.DebugSend(player, CouncilGame.DbgTempleReveal, i);
+                if (Btn(T("Открыть храм", "Open temple"))) CouncilGame.DebugSend(player, CouncilGame.DbgTempleOpen, i);
+                GUILayout.EndHorizontal();
+            }
+            GUILayout.Label(T("Проверка: «Показать храм» → привести Бегемота с модулями анализа особых узлов к отмеченному узлу и ждать (метка на карте галактики). «Открыть храм» — мгновенно, с оповещением радиогула другим игрокам.",
+                              "To test: \"Reveal temple\", then bring a Behemoth with special-node analyzer modules to the marked node and wait (marker on the galaxy map). \"Open temple\" is instant and sends the radio-hum message to the other players."));
+        }
+        catch (Exception e) { GUILayout.Label("Temple debug: " + e.Message); }
     }
 
     static string HistoryLine(CouncilResult r)

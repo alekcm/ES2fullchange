@@ -136,6 +136,7 @@ public static class CouncilUi
     public static void OnGameOverlayShown()
     {
         try { if (CouncilGame.Core != null && CouncilGame.Core.Enabled) CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }
+        try { TempleUi.EnsureHost(); } catch (Exception) { }   // Endless Temples overlay (map markers + messages)
     }
 
     /// <summary>Called from AcademyModalWindow.OnEndShow (the Academy is already fully shown at that

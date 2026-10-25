@@ -30,6 +30,8 @@ public static partial class CouncilGame
 
     public const int DbgOpenAcademy = 16;     // discover the Academy for everybody (any turn) and convene the Council
     public const int DbgGiveBuySkills = 17;   // give every senator of the empire the class vote skills (free, for playtests)
+    public const int DbgTempleReveal = 18;    // Endless Temples: B = technology index - reveal its temple to the empire now
+    public const int DbgTempleOpen = 19;      // Endless Temples: B = technology index - open its temple for the empire now
 
     static AcademyRequestsManager lastMgr;
     public static int AllianceOverride = -1;
@@ -159,6 +161,12 @@ public static partial class CouncilGame
                             Core.TrySetBallot(e.Index, Core.BuildAiBallot(e.Index, aiSeed, ScoreOf));
                         }
                     }
+                    break;
+                case DbgTempleReveal:
+                    TempleGame.DebugReveal(emp, b);
+                    break;
+                case DbgTempleOpen:
+                    TempleGame.DebugOpen(emp, b);
                     break;
             }
         }

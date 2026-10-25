@@ -110,25 +110,30 @@ public static partial class CouncilGame
             if (serializer == null || versionProvider == null) return;
             if (versionProvider.GetVersionNumber() < 7)
             {
-                if (serializer.Mode == Serializer.SerializationMode.Read) ResetRuntime(new CouncilCore());
+                if (serializer.Mode == Serializer.SerializationMode.Read) { ResetRuntime(new CouncilCore()); TempleGame.LoadState(""); }
                 return;
             }
             string current = "";
-            if (serializer.Mode == Serializer.SerializationMode.Write) current = Core.Serialize() + HeroSeparator + HeroRework.Serialize();
+            if (serializer.Mode == Serializer.SerializationMode.Write) current = Core.Serialize() + HeroSeparator + HeroRework.Serialize() + TempleSeparator + TempleGame.SerializeState();
             string loaded = serializer.SerializeAttribute<string>("CouncilState", current ?? "");
             if (serializer.Mode == Serializer.SerializationMode.Read)
             {
                 string heroPart = "";
                 int cut = loaded == null ? -1 : loaded.IndexOf(HeroSeparator, StringComparison.Ordinal);
                 if (cut >= 0) { heroPart = loaded.Substring(cut + HeroSeparator.Length); loaded = loaded.Substring(0, cut); }
+                string templePart = "";
+                int tcut = heroPart.IndexOf(TempleSeparator, StringComparison.Ordinal);
+                if (tcut >= 0) { templePart = heroPart.Substring(tcut + TempleSeparator.Length); heroPart = heroPart.Substring(0, tcut); }
                 ResetRuntime(CouncilCore.Deserialize(loaded));
                 HeroRework.Deserialize(heroPart);
+                TempleGame.LoadState(templePart);
             }
         }
         catch (Exception e) { Fail("SerializeAttributes", e); }
     }
 
     const string HeroSeparator = "@@HR@@";
+    const string TempleSeparator = "@@TM@@";
 
     static void ResetRuntime(CouncilCore fresh)
     {
@@ -184,13 +189,14 @@ public static partial class CouncilGame
             if (!buildStampLogged)
             {
                 buildStampLogged = true;
-                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-25.4 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
+                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-25.5 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
             }
             float foundingTurns = MakeAcademyTalkable(mgr);
             // No UI work from the turn hook: building the native Council window (cloning the whole laws
             // screen) on the main thread here froze the game for many seconds at the first turns / vote open.
             // The window is built lazily on the first explicit open (Academy window hook, HUD launcher).
             HeroRework.PerTurn(game);
+            TempleGame.PerTurn(game, turn);   // Endless Temples: independent of the Council (own turn guard inside)
             EnsureVoteTexts();
             perfHero = perfWatch.ElapsedMilliseconds;
 

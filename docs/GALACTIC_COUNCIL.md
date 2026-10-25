@@ -165,6 +165,18 @@ purchases in a compact form at the bottom of the vote tab, with a fleet picker (
 * **AI** (`CouncilGameAi.AiBuyVotes`, at the end of the voting turn before the tally): AI empires bribe and pressure while
   they can keep a reserve of 4x the price; they never use the civic, terror or war purchases.
 
+## Endless Temples (science victory)
+Full design and implementation notes: [`ENDLESS_TEMPLES.md`](ENDLESS_TEMPLES.md).
+
+The four Endless victory technologies stay locked after their normal availability condition until the empire studies the
+matching Temple of the Ancients. Each technology has one shared temple node, fixed at the first reveal (neutral special
+nodes are preferred); another empire is shown that node only when it qualifies itself. Study requires a stationary
+Juggernaut/Behemoth with `JuggernautAnalyzer` or `JuggernautResearch` modules for 10 turns on standard speed (scaled by
+game speed), with progress decaying by 0.5 per absent turn. The `TM1` temple state is stored after `@@TM@@` in
+`CouncilState`. For an alliance `VictoryScience` contender, `TempleGame.AdjustScienceAllianceVictory` replaces the
+summed score and alliance size by the best member's researched Endless-technology count and 1, so one member with all
+four wins for the alliance. AI empires use the same temple rules and have not yet been taught to study temples.
+
 ## Hooks in the game assembly
 | Where | What |
 |---|---|
@@ -182,7 +194,9 @@ purchases in a compact form at the bottom of the vote tab, with a fleet picker (
 | `ServerGroundBattle.GetColonizedStarSystemOpponentPropertyValue` (every `ret`) | value goes through `CouncilGame.AdjustOpponentProp` |
 | `DepartmentOfCommerce.GetTradingCompanyIncomeMultiplier` (every `ret`) | value goes through `CouncilGame.AdjustCompanyIncome` |
 | `DepartmentOfTheInterior.<DecolonizeProcessor>.MoveNext` (before `RemoveColonizedStarSystemAndPlanets`) | `CouncilGame.OnDecolonize` |
-| `VictoryManager.SetupInterpreterContextForContender` (end) | `CouncilGame.AdjustVictoryContext` |
+| `DepartmentOfScience.GetTechnologyState(ScienceConstructibleElement)` (every `ret`) | state goes through `TempleGame.AdjustTechState`: an Endless victory technology whose temple is not opened reports `NotAvailable` |
+| `DepartmentOfScience.UnlockTechnology(ScienceConstructibleElement, ...)` (start) | returns at once when `TempleGame.BlocksUnlock` reports that the technology's temple is not opened |
+| `VictoryManager.SetupInterpreterContextForContender` (end) | `CouncilGame.AdjustVictoryContext(manager, contender.Empires)`, then `TempleGame.AdjustScienceAllianceVictory(manager, contender.Empires, contender.Definition)` |
 | `GameClient.<CreateWarInstanceProcessor>.MoveNext` (after `CreateWarInstance`) | `CouncilGame.OnWarCreated` (war penalty) |
 | `DepartmentOfDefense.ScrapShipsPreprocessor`, `DepartmentOfCommerce.SelloutTradableShipsPreprocessor` (start) | return false when a ship belongs to a council squad |
 
@@ -224,6 +238,12 @@ is common to both UIs, so a vote begun in one can be finished in the other.
 
 The tools are appended to the END of two existing God-Mod tabs (hook `Patcher.HookDebugTabs`; code in `CouncilDebug.cs`, `CouncilGameDebug.cs`, `HeroDebug.cs`).
 Both sections are folded by default (a toggle line opens them).
+
+**Endless Temples tools** are drawn at the TOP of the Diplomacy tab by `CouncilDebug.DrawTempleTools`, independently of
+the Council state: for the currently controlled empire they show the hidden/studying/opened state, progress and temple
+node of all four Endless technologies, with "Reveal temple" / "Open temple" buttons. The buttons send synchronised
+`OrderCouncilVote(KindDebug, ...)` actions (`DbgTempleReveal = 18`, `DbgTempleOpen = 19`; parameter B is the technology
+index). See [`ENDLESS_TEMPLES.md`](ENDLESS_TEMPLES.md).
 
 **Tab "Diplomacy and empires" → "DEBUG: Galactic Council"** (acts on the empire you currently control; switch with "Play As"):
 - state: phase, vote number, turns to the next vote, votes of the empire with the breakdown, Supreme Legate, keep threshold, alliance flag;
