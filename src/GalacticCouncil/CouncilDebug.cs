@@ -28,6 +28,7 @@ public static class CouncilDebug
         try
         {
             DrawTempleTools(game, player);   // Endless Temples: independent of the Council state below
+            BattleDebug.DrawBattleTools(game, player);   // battle rework: crew reserve and defender morale, also Council-independent
             GUILayout.Space(10);
             councilOpen = GUILayout.Toggle(councilOpen, T("══ ОТЛАДКА: Галактический совет ══", "══ DEBUG: Galactic Council ══"));
             if (!councilOpen || player == null) return;

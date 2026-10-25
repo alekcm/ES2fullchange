@@ -111,7 +111,7 @@ public static partial class CouncilGame
             if (serializer == null || versionProvider == null) return;
             if (versionProvider.GetVersionNumber() < 7)
             {
-                if (serializer.Mode == Serializer.SerializationMode.Read) { ResetRuntime(new CouncilCore()); TempleGame.LoadState(""); }
+                if (serializer.Mode == Serializer.SerializationMode.Read) { ResetRuntime(new CouncilCore()); TempleGame.LoadState(""); BattleRework.LoadState(""); }
                 return;
             }
             string current = "";
@@ -133,6 +133,19 @@ public static partial class CouncilGame
         catch (Exception e) { Fail("SerializeAttributes", e); }
     }
 
+    /// <summary>Second, independent save slot for the battle rework: an empire can play without the Council, so the
+    /// morale / crew-reserve state must not live inside the Council string. Read mode gives back what was stored
+    /// (empty for a save from before the feature), write mode stores the current value.</summary>
+    public static string SerializeBattles(IAttributesSerializer serializer, string current)
+    {
+        try
+        {
+            if (serializer == null) return "";
+            return serializer.SerializeAttribute<string>("BattleState", BattleRework.Serialize() ?? "");
+        }
+        catch (Exception e) { Fail("SerializeBattles", e); return current ?? ""; }
+    }
+
     const string HeroSeparator = "@@HR@@";
     const string TempleSeparator = "@@TM@@";
 
@@ -142,6 +155,7 @@ public static partial class CouncilGame
         appliedFx.Clear();
         lastHandledTurn = int.MinValue;
         squadScanNeeded = true;
+        BattleRework.ResetRuntime();
     }
 
     /// <summary>Makes the Academy talkable as soon as it is discovered: removes the formula delay before

@@ -13,7 +13,7 @@ public static class Patcher
     static Cloner cl;
     static ModuleDefinition mod;
 
-    // Diagnostic bisection: PATCH_SKIP=gui,hero,council,hooks,repair (comma separated) leaves hook groups out
+    // Diagnostic bisection: PATCH_SKIP=gui,hero,council,battles,hooks,repair (comma separated) leaves hook groups out
     // of the produced assembly. Empty = the full patch. "hooks" = cloned types only (publicizing still applies,
     // it happens while cloning).
     static readonly HashSet<string> SkipSet = new HashSet<string>(
@@ -69,13 +69,14 @@ public static class Patcher
             HookShipBlocks(game);
             HookProductionCost(game);
             HookBattleLaws(game);
+            if (!Skip("battles")) HookBattles(game, cl.Mapped("BattleRework")); else Console.WriteLine("skip: battle rework hooks");
             HookCompany(game);
             HookDecolonize(game);
             HookWarCreated(game);
             HookBeforeTurnEnd(game);
             HookVictoryContext(game, cl.Mapped("TempleGame"));
             HookTemples(cl.Mapped("TempleGame"));
-            HookDebugTabs(cl.Mapped("CouncilDebug"));
+            HookDebugTabs(cl.Mapped("CouncilDebug"), cl.Mapped("BattleDebug"));
             HideHackingNotice();
             DisableHackingEndTurnWarning();
         }
@@ -646,6 +647,148 @@ public static class Patcher
         Console.WriteLine("hook: ground battle opponent property returns wrapped: " + n);
     }
 
+    // ---------------------------------------------------------------- battle rework (docs/BATTLES_REWORK.md)
+    //
+    // Four surgical patches, each of them reusing only tokens that the patched method already carries (the
+    // assembly must not gain new self TypeRefs, see CheckSelfReferences):
+    //
+    //  1. Ship/ColonizedStarSystem/Citadel.RefillManpower: the read of Empire.EmpireManpowerStock is replaced by
+    //     BattleRework.AllowedRefillFor(this.Empire) - manpower only flows from the imperial stock while the entity
+    //     sits in the rooted network (the chain of own systems that reaches the capital).
+    //  2. ServerGroundBattle.ComputeSpawnReport: the attacker's per-fleet manpower array is filtered through
+    //     BattleRework.ApplyCrewReserve before GroundBattleSpawnReport::Instantiate - a ship sends to the ground
+    //     only what it can spare above its crew reserve.
+    //  3. ServerGroundBattle.IsFinished: the result goes through BattleRework.CheckSurrender, which flags the
+    //     defence as capitulated once the system morale is at 0.
+    //  4. CouncilGame.SerializeAttributes: a "BattleState" attribute saves the morale/crew-reserve bookkeeping
+    //     independently of the Council, so the rework keeps working when the Council was never founded.
+    static void HookBattles(TypeDefinition game, TypeDefinition battles)
+    {
+        if (battles == null) throw new Exception("BattleRework type missing");
+
+        // ---- 1. the refill source of a ship (ColonizedStarSystem/Citadel refill through the generic pool, see docs)
+        var allowed = GameMethod(battles, "AllowedRefillFor");
+        int refills = 0;
+        foreach (var typeName in new[] { "Ship", "Garrison" })
+        {
+            var t = mod.GetType(typeName);
+            if (t == null) continue;
+            foreach (var rm in t.Methods.Where(x => x.HasBody && x.Name == "RefillManpower" && x.Parameters.Count == 0))
+                refills += ReplaceEmpireStockRead(rm, t, allowed);
+        }
+        if (refills == 0) throw new Exception("no RefillManpower call site patched");
+        Console.WriteLine("hook: manpower refill gated by system connectivity: " + refills + " read site(s)");
+
+        // ---- 2. crew reserve on the attacker's side of a ground battle: after the vanilla body has built the
+        // spawn report, the attacker's manpower is filtered through the ships' reserves.
+        var reserve = GameMethod(battles, "ApplyCrewReserve");
+        var spawn = Method("ServerGroundBattle", "ComputeSpawnReport", 0);
+        LengthenBranches(spawn);
+        var sins = spawn.Body.Instructions;
+        var setReport = sins.Last(i =>
+        {
+            var mr = i.Operand as MethodReference;
+            return mr != null && mr.Name == "set_SpawnReport";
+        });
+        if (setReport == null) throw new Exception("ServerGroundBattle.ComputeSpawnReport: set_SpawnReport not found");
+        var il2 = spawn.Body.GetILProcessor();
+        var afterSet = setReport.Next;
+        il2.InsertBefore(afterSet, il2.Create(OpCodes.Call, reserve));
+        il2.InsertBefore(afterSet, il2.Create(OpCodes.Ldarg_0));
+        Console.WriteLine("hook: ground battle attacker manpower filtered through the crew reserve");
+
+        // ---- 3. capitulation at zero morale
+        var surrender = GameMethod(battles, "CheckSurrender");
+        var fin = Method("ServerGroundBattle", "IsFinished", 0);
+        refills = WrapReturns(fin, surrender, new[] { OpCodes.Ldarg_0 });
+        Console.WriteLine("hook: ServerGroundBattle.IsFinished -> CheckSurrender (returns: " + refills + ")");
+
+        // ---- 4. the rework's own save attribute (a missing method on the mod side is fatal: the morale would reset silently)
+        var ser = GameMethod(game, "SerializeBattles");
+        var load = GameMethod(battles, "LoadState");
+        var cs = Method("CouncilGame", "SerializeAttributes", 2);
+        LengthenBranches(cs);
+        var cil = cs.Body.GetILProcessor();
+        var rets = cs.Body.Instructions.Where(i => i.OpCode == OpCodes.Ret).ToList();
+        if (rets.Count != 1) throw new Exception("CouncilGame.SerializeAttributes: expected a single ret, found " + rets.Count);
+        var last = rets[0];
+        cil.InsertBefore(last, cil.Create(OpCodes.Call, load));                   // BattleRework.LoadState(<what we just read>)
+        cil.InsertBefore(last, cil.Create(OpCodes.Call, ser));                    // CouncilGame.SerializeBattles(serializer, <current value>)
+        cil.InsertBefore(last, cil.Create(OpCodes.Ldarg_0));
+        cil.InsertBefore(last, cil.Create(OpCodes.Ldarg_1));
+        Console.WriteLine("hook: CouncilGame.SerializeAttributes also persists the battle rework state");
+    }
+
+    // Pattern of every manpower-refill source read:  <get the owner's Empire> ; ldsfld Empire::EmpireManpowerStock ;
+    // callvirt GetPropertyValue. The stock read is rewritten into `call BattleRework::AllowedRefillFor(<receiver>)`
+    // and the two following instructions become dead (Nop) - the value the vanilla method then uses as
+    // "how much the empire could give me" is the one our gate returned. Every token stays inside the patched method
+    // or comes from the mod, so the assembly gains no new self reference.
+    static int ReplaceEmpireStockRead(MethodDefinition m, TypeDefinition owner, MethodDefinition hook)
+    {
+        LengthenBranches(m);
+        var il = m.Body.GetILProcessor();
+        var ins = m.Body.Instructions;
+        int n = 0;
+        for (int i = 0; i + 1 < ins.Count; i++)
+        {
+            var st = ins[i].Operand as FieldReference;
+            var cr = ins[i + 1].Operand as MethodReference;
+            if (st == null || cr == null) continue;
+            if (ins[i].OpCode != OpCodes.Ldsfld || ins[i + 1].OpCode != OpCodes.Callvirt) continue;
+            if (st.Name != "EmpireManpowerStock") continue;
+            if (cr.Name != "GetPropertyValue") continue;
+            if (st.DeclaringType == null || !st.DeclaringType.Name.EndsWith("Empire")) continue;
+            // walk back to the empire getter that produced the object the stock was read from
+            Instruction ownerLoad = null;
+            for (var back = ins[i].Previous; back != null; back = back.Previous)
+            {
+                var mr = back.Operand as MethodReference;
+                if (mr != null && (back.OpCode == OpCodes.Callvirt || back.OpCode == OpCodes.Call) && mr.Name == "get_Empire") { ownerLoad = back; break; }
+                if (back.OpCode == OpCodes.Ret) break;
+            }
+            if (ownerLoad == null) throw new Exception(m.Name + ": no Empire getter before the EmpireManpowerStock read");
+            if (ownerLoad.Previous == null) throw new Exception(m.Name + ": the Empire getter is not fed by a load we can keep");
+            il.Replace(ownerLoad, il.Create(OpCodes.Call, hook));
+            il.Replace(ins[i], il.Create(OpCodes.Nop));
+            il.Replace(ins[i + 1], il.Create(OpCodes.Nop));
+            n++;
+        }
+        if (n == 0) throw new Exception(m.Name + ": no EmpireManpowerStock read found");
+        return n;
+    }
+
+    // small IL helpers that avoid depending on Cecil extension methods (this build references plain Mono.Cecil)
+    static Instruction il_LoadThis(MethodDefinition m) { return Instruction.Create(OpCodes.Ldarg_0); }
+    static Instruction il_Call(MethodDefinition m, MethodReference target) { return Instruction.Create(OpCodes.Call, target); }
+    static Instruction il_Dup(Instruction at) { return Instruction.Create(OpCodes.Dup); }
+
+    static Instruction PreviousFieldLoad(Instruction before, string fieldName)
+    {
+        for (var i = before.Previous; i != null; i = i.Previous)
+        {
+            var fr = i.Operand as FieldReference;
+            if (i.OpCode == OpCodes.Ldfld && fr != null && fr.Name == fieldName) return i;
+            var mr = i.Operand as MethodReference;
+            if (mr != null && mr.Name == "Instantiate") break;      // never walk past the call we are patching
+        }
+        throw new Exception("field load '" + fieldName + "' not found before the Instantiate call");
+    }
+
+    // Walks backwards from the patched ret (skipping the instructions the hook itself inserted, which are Nop/Pop/
+    // Call/Ldstr/Ldarg/Ldc and carry no such name) to the game's own SerializeAttribute<string> callvirt. Reusing its
+    // token keeps the assembly free of new self references.
+    static MethodReference FindMethodRef(Instruction start, string name)
+    {
+        for (var cur = start; cur != null; cur = cur.Previous)
+        {
+            var mr = cur.Operand as MethodReference;
+            if (mr == null) continue;
+            if (cur.OpCode == OpCodes.Callvirt && mr.Name.Contains(name)) return mr;
+        }
+        throw new Exception("method reference '" + name + "' not found before the patched return");
+    }
+
     // Antitrust Oversight: DepartmentOfCommerce.GetTradingCompanyIncomeMultiplier(company)
     static void HookCompany(TypeDefinition game)
     {
@@ -745,25 +888,31 @@ public static class Patcher
     }
 
     // God-Mod menu: Council and hero test tools are appended to the end of two existing tabs (static (Game, MajorEmpire) methods)
-    static void HookDebugTabs(TypeDefinition dbg)
+    // The mod's debug blocks live in their own types; every hooked vanilla tab function gets the calls appended in
+    // order, so a block keeps showing even when the feature it debugs (or the Council) is switched off.
+    static void HookDebugTabs(TypeDefinition dbg, TypeDefinition battleDbg)
     {
         if (dbg == null) throw new Exception("CouncilDebug missing");
-        foreach (var spec in new[] { new[] { "DrawTabTechLawsHeroes", "DrawHeroTools" }, new[] { "DrawTabDiplomacyAndEmpires", "DrawCouncilTools" } })
+        foreach (var spec in new[] { new[] { "DrawTabTechLawsHeroes", "DrawHeroTools", "" },
+                                     new[] { "DrawTabDiplomacyAndEmpires", "DrawCouncilTools", battleDbg != null ? "DrawBattleTools" : "" } })
         {
             var m = Method("CustomHackingHelper", spec[0]);
             if (!m.IsStatic || m.Parameters.Count != 2) throw new Exception("unexpected signature of " + spec[0]);
             var target = GameMethod(dbg, spec[1]);
+            var target2 = spec[2].Length == 0 ? null : GameMethod(battleDbg, spec[2]);
             LengthenBranches(m);
             var il = m.Body.GetILProcessor();
             var rets = m.Body.Instructions.Where(i => i.OpCode == OpCodes.Ret).ToList();
             foreach (var r in rets)
             {
                 r.OpCode = OpCodes.Ldarg_0; r.Operand = null;
-                var seq = new List<Instruction> { il.Create(OpCodes.Ldarg_1), il.Create(OpCodes.Call, target), il.Create(OpCodes.Ret) };
+                var seq = new List<Instruction> { il.Create(OpCodes.Ldarg_1), il.Create(OpCodes.Call, target) };
+                if (target2 != null) { seq.Add(il.Create(OpCodes.Ldarg_0)); seq.Add(il.Create(OpCodes.Ldarg_1)); seq.Add(il.Create(OpCodes.Call, target2)); }
+                seq.Add(il.Create(OpCodes.Ret));
                 var at = r;
                 foreach (var x in seq) { il.InsertAfter(at, x); at = x; }
             }
-            Console.WriteLine("hook: " + spec[0] + " ends with " + spec[1] + " (returns wrapped: " + rets.Count + ")");
+            Console.WriteLine("hook: " + spec[0] + " ends with " + spec[1] + (target2 != null ? " + " + spec[2] : "") + " (returns wrapped: " + rets.Count + ")");
         }
     }
 

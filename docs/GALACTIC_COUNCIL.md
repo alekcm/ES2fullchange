@@ -198,6 +198,8 @@ four wins for the alliance. AI empires use the same temple rules and have not ye
 | `DepartmentOfScience.GetTechnologyState(ScienceConstructibleElement)` (every `ret`) | state goes through `TempleGame.AdjustTechState`: an Endless victory technology whose temple is not opened reports `NotAvailable` |
 | `DepartmentOfScience.UnlockTechnology(ScienceConstructibleElement, ...)` (start) | returns at once when `TempleGame.BlocksUnlock` reports that the technology's temple is not opened |
 | `VictoryManager.SetupInterpreterContextForContender` (end) | `CouncilGame.AdjustVictoryContext(manager, contender.Empires)`, then `TempleGame.AdjustScienceAllianceVictory(manager, contender.Empires, contender.Definition)` |
+| `CustomHackingHelper.DrawTabDiplomacyAndEmpires` (end) | `CouncilDebug.DrawCouncilTools`, then `BattleDebug.DrawBattleTools` (crew reserve + morale readout, works without the Council) |
+| `CouncilGame.SerializeAttributes` (ret) | appends the battle rework state: `CouncilGame.SerializeBattles` -> attribute `BattleState` -> `BattleRework.LoadState` |
 | `GameClient.<CreateWarInstanceProcessor>.MoveNext` (after `CreateWarInstance`) | `CouncilGame.OnWarCreated` (war penalty) |
 | `DepartmentOfDefense.ScrapShipsPreprocessor`, `DepartmentOfCommerce.SelloutTradableShipsPreprocessor` (start) | return false when a ship belongs to a council squad |
 

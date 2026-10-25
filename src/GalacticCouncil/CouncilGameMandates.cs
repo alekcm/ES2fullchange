@@ -345,8 +345,11 @@ public static partial class CouncilGame
         var perfWatch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            if (!Core.Enabled) return;
             var game = GetGame();
+            // the battle rework (crew reserve, defender morale) is independent from the Council: it runs even
+            // when the Council was never founded, so it is deliberately outside the Core.Enabled guard below
+            if (game != null) BattleRework.PerTurn(game, game.Turn);
+            if (!Core.Enabled) return;
             if (game == null) return;
             DiscoverSquadShips(game);
             RefreshEffects(game);
