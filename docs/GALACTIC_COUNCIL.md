@@ -95,7 +95,7 @@ Garrison = the system manpower (`SimulationProperties/StarSystem`: `SystemManpow
 (100 base + Merit law + Strategic Presence + *session votes*) + 50 per ordinary mandate held; the Supreme Legate simply gets +100 (the victory mandate gives 100, not 50; nothing is
 doubled). The budget never goes below 0.
 * *Session votes* are read from the game when a vote opens (like Strategic Presence) and saved in `CouncilState`
-  (fields 30-31 of the `GC2` string, fields 32-33 hold the votes *bought* during the session, older saves load without them):
+  (fields 30-31 of the `GC2` string, fields 32-34 hold the votes *bought* during the session, older saves load without them):
   * every star system: level 2 -> +5, level 3 -> +10, level 4 -> +20 (one value per system, **not cumulative**;
     summed over all systems; `ColonizedStarSystem.Level` = `SimulationProperties.StarSystem.SystemLevel`);
   * Republic government: +40 (`Senate.Government.Definition.Name` contains `Republic`);
@@ -133,9 +133,9 @@ The achievements stay once earned. The UI shows the progress (for example `62% /
 ## Buying votes during a session (the senator class line, 2026-10-25)
 
 The class tree of the senators (`HRTreeClassCorporate@S`) is entirely about Council votes and holds no system buffs.
-Tier 1 carries four **active** skills: while a vote is open, each skill level is one purchase of **10 votes**, paid the way
+Tier 1 carries five **active** skills: while a vote is open, each skill level is one purchase of **10 votes**, paid the way
 the method describes. The buttons appear in the Council window (vote tab, cards below the questions) as soon as the empire's
-representing senators know at least one of the skills. The IMGUI fallback window (`CouncilUiImgui`) has the same four
+representing senators know at least one of the skills. The IMGUI fallback window (`CouncilUiImgui`) has the same five
 purchases in a compact form at the bottom of the vote tab, with a fleet picker (a selection grid) for terror.
 
 | Method (skill) | Price of one purchase |
@@ -144,23 +144,26 @@ purchases in a compact form at the bottom of the vote tab, with a fleet picker (
 | Crushing Authority | **Influence**: 100 x game stage x (1 + 0.5 x purchases already made) |
 | Compulsory Turnout | **-5 happiness on every system** of the empire, until the *next* vote opens |
 | Keeping Them in Fear | one fleet of **4+ command points immobilised** (cannot move), until the *next* vote opens |
+| Military Support | **-25% of the current and the maximum Manpower** of the empire, until the *next* vote opens |
 
 * **Limits** (`HeroRework.BuyLimitOf`): the sum of the skill levels over the senators that represent the empire's parties,
-  **+2 per method** when one of them holds the class ultimate ("The Vote Headquarters"). All four methods are independent;
+  **+2 per method** when one of them holds the class ultimate ("The Vote Headquarters"). All five methods are independent;
   a fully developed senator with the ultimate can buy up to 6 x 10 votes per method during one session.
 * **Inflation** (`CouncilCore.BuyStackCost`): the price scales with the game stage (1..6, `CouncilGame.GameStage`) and every
   purchase made this session makes the next one of the same method 50% more expensive; prices are rounded to tens.
 * The purchases are final: they add to `Budget` for the rest of the session and cannot be undone (a native confirmation
   dialog asks before paying). When the *next* session opens, everything is wiped: the bought votes stop counting and the
-  happiness / fleet penalties end (`CouncilCore.OpenVote`).
+  happiness / fleet / Manpower penalties end (`CouncilCore.OpenVote`).
 * Orders: `OrderCouncilVote.KindBuyVotes` (A = method, `Fleet` = the immobilised fleet for terror) - validated by
-  `CouncilGame.BuyPreprocessor` (phase, membership, limit, stock, fleet ownership and size) and applied once by
-  `BuyProcessor`; the state is saved in `CouncilState` fields 32-33.
+  `CouncilGame.BuyPreprocessor` (phase, membership, limit, stock, fleet ownership and size, a non-empty Manpower stock
+  for war) and applied once by `BuyProcessor`; the state is saved in `CouncilState` fields 32-34.
 * The penalties are live descriptors refreshed every turn (`CouncilGame.RefreshBuyPenalties`, the Euphoria pattern):
   one happiness descriptor per strength on every colonised system of the buying empire, one movement descriptor
-  (`ShipMaximumMovement` -999) per frozen fleet.
+  (`ShipMaximumMovement` -999) per frozen fleet, one capacity descriptor (`MaximumEmpireManpowerStock`, -25% per purchase,
+  capped at -90%) on the buying empire. The Manpower taken by the war purchases is collected from the stock through the
+  treasury (`EmpireManpower`, the path the game itself uses) and given back when the purchases end (`ManpowerTaken`).
 * **AI** (`CouncilGameAi.AiBuyVotes`, at the end of the voting turn before the tally): AI empires bribe and pressure while
-  they can keep a reserve of 4x the price; they never use the civic or terror purchases.
+  they can keep a reserve of 4x the price; they never use the civic, terror or war purchases.
 
 ## Hooks in the game assembly
 | Where | What |
@@ -226,7 +229,7 @@ Both sections are folded by default (a toggle line opens them).
 - "Open the Academy (any turn)" - the same as exploring the Academy system for the first time (`EventAcademyDiscovered` for every empire, `DiscoveredTurn`, `MinTurnsForFirstRequest = 0`) and then the Council is convened, so votes can be tested from turn 1;
 - "Convene the Council now", "Open the vote now", "Vote at next turn", "AIs vote now", "Tally now", "Council window";
 - "Give the senator class (vote purchases)" - every senator that represents a party of the current empire gets the whole
-  `ClassCorporate` tree (the four purchases, the passive votes and the ultimate) at full level, free (`OrderUnlockHeroSkill`
+  `ClassCorporate` tree (the five purchases, the passive votes and the ultimate) at full level, free (`OrderUnlockHeroSkill`
   with `IsFree`), so the purchases can be tested without growing a senator. A toast reports how many skills were given;
 - votes: +10 / +100 / −100, "Recompute from game", "Reset manual changes", "+ declared war (−20)", "Forget wars";
 - alliance of the Supreme Legate: auto / alone (51%) / allied (67%) - this is how both keep thresholds of "Establishment of Absolute Power" are tested;

@@ -111,10 +111,12 @@ keep the system buffs but lost their vote skills (Party03 T2 -> `Food` "Агра
 "Научный комитет", RaceVenetians T2 -> `Infl` "Имперская идеология"; the ultimates got the same replacement).
 The dictator keeps his own vote skills (`DictVenetians`, `DictHoratio`).
 
-* **Tier 1 - four ACTIVE skills** (one per method, 4 levels each, no static descriptors - hooks):
+* **Tier 1 - five ACTIVE skills** (one per method, 4 levels each, no static descriptors - hooks):
   `BribeVotes` «Подкуп избирателей» (buy 10 votes for **Dust**), `PressureVotes` «Задавить авторитетом»
   (**Influence**), `CivicVotes` «Принудительное участие» (**-5 happiness on every system** until the next vote opens),
-  `TerrorVotes` «Держать в страхе» (**immobilise a fleet of 4+ CP** until the next vote opens).
+  `TerrorVotes` «Держать в страхе» (**immobilise a fleet of 4+ CP** until the next vote opens),
+  `WarVotes` «Военная поддержка» (**-25% of the current and maximum Manpower** until the next vote opens;
+  what was taken is returned when the new session opens).
   Each skill level = one purchase of 10 votes during an open session; the purchase buttons live in the native
   Council window (see `docs/GALACTIC_COUNCIL.md`, "Buying votes during a session"). Prices inflate with the game
   stage and with every purchase already made (`CouncilCore.BuyStackCost`).
@@ -126,8 +128,8 @@ The dictator keeps his own vote skills (`DictVenetians`, `DictHoratio`).
   `S.Votes10`, `S.VotesUlt`) through `HeroDesign.VotesOfSkill`, exactly like before; the buy limits are
   `HeroRework.BuyLimitOf` (skill levels of the representing senators + 2 per held ultimate). The new game-side logic
   is `src/GalacticCouncil/CouncilGameBuys.cs` (prices, the order `OrderCouncilVote.KindBuyVotes`, the live
-  happiness/fleet penalties, the AI), the pure state is `CouncilCore.Buys` / `TerrorFleets` (serialized in
-  `CouncilState` fields 32-33, wiped when the next session opens).
+  happiness/fleet/Manpower penalties, the AI), the pure state is `CouncilCore.Buys` / `TerrorFleets` / `ManpowerTaken`
+  (serialized in `CouncilState` fields 32-34, wiped when the next session opens - the taken Manpower is given back then).
 * The senator economy is untouched: 7 skill points (Level-1), thresholds 0/2/4/6 - a senator can fully develop one
   T1 method and still reach the ultimate, or spread the points. For playtests the God-Mod Council section has
   "Give the senator class (vote purchases)": every representing senator gets the whole tree at full level for free.

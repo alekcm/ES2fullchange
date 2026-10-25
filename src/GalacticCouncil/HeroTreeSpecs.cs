@@ -106,9 +106,9 @@ public static partial class HeroDesign
         Spec("ClassAdmiral", 'A', "T1:ShipDmg;T2:ShipHp;T3:ShipCrit;U:ShipDmg,ShipHp,ShipCrit,ShipCrewKill");
         Spec("ClassAdventurer", 'A', "T1:Move,Vision;T2:Flak;T3:Stealth,Detect;U:Mothership");
         Spec("ClassAdministrator", 'G', "T1:Happy;T2:Prod;T3:Upkeep;U:Happy,Prod,Upkeep,Infl");
-        // The senator class line is ALL about Council votes (no system buffs): four active ways to buy 10 votes
+        // The senator class line is ALL about Council votes (no system buffs): five active ways to buy 10 votes
         // during a session (the skill level = number of purchases), then passive votes. See CouncilGameBuys.
-        Spec("ClassCorporate", 'S', "T1:BribeVotes,PressureVotes,CivicVotes,TerrorVotes;T2:Votes5;T3:Votes10;U:VotesUlt,VoteBoost");
+        Spec("ClassCorporate", 'S', "T1:BribeVotes,PressureVotes,CivicVotes,TerrorVotes,WarVotes;T2:Votes5;T3:Votes10;U:VotesUlt,VoteBoost");
         Ult("ClassAdmiral", "Личный флагман", "Personal Flagship");
         Ult("ClassAdventurer", "Материнский корабль", "Mothership");
         Ult("ClassAdministrator", "Образцовый управитель", "Model Administrator");
@@ -388,8 +388,8 @@ public static partial class HeroDesign
 
     // ---------------------------------------------------------------- purchases of votes (the senator class line)
 
-    /// <summary>The four active ways to buy 10 votes during a session; the array index is the method id used everywhere.</summary>
-    public static readonly string[] BuyMethodIds = { "Bribe", "Pressure", "Civic", "Terror" };
+    /// <summary>The four+one active ways to buy 10 votes during a session; the array index is the method id used everywhere.</summary>
+    public static readonly string[] BuyMethodIds = { "Bribe", "Pressure", "Civic", "Terror", "War" };
 
     static Dictionary<string, string> buySkillNames;      // "Bribe" ... -> database name of the class-tree skill
     static string buyBoostSkillName;

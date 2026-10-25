@@ -312,15 +312,23 @@ static class M
             Check(!b.TryBuyTerror(0, 4, 77ul), "the same fleet cannot be frozen twice");
             Check(b.TryBuyTerror(0, 2, 78ul) && !b.TryBuyTerror(0, 2, 79ul), "the limit of terror purchases holds");
             Check(b.BoughtVotesOf(0) == 40 && b.Budget(0) == 140, "four purchases = 40 votes");
+            // war: the stack and the taken Manpower register together
+            Check(b.TryBuyWar(0, 2, 300) && b.TryBuyWar(0, 2, 250) && b.BoughtStacks(0, 4) == 2 && b.ManpowerOf(0) == 550, "a war purchase registers the taken Manpower");
+            Check(!b.TryBuyWar(0, 2, 100) && !b.TryBuyWar(0, 1, 0), "the limit of war purchases holds, nothing is taken for free");
+            Check(b.BoughtVotesOf(0) == 60 && b.Budget(0) == 160, "five purchases = 60 votes");
             // serialization round trip
             var rb = CouncilCore.Deserialize(b.Serialize());
-            Check(rb.BoughtStacks(0, 0) == 1 && rb.BoughtStacks(0, 2) == 1 && rb.BoughtStacks(0, 3) == 2 && rb.BoughtVotesOf(0) == 40, "purchases survive serialization");
+            Check(rb.BoughtStacks(0, 0) == 1 && rb.BoughtStacks(0, 2) == 1 && rb.BoughtStacks(0, 3) == 2 && rb.BoughtStacks(0, 4) == 2 && rb.BoughtVotesOf(0) == 60, "purchases survive serialization");
             Check(rb.IsTerrorFleet(0, 77ul) && rb.IsTerrorFleet(0, 78ul) && !rb.IsTerrorFleet(0, 79ul), "frozen fleets survive serialization");
-            Check(rb.Budget(0) == 140, "the budget of a loaded state counts the purchases");
+            Check(rb.ManpowerOf(0) == 550, "the taken Manpower survives serialization");
+            Check(rb.Budget(0) == 160, "the budget of a loaded state counts the purchases");
             Check(rb.BudgetText(0, 10, true).Contains("куплено"), "the budget explanation mentions the purchases");
             // a new session wipes everything (the penalties end when it opens)
             b.OpenVote(30, new List<string> { "ResearchDevUp" });
             Check(b.BoughtVotesOf(0) == 0 && !b.IsTerrorFleet(0, 77ul) && b.Budget(0) == 100, "a new session clears the purchases and the frozen fleets");
+            Check(b.ManpowerOf(0) == 550, "the taken Manpower waits for the game layer after the session ends");
+            b.ClearManpowerTaken(0);
+            Check(b.ManpowerOf(0) == 0, "the Manpower debt is forgotten once the game layer has paid it back");
             // leaving the council drops the state too
             b.TryBuyVotes(1, 1, 4);
             b.RemoveMember(1);

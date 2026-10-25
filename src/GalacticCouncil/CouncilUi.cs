@@ -389,7 +389,8 @@ public static class CouncilUiImgui
             case 0: return CouncilGame.Tr("Подкуп избирателей (Пыль)", "Bribing the Electorate (Dust)");
             case 1: return CouncilGame.Tr("Задавить авторитетом (Влияние)", "Crushing Authority (Influence)");
             case 2: return CouncilGame.Tr("Принудительное участие (счастье)", "Compulsory Turnout (happiness)");
-            default: return CouncilGame.Tr("Держать в страхе (флот)", "Keeping Them in Fear (a fleet)");
+            case 3: return CouncilGame.Tr("Держать в страхе (флот)", "Keeping Them in Fear (a fleet)");
+            default: return CouncilGame.Tr("Военная поддержка (трудовые ресурсы)", "Military Support (Manpower)");
         }
     }
 
@@ -411,6 +412,7 @@ public static class CouncilUiImgui
             int price = CouncilGame.BuyPriceOf(me, m);
             string pay = m == 0 || m == 1 ? price + " " + CouncilGame.BuyUnitName(m, CouncilGame.IsRussian())
                         : m == 2 ? "-" + CouncilCore.CivicHappinessPerStack + CouncilGame.Tr(" счастья системам", " happiness on systems")
+                        : m == 4 ? "-25% " + CouncilGame.Tr("трудовых ресурсов", "Manpower")
                         : CouncilGame.Tr("флот от ", "a fleet of ") + CouncilCore.TerrorFleetCp + CouncilGame.Tr(" КО", " CP");
             GUILayout.Label(BuyMethodName(m) + ": " + bought[m] + " / " + limits[m] + "  ·  " + pay, wrapStyle, GUILayout.Width(430));
             GUI.enabled = bought[m] < limits[m];

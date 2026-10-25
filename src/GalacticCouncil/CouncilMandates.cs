@@ -386,6 +386,6 @@ public sealed partial class CouncilCore
         if (f.Length > 27) ReadSquadState(f[27]);
         if (f.Length > 29) ReadPresenceState(f[28], f[29]);
         if (f.Length > 31) ReadVoteState(f[30], f[31]);
-        if (f.Length > 33) ReadBuyState(f[32], f[33]);
+        if (f.Length > 33) ReadBuyState(f[32], f[33], f.Length > 34 ? f[34] : null);
     }
 }

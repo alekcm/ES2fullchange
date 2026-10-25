@@ -435,7 +435,8 @@ public class CouncilModalWindow : GuiModalWindow
             case 0: return CouncilGame.Tr("Подкуп избирателей", "Bribing the Electorate");
             case 1: return CouncilGame.Tr("Задавить авторитетом", "Crushing Authority");
             case 2: return CouncilGame.Tr("Принудительное участие", "Compulsory Turnout");
-            default: return CouncilGame.Tr("Держать в страхе", "Keeping Them in Fear");
+            case 3: return CouncilGame.Tr("Держать в страхе", "Keeping Them in Fear");
+            default: return CouncilGame.Tr("Военная поддержка", "Military Support");
         }
     }
 
@@ -446,7 +447,8 @@ public class CouncilModalWindow : GuiModalWindow
             case 0: return CouncilGame.Tr("за Пыль", "for Dust");
             case 1: return CouncilGame.Tr("за Влияние", "for Influence");
             case 2: return CouncilGame.Tr("за счастье систем", "for the happiness of the systems");
-            default: return CouncilGame.Tr("за неподвижный флот", "for an immobilised fleet");
+            case 3: return CouncilGame.Tr("за неподвижный флот", "for an immobilised fleet");
+            default: return CouncilGame.Tr("за трудовые ресурсы", "for Manpower");
         }
     }
 
@@ -460,7 +462,7 @@ public class CouncilModalWindow : GuiModalWindow
         int price = CouncilGame.BuyPriceOf(me, method);
 
         var body = new StringBuilder();
-        string conceptKey = method == 0 ? "BribeVotes" : method == 1 ? "PressureVotes" : method == 2 ? "CivicVotes" : "TerrorVotes";
+        string conceptKey = method == 0 ? "BribeVotes" : method == 1 ? "PressureVotes" : method == 2 ? "CivicVotes" : method == 3 ? "TerrorVotes" : "WarVotes";
         Concept cc = HeroDesign.Get(HeroChannel.Senate, conceptKey);
         body.AppendLine(cc != null ? cc.Note(CouncilGame.IsRussian()) : "");
         body.AppendLine();
@@ -501,6 +503,27 @@ public class CouncilModalWindow : GuiModalWindow
                         CouncilGame.Tr("Согнать", "Drive them"), delegate { CouncilGame.CastBuy(me, method, 0ul); });
                 },
                 bought < limit);
+        }
+        else if (method == 4)
+        {
+            int cut = Math.Min(bought * CouncilCore.WarManpowerPercentPerStack, CouncilCore.WarManpowerCapPercent);
+            int stock = Mathf.CeilToInt(CouncilGame.ManpowerStockOf(me));
+            body.Append(CouncilGame.Tr("Каждая покупка: −25% текущих и максимальных трудовых ресурсов империи до начала следующего голосования", "Every purchase: -25% of the current and maximum Manpower of the empire until the next vote opens"))
+                .Append(CouncilGame.Tr(" (сейчас −", " (currently -")).Append(cut).Append(CouncilGame.Tr("% вместимости, запас ", "% capacity, stock ")).Append(stock)
+                .Append(CouncilGame.Tr("; взятое возвращается при открытии новой сессии).", "; what was taken is returned when the new session opens).")).AppendLine();
+            card.Counter = bought + " / " + limit + (bought > 0 ? CouncilGame.Tr("  ·  −", "  ·  -") + cut + "% MP" : "");
+            card.Action = new NativeAction(
+                CouncilGame.Tr("Заручиться поддержкой армии: +10 голосов", "Secure the army's backing: +10 votes"),
+                CouncilGame.Tr("Империя временно потеряет часть трудовых ресурсов; они вернутся при открытии новой сессии.", "The empire temporarily loses part of its Manpower; it comes back when the new session opens."),
+                delegate (bool right)
+                {
+                    if (right) return;
+                    CouncilNative.Confirm(BuyMethodTitle(method) + ": " + CouncilGame.Tr("купить 10 голосов за счёт трудовых ресурсов?", "buy 10 votes for Manpower?"),
+                        CouncilGame.Tr("Призвать", "Call them"), delegate { CouncilGame.CastBuy(me, method, 0ul); });
+                },
+                bought < limit && stock > 0);
+            if (bought >= limit)
+                card.Counter = CouncilGame.Tr("лимит достигнут: ", "limit reached: ") + bought + " / " + limit;
         }
         else
         {
@@ -759,8 +782,8 @@ public class CouncilModalWindow : GuiModalWindow
         if (boughtTotal > 0)
         {
             sources.AppendLine();
-            sources.AppendLine(CouncilGame.Tr("КУПЛЕННЫЕ ГОЛОСА: сенаторы с классовым деревом «Корпорат» могут докупать голоса на открытой сессии (Пыль, Влияние, счастье систем или неподвижный флот) — они входят в числа выше до конца сессии.",
-                                              "BOUGHT VOTES: senators with the Corporate class tree can buy extra votes during an open session (Dust, Influence, the happiness of the systems or an immobilised fleet) - they are included in the numbers above until the session ends."));
+            sources.AppendLine(CouncilGame.Tr("КУПЛЕННЫЕ ГОЛОСА: сенаторы с классовым деревом «Корпорат» могут докупать голоса на открытой сессии (Пыль, Влияние, счастье систем, неподвижный флот или трудовые ресурсы) — они входят в числа выше до конца сессии.",
+                                              "BOUGHT VOTES: senators with the Corporate class tree can buy extra votes during an open session (Dust, Influence, the happiness of the systems, an immobilised fleet or Manpower) - they are included in the numbers above until the session ends."));
         }
         cards.Add(new NativeCard(CouncilGame.Tr("Откуда берутся голоса", "Where the votes come from"), null, sources.ToString(), null));
 

@@ -127,20 +127,25 @@ public sealed partial class CouncilCore
     // Dust (bribe), Influence (pressure), happiness of the systems (civic) and an immobilised fleet (terror).
     // The stacks are bought through OrderCouncilVote.KindBuyVotes; the game layer (CouncilGameBuys) pays the
     // price and refreshes the penalties. Everything is wiped when the NEXT session opens - the votes of the old
-    // one stop counting and the happiness / fleet penalties end exactly there.
+    // one stop counting and the happiness / fleet / Manpower penalties end exactly there. The taken Manpower
+    // waits in ManpowerTaken until the game layer has given it back.
 
-    public const int BuyMethodCount = 4;         // 0 bribe (Dust), 1 pressure (Influence), 2 civic (happiness), 3 terror (a frozen fleet)
+    public const int BuyMethodCount = 5;         // 0 bribe (Dust), 1 pressure (Influence), 2 civic (happiness), 3 terror (a frozen fleet), 4 war (Manpower)
     public const int BuyVotesPerStack = 10;      // votes of one purchase
     public const int BuyBoostStacks = 2;         // the class ultimate: extra purchases for every method
     public const int DustPerStack = 250;         // base price of one bribed stack before inflation
     public const int InfluencePerStack = 100;    // base price of one pressured stack before inflation
     public const int CivicHappinessPerStack = 5; // happiness every system loses per civic purchase
     public const int TerrorFleetCp = 4;          // command points a fleet needs to be held "in fear"
+    public const int WarManpowerPercentPerStack = 25; // percent of its Manpower the empire loses per war purchase (current and maximum)
+    public const int WarManpowerCapPercent = 90;      // the maximum cut of the Manpower capacity, however many purchases were made
 
     /// <summary>Purchases of the current session: empire -> stacks bought per method (missing = none).</summary>
     public Dictionary<int, int[]> Buys = new Dictionary<int, int[]>();
     /// <summary>Fleets held "in fear": empire -> GUIDs; one per terror purchase, freed when the next session opens.</summary>
     public Dictionary<int, List<ulong>> TerrorFleets = new Dictionary<int, List<ulong>>();
+    /// <summary>Manpower taken by the war purchases: empire -> amount; the game layer gives it back when the purchases end.</summary>
+    public Dictionary<int, int> ManpowerTaken = new Dictionary<int, int>();
 
     static readonly int[] NoBuys = new int[BuyMethodCount];
 
@@ -164,7 +169,14 @@ public sealed partial class CouncilCore
     public int BoughtVotesOf(int emp)
     {
         int[] v = BuysOf(emp);
-        return BuyVotesPerStack * (v[0] + v[1] + v[2] + v[3]);
+        return BuyVotesPerStack * (v[0] + v[1] + v[2] + v[3] + v[4]);
+    }
+
+    /// <summary>Manpower taken from the empire by the war purchases of the current (or just closed) session.</summary>
+    public int ManpowerOf(int emp)
+    {
+        int v;
+        return ManpowerTaken.TryGetValue(emp, out v) ? v : 0;
     }
 
     public bool IsTerrorFleet(int emp, ulong guid)
@@ -208,6 +220,22 @@ public sealed partial class CouncilCore
         return true;
     }
 
+    /// <summary>One war purchase: the stack and the taken Manpower register together (the Manpower is the price,
+    /// given back when the purchases end). The game layer has already collected it from the stock.</summary>
+    public bool TryBuyWar(int emp, int limit, int taken)
+    {
+        if (!CanBuyVotes(emp, 4, limit) || taken <= 0) return false;
+        OwnedBuys(emp)[4]++;
+        ManpowerTaken[emp] = ManpowerOf(emp) + taken;
+        return true;
+    }
+
+    /// <summary>The game layer has returned the Manpower of the empire; forget the debt.</summary>
+    public void ClearManpowerTaken(int emp)
+    {
+        ManpowerTaken.Remove(emp);
+    }
+
     // ------------------------------------------------------------------ persistence (two fields after the presence state)
 
     void AppendVoteState(StringBuilder sb)
@@ -240,10 +268,14 @@ public sealed partial class CouncilCore
                 for (int i = 0; i < n.Length; i++) n[i] = kv.Value[i].ToString(CultureInfo.InvariantCulture);
                 parts.Add(Iv(kv.Key) + "@" + string.Join(",", n));
             }
+        sb.Append(string.Join(";", parts.ToArray())).Append('|');
+        parts.Clear();
+        foreach (var kv in ManpowerTaken)
+            if (kv.Value > 0) parts.Add(Iv(kv.Key) + ":" + Iv(kv.Value));
         sb.Append(string.Join(";", parts.ToArray()));
     }
 
-    void ReadBuyState(string buys, string fleets)
+    void ReadBuyState(string buys, string fleets, string manpower)
     {
         foreach (var rec in SplitStr(buys, ';'))
         {
@@ -263,6 +295,12 @@ public sealed partial class CouncilCore
                 if (ulong.TryParse(g, NumberStyles.Integer, CultureInfo.InvariantCulture, out u) && u != 0ul) l.Add(u);
             }
             TerrorFleets[int.Parse(ab[0], CultureInfo.InvariantCulture)] = l;
+        }
+        foreach (var rec in SplitStr(manpower, ';'))
+        {
+            var t = rec.Split(':');
+            int amount = int.Parse(t[1], CultureInfo.InvariantCulture);
+            if (amount > 0) ManpowerTaken[int.Parse(t[0], CultureInfo.InvariantCulture)] = amount;
         }
     }
 

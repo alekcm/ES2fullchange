@@ -146,7 +146,7 @@ static class HeroKindsTests
                     Check(st.RequiredLevel > prev, "thresholds grow in " + tree.TreeName); prev = st.RequiredLevel;
                     Check(st.RequiredLevel == HeroFlavors.StageThreshold(si, role == 'A' ? HeroKind.Admiral : role == 'G' ? HeroKind.Governor : HeroKind.Senator, role == 'D'), "threshold of stage " + si + " in " + tree.TreeName);
                     if (si == 3) Check(st.Skills.Count == 1 && st.Skills[0].Levels == 1, "single one-level ultimate in " + tree.TreeName);
-                    else Check(st.Skills.Count >= 1 && st.Skills.Count <= (tree.TreeName == "HRTreeClassCorporate@S" ? 4 : 3), "skills per stage in " + tree.TreeName);
+                    else Check(st.Skills.Count >= 1 && st.Skills.Count <= (tree.TreeName == "HRTreeClassCorporate@S" ? 5 : 3), "skills per stage in " + tree.TreeName);
                     foreach (DesignSkill sk in st.Skills)
                     {
                         skillsTotal++;

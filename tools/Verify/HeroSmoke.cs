@@ -305,7 +305,7 @@ static class HeroSmoke
         // votes of the Council are read by name (the passive votes live in the senator CLASS tree)
         var votesOf = design.GetMethod("VotesOfSkill");
         object voteSk = null; string voteName = null;
-        foreach (string cand in new[] { "HRClassCorporate_5@S", "HRClassCorporate_6@S", "HRClassCorporate_7@S" })
+        foreach (string cand in new[] { "HRClassCorporate_6@S", "HRClassCorporate_7@S", "HRClassCorporate_8@S" })
             if (voteSk == null && (int)votesOf.Invoke(null, new object[] { cand, 1 }) > 0) { voteSk = DbGet(skillDb, cand); voteName = cand; }
         if (voteSk == null) { Console.WriteLine("  no votes skill found in the senator class tree"); bad++; }
         else Console.WriteLine("votes skill " + voteName + ": " + votesOf.Invoke(null, new object[] { voteName, 1 }) + " / " + votesOf.Invoke(null, new object[] { voteName, 3 }));

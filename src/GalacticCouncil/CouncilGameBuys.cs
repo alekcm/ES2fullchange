@@ -1,10 +1,11 @@
 // The senator class line in action: buying extra votes while a Council vote is open (see HeroDesign "BribeVotes").
-//   limits   - levels of the four T1 skills of ClassCorporate summed over the senators that represent the
+//   limits   - levels of the five T1 skills of ClassCorporate summed over the senators that represent the
 //              empire's parties (+2 per method for the held class ultimate);
 //   price    - base x game stage x (1 + 0.5 x purchases already made): inflation inside and outside the session;
 //   payment  - Dust (bribe) or Influence (pressure) through the treasury; the civic purchase takes happiness of
-//              every system and the terror purchase immobilises a fleet of 4+ command points, both until the
-//              NEXT session opens (RefreshBuyPenalties applies and removes the descriptors);
+//              every system, the terror purchase immobilises a fleet of 4+ command points and the war purchase
+//              cuts the current and maximum Manpower, all three until the NEXT session opens
+//              (RefreshBuyPenalties applies and removes the descriptors, the taken Manpower is given back there);
 //   orders   - OrderCouncilVote.KindBuyVotes (validated by the preprocessor, applied once by the processor),
 //              so multiplayer and saved games stay consistent.
 using System;
@@ -63,6 +64,33 @@ public static partial class CouncilGame
     public static string BuyUnitName(int method, bool ru)
     {
         return method == 0 ? Tr("Пыли", "Dust") : Tr("Влияния", "Influence");
+    }
+
+    // ---------------------------------------------------------------- manpower (the war purchase)
+
+    /// <summary>Current Manpower stock of the empire (the property the game itself reads).</summary>
+    public static float ManpowerStockOf(Empire e)
+    {
+        if (e == null || e.SimulationObject == null) return 0f;
+        try { return e.SimulationObject.GetPropertyValue(SimulationProperties.Empire.EmpireManpowerStock); }
+        catch (Exception) { return 0f; }
+    }
+
+    /// <summary>Manpower one war purchase takes right now: a quarter of the current stock, at least 1.</summary>
+    static int WarTakeOf(Empire e)
+    {
+        float stock = ManpowerStockOf(e);
+        if (stock <= 0f) return 0;
+        return Math.Max(1, (int)Math.Ceiling(stock * CouncilCore.WarManpowerPercentPerStack / 100f));
+    }
+
+    /// <summary>Moves Manpower through the treasury, the same path the game uses for its own manpower costs.</summary>
+    static bool TryTransferManpower(Empire e, float amount)
+    {
+        if (e == null || e.SimulationObject == null || amount == 0f) return false;
+        var treasury = e.GetAgency<DepartmentOfTheTreasury>();
+        if (treasury == null) return false;
+        return treasury.TryTransferResources(e.SimulationObject, SimulationProperties.Empire.EmpireManpower, amount, false);
     }
 
     // ---------------------------------------------------------------- fleets (the terror purchase)
@@ -136,6 +164,7 @@ public static partial class CouncilGame
             if (f == null || f.CommandPoints < CouncilCore.TerrorFleetCp) return false;
             if (Core.IsTerrorFleet(e.Index, o.Fleet)) return false;
         }
+        if (method == 4 && WarTakeOf(e) <= 0) return false;   // no Manpower to give
         return true;
     }
 
@@ -146,10 +175,22 @@ public static partial class CouncilGame
         if (e == null) return;
         int limit = BuyLimitOf(e, method);
         int price = BuyPriceOf(e, method);
+        int warTake = 0;
         if (!Core.CanBuyVotes(e.Index, method, limit)) return;
         if (method == 3)
         {
             if (!Core.TryBuyTerror(e.Index, limit, o.Fleet)) return;
+        }
+        else if (method == 4)
+        {
+            warTake = WarTakeOf(e);
+            if (warTake <= 0) return;
+            if (!TryTransferManpower(e, -warTake)) return;
+            if (!Core.TryBuyWar(e.Index, limit, warTake))
+            {
+                TryTransferManpower(e, warTake);       // the stack did not register - give the Manpower back
+                return;
+            }
         }
         else
         {
@@ -168,8 +209,11 @@ public static partial class CouncilGame
             string what = method == 0 ? Tr("Подкуп избирателей", "Bribing the electorate")
                         : method == 1 ? Tr("Задавить авторитетом", "Crushing authority")
                         : method == 2 ? Tr("Принудительное участие", "Compulsory turnout")
-                        : Tr("Держать в страхе", "Keeping them in fear");
-            string pay = method == 0 || method == 1 ? " — " + price + " " + BuyUnitName(method, true) : "";
+                        : method == 3 ? Tr("Держать в страхе", "Keeping them in fear")
+                        : Tr("Военная поддержка", "Military support");
+            string pay = method == 0 || method == 1 ? " — " + price + " " + BuyUnitName(method, true)
+                        : method == 4 ? " — −" + warTake + Tr(" трудовых ресурсов", " Manpower")
+                        : "";
             CouncilUi.Toast(what + ": " + Tr("куплено 10 голосов", "10 votes bought") + pay);
         }
     }
@@ -193,6 +237,16 @@ public static partial class CouncilGame
         return CustomHackingHelper.CreateAndRegisterDescriptor(null, "CouncilTerror_" + (++buyDescriptorSeq), "CouncilTerror", null, new[] { mod });
     }
 
+    static SimulationDescriptor MakeWarDescriptor(int cutPercent)
+    {
+        var mod = CustomHackingHelper.MakeModifier(SimulationProperties.Empire.MaximumEmpireManpowerStock.ToString(),
+            SimulationModifierDescriptor.ModifierOperation.Percent, -cutPercent / 100f, "ClassEmpire");
+        return CustomHackingHelper.CreateAndRegisterDescriptor(null, "CouncilWar_" + (++buyDescriptorSeq), "CouncilWar", null, new[] { mod });
+    }
+
+    static readonly List<SimulationDescriptor> warDescriptors = new List<SimulationDescriptor>();
+    static readonly List<MajorEmpire> warEmpires = new List<MajorEmpire>();
+
     static void ClearBuyPenalties()
     {
         for (int i = 0; i < buyDescriptors.Count; i++)
@@ -201,11 +255,19 @@ public static partial class CouncilGame
         }
         buyDescriptors.Clear();
         buyTargets.Clear();
+        for (int i = 0; i < warDescriptors.Count; i++)
+        {
+            try { warEmpires[i].SimulationObject.RemoveDescriptor(warDescriptors[i]); warEmpires[i].Refresh(false); } catch (Exception) { }
+        }
+        warDescriptors.Clear();
+        warEmpires.Clear();
         buySignature = "";
     }
 
-    /// <summary>Applies / removes the happiness and fleet descriptors of the purchases; called every turn and after a purchase.
-    /// The signature guards the work: nothing happens while the wanted state is already applied.</summary>
+    /// <summary>Applies / removes the happiness, fleet and Manpower descriptors of the purchases; called every turn and
+    /// after a purchase. The signature guards the work: nothing happens while the wanted state is already applied.
+    /// When the war purchases have ended (a new session opened, the empire left the Council), the taken Manpower
+    /// is given back here - the capacity is restored first, then the stock returns.</summary>
     public static void RefreshBuyPenalties(Game game)
     {
         try
@@ -214,6 +276,8 @@ public static partial class CouncilGame
             var systems = new List<ColonizedStarSystem>();  // systems with a happiness penalty
             var strength = new List<int>();
             var fleets = new List<Fleet>();                 // fleets held in fear
+            var wars = new List<MajorEmpire>();             // empires with a Manpower capacity cut
+            var cuts = new List<int>();
             var sb = new StringBuilder();
             foreach (MajorEmpire e in game.EnumerableMajorEmpires)
             {
@@ -230,6 +294,12 @@ public static partial class CouncilGame
                         sb.Append(cs.GUID).Append(':').Append(v[2]).Append(',');
                     }
                 }
+                if (v[4] > 0)
+                {
+                    wars.Add(e);
+                    cuts.Add(Math.Min(v[4] * CouncilCore.WarManpowerPercentPerStack, CouncilCore.WarManpowerCapPercent));
+                    sb.Append(e.Index).Append(":war").Append(v[4]).Append(',');
+                }
                 List<ulong> frozen;
                 if (Core.TerrorFleets.TryGetValue(e.Index, out frozen) && frozen != null)
                     for (int i = 0; i < frozen.Count; i++)
@@ -241,26 +311,48 @@ public static partial class CouncilGame
                     }
             }
             string sig = sb.ToString();
-            if (sig == buySignature) return;
-            ClearBuyPenalties();
-            buySignature = sig;
-            var byStrength = new Dictionary<int, SimulationDescriptor>();
-            for (int i = 0; i < systems.Count; i++)
+            if (sig != buySignature)
             {
-                SimulationDescriptor d;
-                if (!byStrength.TryGetValue(strength[i], out d)) byStrength[strength[i]] = d = MakeCivicDescriptor(strength[i]);
-                systems[i].SimulationObject.AddDescriptor(d);
-                buyDescriptors.Add(d); buyTargets.Add(systems[i]);
+                ClearBuyPenalties();
+                buySignature = sig;
+                var byStrength = new Dictionary<int, SimulationDescriptor>();
+                for (int i = 0; i < systems.Count; i++)
+                {
+                    SimulationDescriptor d;
+                    if (!byStrength.TryGetValue(strength[i], out d)) byStrength[strength[i]] = d = MakeCivicDescriptor(strength[i]);
+                    systems[i].SimulationObject.AddDescriptor(d);
+                    buyDescriptors.Add(d); buyTargets.Add(systems[i]);
+                }
+                for (int i = 0; i < fleets.Count; i++)
+                {
+                    SimulationDescriptor d = MakeTerrorDescriptor();
+                    fleets[i].SimulationObject.AddDescriptor(d);
+                    buyDescriptors.Add(d); buyTargets.Add(fleets[i]);
+                }
+                var byCut = new Dictionary<int, SimulationDescriptor>();
+                for (int i = 0; i < wars.Count; i++)
+                {
+                    SimulationDescriptor d;
+                    if (!byCut.TryGetValue(cuts[i], out d)) byCut[cuts[i]] = d = MakeWarDescriptor(cuts[i]);
+                    wars[i].SimulationObject.AddDescriptor(d);
+                    warDescriptors.Add(d); warEmpires.Add(wars[i]);
+                }
+                for (int i = 0; i < buyTargets.Count; i++)
+                {
+                    try { buyTargets[i].Refresh(false); } catch (Exception) { }
+                }
+                for (int i = 0; i < warEmpires.Count; i++)
+                {
+                    try { warEmpires[i].Refresh(false); } catch (Exception) { }
+                }
             }
-            for (int i = 0; i < fleets.Count; i++)
+            // the war purchases of a closed session (or of an empire that left): the Manpower comes back
+            foreach (MajorEmpire e in game.EnumerableMajorEmpires)
             {
-                SimulationDescriptor d = MakeTerrorDescriptor();
-                fleets[i].SimulationObject.AddDescriptor(d);
-                buyDescriptors.Add(d); buyTargets.Add(fleets[i]);
-            }
-            for (int i = 0; i < buyTargets.Count; i++)
-            {
-                try { buyTargets[i].Refresh(false); } catch (Exception) { }
+                if (e == null || e.HasBeenEliminated) continue;
+                int taken = Core.ManpowerOf(e.Index);
+                if (taken <= 0 || Core.BuysOf(e.Index)[4] > 0) continue;
+                if (TryTransferManpower(e, taken)) Core.ClearManpowerTaken(e.Index);
             }
         }
         catch (Exception e) { Fail("RefreshBuyPenalties", e); }

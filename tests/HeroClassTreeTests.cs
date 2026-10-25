@@ -248,7 +248,7 @@ static class HeroClassTreeTests
             if (corp != null)
             {
                 CheckStages(corp, 0, 2, 4, 6);          // the senator has seven level-ups (seven skill points)
-                Check(corp.Stages[0].Skills.Count == 4, "tier 1 holds the four active purchase skills (got " + corp.Stages[0].Skills.Count + ")");
+                Check(corp.Stages[0].Skills.Count == 5, "tier 1 holds the five active purchase skills (got " + corp.Stages[0].Skills.Count + ")");
                 string[] want = { "S.BribeVotes", "S.PressureVotes", "S.CivicVotes", "S.TerrorVotes" };
                 var t1 = new List<string>(); foreach (DesignSkill sk in corp.Stages[0].Skills) t1.Add(sk.Concepts[0].Key);
                 for (int i = 0; i < want.Length; i++) Check(t1.Contains(want[i]), "tier 1 holds " + want[i]);
@@ -271,8 +271,8 @@ static class HeroClassTreeTests
                 Check(cu.Values[0][ukeys.IndexOf("S.VoteBoost")] == 2, "the ultimate gives +2 purchases to every method");
             }
 
-            // the buy hooks resolve to database names; the four methods + the ultimate booster
-            Check(HeroDesign.BuyMethodIds.Length == CouncilCore.BuyMethodCount, "four buy methods everywhere");
+            // the buy hooks resolve to database names; the five methods + the ultimate booster
+            Check(HeroDesign.BuyMethodIds.Length == CouncilCore.BuyMethodCount, "five buy methods everywhere");
             for (int m = 0; m < HeroDesign.BuyMethodIds.Length; m++)
             {
                 string n = HeroDesign.BuySkillName(HeroDesign.BuyMethodIds[m]);

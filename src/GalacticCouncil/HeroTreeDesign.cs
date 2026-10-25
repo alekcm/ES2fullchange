@@ -295,7 +295,7 @@ public static partial class HeroDesign
             "Extra votes of your empire in the Galactic Council while the hero represents his party in the Senate.");
 
         // ---------------------------------------------------------------- senator class line: the votes of the Galactic Council
-        // The corporate class tree is entirely about Council votes and carries no system buffs. Tier 1 holds four
+        // The corporate class tree is entirely about Council votes and carries no system buffs. Tier 1 holds five
         // ACTIVE skills: each level is one purchase of 10 votes during an open session, paid the way the method
         // describes; the purchase buttons appear in the Council window while the vote is open (CouncilGameBuys).
         // Tiers 2/3 and the ultimate are passive votes read from the vote table. None of these concepts carries
@@ -312,6 +312,9 @@ public static partial class HeroDesign
         Def(S, "TerrorVotes", "Держать в страхе", "Keeping Them in Fear", "×10 голосов", "x10 votes", false, Flavor.Offense, "buyterror", new[] { 1, 1, 1 }, 0, 4, 0, 1, 0, 0,
             "Во время открытого голосования в Совете можно задержать флот (от 4 командных очков) «для поддержания порядка»: одна покупка = 10 голосов, не больше уровня навыка, флот обездвижен до начала следующего голосования.",
             "While a Council vote is open you can hold a fleet (4 command points or more) 'to keep order': one purchase = 10 votes, at most once per skill level, the fleet cannot move until the next vote opens.");
+        Def(S, "WarVotes", "Военная поддержка", "Military Support", "×10 голосов", "x10 votes", false, Flavor.Manpower, "buywar", new[] { 1, 1, 1 }, 0, 4, 0, 1, 0, 0,
+            "Во время открытого голосования в Совете можно заручиться поддержкой армии: одна покупка = 10 голосов, не больше уровня навыка, но империя теряет четверть текущих и максимальных трудовых ресурсов до начала следующего голосования (потерянное возвращается, когда откроется новая сессия).",
+            "While a Council vote is open you can secure the army's backing: one purchase = 10 votes, at most once per skill level, but the empire loses a quarter of its current and maximum Manpower until the next vote opens (what was taken is returned when the new session opens).");
         Def(S, "Votes5", "Партийная дисциплина", "Party Discipline", " голосов", " votes", false, Flavor.Votes, "votes5", new[] { 5, 5, 5 }, 0, 3, 0, 1, 0, 0,
             "Сенатор приводит на голосование партийный актив: постоянные голоса вашей империи в Галактическом Совете.",
             "The senator brings the party rank and file to the vote: permanent votes of your empire in the Galactic Council.");
@@ -332,6 +335,7 @@ public static partial class HeroDesign
         Get(S, "PressureVotes").Special = "BuyPressure";
         Get(S, "CivicVotes").Special = "BuyCivic";
         Get(S, "TerrorVotes").Special = "BuyTerror";
+        Get(S, "WarVotes").Special = "BuyWar";
         Get(S, "VoteBoost").Special = "BuyBoost";
         LoadSpecs();
     }
