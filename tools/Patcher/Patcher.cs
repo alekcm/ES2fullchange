@@ -453,13 +453,25 @@ public static class Patcher
     // AcademyModalWindow.OnBeginShow/OnBeginHide -> show/hide the launcher button
     static void HookAcademyWindow(TypeDefinition ui)
     {
-        foreach (var pair in new[] { new[] { "OnBeginShow", "OnAcademyWindowShown" }, new[] { "OnBeginHide", "OnAcademyWindowHidden" } })
+        // OnEndShow/OnEndHide, NOT OnBegin*: the shown-callback may open the Council modal, and asking the
+        // windows stack to show a second modal from inside the first modal's OnBeginShow (before its base
+        // call even ran) left the Academy window itself half-shown. At OnEndShow the Academy is fully up.
+        // The ret is rewritten in place (branches targeting it must run the call too), never InsertBefore.
+        foreach (var pair in new[] { new[] { "OnEndShow", "OnAcademyWindowShown" }, new[] { "OnEndHide", "OnAcademyWindowHidden" } })
         {
             var m = Method("AcademyModalWindow", pair[0]);
+            LengthenBranches(m);
             var il = m.Body.GetILProcessor();
-            il.InsertBefore(m.Body.Instructions[0], il.Create(OpCodes.Call, GameMethod(ui, pair[1])));
+            var rets = m.Body.Instructions.Where(i => i.OpCode == OpCodes.Ret).ToList();
+            if (rets.Count == 0) throw new Exception("AcademyModalWindow." + pair[0] + ": no ret");
+            foreach (var r in rets)
+            {
+                r.OpCode = OpCodes.Call;
+                r.Operand = GameMethod(ui, pair[1]);
+                il.InsertAfter(r, il.Create(OpCodes.Ret));
+            }
         }
-        Console.WriteLine("hook: AcademyModalWindow show/hide");
+        Console.WriteLine("hook: AcademyModalWindow end-show/end-hide");
     }
 
     // GameOverlayWindow.OnBeginShow: after the base show, retry creating the Council launcher. Founding and

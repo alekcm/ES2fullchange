@@ -1310,9 +1310,8 @@ public static class CouncilNative
     }
 
     /// <summary>Creates only the HUD launcher button (a single cloned button): the Council must stay
-    /// reachable even while the full window is not built yet and vanilla Academy diplomacy is gated
-    /// ("the Academy is deliberating and not ready to negotiate" - our founding pins the vanilla request
-    /// cycle to Dormant, so that path may never open the Academy window).</summary>
+    /// reachable even while the full window is not built yet (building it clones the whole laws screen
+    /// and must only happen on an explicit open).</summary>
     public static void EnsureLauncherOnly()
     {
         if (launcher != null) { PositionLauncher(); RefreshLauncher(); return; }

@@ -173,7 +173,7 @@ purchases in a compact form at the bottom of the vote tab, with a fleet picker (
 | `DepartmentOfTheTreasury` | new order processor `CouncilVote` (`OrderCouncilVote`) |
 | `GameClient.SpawnHackingOperationBackdoorProcessor` | exits early while Counterintel is active |
 | `OverhaulOutcomeDefinition.CheckHackingEmpireAndTarget`, `CustomHackingHelper.BuildPromptElement` | sleeper count goes through `CouncilGame.SleepersForHack` |
-| `AcademyModalWindow.OnBeginShow/OnBeginHide` | shows/hides the "Council" launcher button |
+| `AcademyModalWindow.OnEndShow/OnEndHide` | at end-show: (re)creates the "Council" launcher and fronts the Council window while a vote is open and uncast; at end-hide: hides the Council with it. **End**-hooks on purpose: showing the Council modal from inside the Academy's `OnBeginShow` (before its base call) left the Academy window itself half-shown |
 | `Tradable.GetValue`, `TradableResource.GetValue` (every `ret`) | value goes through `CouncilGame.AdjustTradableValue` |
 | `Marketplace.ITradingManagementService.GetTradablePrice` (every `ret`) | price goes through `CouncilGame.AdjustTradePrice` |
 | `GroundBattleOutcomeLootDefinition.FillLoot` (end) | `CouncilGame.AdjustLoot` |
@@ -237,7 +237,7 @@ Both sections are folded by default (a toggle line opens them).
 - every mandate: progress, holder, "Grant condition" (the Supreme Legate button grants two ordinary qualifications), "Give to me", "Take away";
 - "Detect conditions from game", "Clear conditions", last results.
 All actions are `OrderCouncilVote(KindDebug, action, param)`, executed by every client, so the state stays in sync. The Academy manager is taken from the game service (`IAcademyRequestsService`) when no turn has started since the load. "Convene" works only when the game has an Academy that is not eliminated; debug failures do not open popups (use the God-Mod status/state lines and Diagnostics).
-Natural founding (without the button): the Academy must be discovered (`DiscoveredTurn`), the turn must be greater than that turn and at least `MinTurnsForFirstRequest`.
+Natural founding (without the button): the Academy must be discovered (`DiscoveredTurn`), the turn must be greater than that turn and at least the original `MinTurnsForFirstRequest` (captured before the delay is removed for talkability: as soon as the Academy is discovered, `CouncilGame.MakeAcademyTalkable` zeroes the delay so the vanilla cycle enters Request on the next turn-begin and the Academy can be talked to at once; the Council's own founding still waits for the original delay).
 
 Recipe for the keep-vote: "Give to me" on the Supreme Legate → "Open the vote now" → vote (Absolute Power: option 0 = keep, 1 = remove) → "Tally now".
 

@@ -19,6 +19,8 @@ public static partial class CouncilGame
     static string appliedSignature = "";
     static int lastHandledTurn = int.MinValue;
     static bool buildStampLogged;
+    static AcademyRequestsManager firstRequestMgr;   // manager instance whose formula delay we captured
+    static float firstRequestTurns;                  // its ORIGINAL MinTurnsForFirstRequest (Council founding pace)
 
     // ---------------------------------------------------------------- helpers
 
@@ -138,6 +140,32 @@ public static partial class CouncilGame
         squadScanNeeded = true;
     }
 
+    /// <summary>Makes the Academy talkable as soon as it is discovered: removes the formula delay before
+    /// the first vanilla request. We must NOT flip CurrentState ourselves - the vanilla ClientBeginTurn
+    /// running right after us would enter its Request case in the same call and dereference a
+    /// CurrentRequest that only exists once the create-request order is processed. Zeroing the delay
+    /// lets the vanilla Dormant case do the transition (and safely return) itself this very turn.
+    /// Returns the ORIGINAL delay, which keeps the Council's own founding pace unchanged.</summary>
+    static float MakeAcademyTalkable(AcademyRequestsManager mgr)
+    {
+        try
+        {
+            if (!ReferenceEquals(firstRequestMgr, mgr))
+            {
+                firstRequestMgr = mgr;
+                firstRequestTurns = mgr.MinTurnsForFirstRequest;
+            }
+            if (mgr.DiscoveredTurn != -1 && mgr.CurrentState == RequestState.Dormant && mgr.MinTurnsForFirstRequest != 0f)
+            {
+                float was = mgr.MinTurnsForFirstRequest;
+                mgr.MinTurnsForFirstRequest = 0f;
+                try { Diagnostics.LogWarning("[GalacticCouncil] Academy discovered: removed the " + was + "-turn first-request delay (Academy talkable from this turn on)"); } catch (Exception) { }
+            }
+            return firstRequestTurns;
+        }
+        catch (Exception) { return mgr != null ? mgr.MinTurnsForFirstRequest : 0f; }
+    }
+
     // ---------------------------------------------------------------- turn hook (prepended to AcademyRequestsManager.ClientBeginTurn; the vanilla cycle runs after us)
 
     public static void ClientBeginTurn(AcademyRequestsManager mgr)
@@ -156,8 +184,9 @@ public static partial class CouncilGame
             if (!buildStampLogged)
             {
                 buildStampLogged = true;
-                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-25.3 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
+                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-25.4 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
             }
+            float foundingTurns = MakeAcademyTalkable(mgr);
             // No UI work from the turn hook: building the native Council window (cloning the whole laws
             // screen) on the main thread here froze the game for many seconds at the first turns / vote open.
             // The window is built lazily on the first explicit open (Academy window hook, HUD launcher).
@@ -172,7 +201,7 @@ public static partial class CouncilGame
             }
             if (!Core.Enabled && !Core.Destroyed)
             {
-                if (mgr.DiscoveredTurn != -1 && turn > mgr.DiscoveredTurn && turn >= mgr.MinTurnsForFirstRequest)
+                if (mgr.DiscoveredTurn != -1 && turn > mgr.DiscoveredTurn && turn >= foundingTurns)
                     FoundCouncil(mgr, game, turn);
             }
             if (!Core.Enabled) return;

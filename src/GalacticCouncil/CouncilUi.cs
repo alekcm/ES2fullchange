@@ -138,7 +138,9 @@ public static class CouncilUi
         try { if (CouncilGame.Core != null && CouncilGame.Core.Enabled) CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }
     }
 
-    /// <summary>Called from AcademyModalWindow.OnBeginShow. The Academy window is the Council's home,
+    /// <summary>Called from AcademyModalWindow.OnEndShow (the Academy is already fully shown at that
+    /// point; showing a second modal from inside its OnBeginShow left the Academy itself half-shown).
+    /// The Academy window is the Council's home,
     /// but it also hosts the vanilla requests/roles - so the Council only comes to the front by itself
     /// while a vote is open and the player has not cast it yet; otherwise the Academy stays usable
     /// and the Council is one HUD-button click away (the launcher is (re)created here as a retry).</summary>
