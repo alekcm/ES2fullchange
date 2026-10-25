@@ -230,6 +230,16 @@ IMGUI window (`CouncilUiImgui` in `src/GalacticCouncil/CouncilUi.cs`): a "Counci
 window is open, with the same tabs Vote / Laws / Mandates / Results. The shared ballot state (`CouncilUi.Pending`)
 is common to both UIs, so a vote begun in one can be finished in the other.
 
+Build hardening (2026-10-25, found after the IMGUI fallback was seen in play): the window build no longer assumes the
+donor clone is active — `GuiPanel.Awake` caches the panel's `AgeTransform` (a plain backing-field getter), and on an
+inactive clone `AddComponent` never runs `Awake`, so `win.AgeTransform` was null and the build died at the AGE-graph
+step, permanently condemning the Council to IMGUI. The clone is now activated before `AddComponent`, the AgeTransform
+is written through its backing field if `Awake` still did not run (`WinPriv.SetAgeTransform`), the first content
+`Rebuild()` inside `Setup` and the post-build HUD launcher can no longer fail the construction, and an IMGUI window
+that is already open is handed over to the native one. Every build phase is named in the failure line
+(`Galactic Council: native UI failed at '<step>', falling back to IMGUI.` + full exception in `Diagnostics.html`;
+successful builds log `[GalacticCouncil] native window ready: ...`).
+
 ### "Gives votes" in the interface
 * Council window, Voting tab: the toggle "Where the votes come from" lists every source with its rule and the live value for the player's empire (`CouncilGame.VoteSourceLines`).
 * Game texts (`CouncilGameTexts.cs`, once per turn, again after a language change): a note is appended to the description of the Republic government ("Galactic Council: the Republic gives +40 votes") and of the Empire Development stages T3/T4/T5. The keys are found at run time by scanning the `GuiElement` database (names `Government*Republic*`, `TechnologyStage[Definition]EmpireDevelopment3..5`); a stage without a description gets a new one. The God-Mod Council section prints how many texts were found.

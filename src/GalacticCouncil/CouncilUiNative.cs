@@ -161,7 +161,10 @@ public class CouncilModalWindow : GuiModalWindow
         WireButton(SecondButton, "OnCouncilSecond", "OnCouncilSecondRight");
 
         BuildTabs();
-        Rebuild();
+        // The first content build must not kill the window construction: it reads live game state
+        // (empires, fleets, vote data) and OnBeginShow rebuilds on every show anyway. Letting an
+        // exception escape from here once condemned the whole native UI to the IMGUI fallback.
+        try { Rebuild(); } catch (Exception e) { CouncilNative.NoteFailure("setup-rebuild", e); }
         Ready = true;
     }
 
@@ -1129,6 +1132,7 @@ static class WinPriv
     static readonly FieldInfo byNameField = typeof(Amplitude.Unity.Gui.GuiManager).GetField("guiWindowsByName", Inst);
     static readonly FieldInfo byTypeField = typeof(Amplitude.Unity.Gui.GuiManager).GetField("guiWindowsByType", Inst);
     static readonly FieldInfo stackWindowsField = typeof(GuiWindowsStack).GetField("guiWindows", Inst);
+    static readonly FieldInfo ageTransformField = typeof(GuiPanel).GetField("<AgeTransform>k__BackingField", Inst);
 
     public static void Initialize(GuiWindow window, GuiWindowsStack stack)
     {
@@ -1156,6 +1160,16 @@ static class WinPriv
         if (gameReadyField == null) throw new Exception("GuiWindow.GameReady backing field not found");
         gameReadyField.SetValue(window, value);
         if (window.GameReady != value) throw new Exception("GuiWindow.GameReady did not stick");
+    }
+
+    /// <summary>GuiPanel.Awake normally caches the panel's AgeTransform (the getter is a plain backing-field
+    /// read): if the clone hierarchy was inactive at AddComponent time, Awake never ran and the property
+    /// stays null - write the backing field directly, like for Loaded/GameReady.</summary>
+    public static void SetAgeTransform(GuiWindow window, AgeTransform age)
+    {
+        if (ageTransformField == null) throw new Exception("GuiPanel.AgeTransform backing field not found");
+        ageTransformField.SetValue(window, age);
+        if (window.AgeTransform != age) throw new Exception("GuiPanel.AgeTransform did not stick");
     }
 
     /// <summary>Registers the window exactly like the vanilla GuiManager.InstantiateWindows +
@@ -1242,25 +1256,40 @@ public static class CouncilNative
         if (Window != null) return true;
         if (BuildFailed) return false;
         var buildWatch = System.Diagnostics.Stopwatch.StartNew();
+        string step = "gui service";
         try
         {
             var gui = Services.GetService<IGuiService>();
             if (gui == null || !gui.GuiWindowsLoaded) return false;   // retry on a later call
+            step = "donor lookup";
             var donor = gui.GetWindow<LawsManagementModalWindow>(false);
             if (donor == null) throw new Exception("LawsManagementModalWindow not found");
             var stack = ((Component)donor).GetComponentInParent<GuiWindowsStack>();
             if (stack == null) throw new Exception("GuiWindowsStack not found");
 
             // 1. clone the whole laws-screen prefab hierarchy (frame, tables, buttons, sounds, animations)
+            step = "clone hierarchy";
             var go = (GameObject)UnityEngine.Object.Instantiate(donor.gameObject);
             go.name = "CouncilModalWindow";
             go.transform.parent = donor.transform.parent;
+            // GuiPanel.Awake caches the panel's AgeTransform (a plain backing-field getter): on an INACTIVE
+            // clone AddComponent never runs Awake, win.AgeTransform stays null and step 2 dies with an NRE -
+            // the silent "native UI failed" that dropped the whole Council to the IMGUI window. Activate the
+            // clone first so the Awake chain runs exactly like for a vanilla window (the clone is AGE-invisible
+            // like its hidden donor, so nothing flashes on screen).
+            if (!go.activeSelf) go.SetActive(true);
             var win = go.AddComponent<CouncilModalWindow>();
+            if (win == null) throw new Exception("AddComponent<CouncilModalWindow> returned null");
 
             // 2. link the AGE graph of the clone (Instantiate does not copy the runtime child lists)
-            win.AgeTransform.Init();
+            step = "AGE graph";
+            var age = go.GetComponent<AgeTransform>();
+            if (age == null) throw new Exception("clone has no AgeTransform");
+            if (win.AgeTransform == null) WinPriv.SetAgeTransform(win, age);   // Awake did not run (inactive parents)
+            age.Init();
 
             // 3. copy the widget references from the clone's own component, then remove it
+            step = "widget setup";
             var src = go.GetComponent<LawsManagementModalWindow>();
             if (src == null) throw new Exception("clone has no LawsManagementModalWindow");
             win.HideGuiBehind = src.HideGuiBehind;
@@ -1268,12 +1297,14 @@ public static class CouncilNative
             UnityEngine.Object.Destroy(src);
 
             // 4. bind the modal chrome (BackgroundGroup/MainContainer) by child names, like GuiModalWindow.Load
+            step = "modal chrome bind";
             GuiBoundAttribute.BindAllProperties(win);
             if (!win.ChromeBound)
                 throw new Exception("modal chrome was not bound on the clone");
 
             // 5. register the window the way GuiManager.InstantiateWindows would
             //    (the non-public GuiWindow plumbing lives in firstpass -> reflection)
+            step = "registration";
             WinPriv.Initialize(win, stack);
             WinPriv.SetName(win, "CouncilModalWindow");
             WinPriv.SetLoaded(win, true);
@@ -1283,28 +1314,30 @@ public static class CouncilNative
             // donor clone stays AgeTransform.Visible=true — the old root-Visible-based Toggle then
             // mistook the window for open (every click just "closed" it again), and a visible but
             // fully transparent hierarchy keeps being re-traversed every frame.
-            if (win.AgeTransform != null) { win.AgeTransform.Visible = false; win.AgeTransform.Enable = false; }
+            age.Visible = false; age.Enable = false;
             WinPriv.Register(gui as GuiManager, stack, win);
             try
             {
                 Diagnostics.LogWarning("[GalacticCouncil] native window ready: loaded=" + win.Loaded
                     + " gameReady=" + win.GameReady + " shown=" + win.Shown
-                    + " rootVisible=" + (win.AgeTransform != null && win.AgeTransform.Visible)
+                    + " rootVisible=" + age.Visible
                     + " buildMs=" + buildWatch.ElapsedMilliseconds);
             }
             catch (Exception) { }
 
             Window = win;
-            EnsureLauncher(gui);
-            RefreshLauncher();
+            // The HUD launcher is a convenience, not a prerequisite: its failure must not take the
+            // finished window down into the IMGUI fallback with it.
+            try { EnsureLauncher(gui); RefreshLauncher(); }
+            catch (Exception e) { NoteFailure("launcher-after-build", e); }
             return true;
         }
         catch (Exception e)
         {
             BuildFailed = true;
-            BuildError = e.GetType().Name + ": " + e.Message;
+            BuildError = step + " -> " + e.GetType().Name + ": " + e.Message;
             CouncilGame.LastError = "native UI: " + BuildError;
-            try { Diagnostics.LogError("Galactic Council: native UI failed, falling back to IMGUI. " + e); } catch (Exception) { }
+            try { Diagnostics.LogError("Galactic Council: native UI failed at '" + step + "', falling back to IMGUI. " + e); } catch (Exception) { }
             return false;
         }
     }

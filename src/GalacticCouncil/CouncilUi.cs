@@ -109,7 +109,13 @@ public static class CouncilUi
     {
         if (CouncilNative.Window != null) { CouncilUiImgui.DestroyHost(); return; }
         if (CouncilNative.BuildFailed) { CouncilUiImgui.EnsureHost(); return; }
-        if (CouncilNative.EnsureWindow()) { CouncilUiImgui.DestroyHost(); return; }   // false = GUI not loaded yet, retry on the next call
+        if (CouncilNative.EnsureWindow())
+        {
+            bool wasImguiVisible = CouncilUiImgui.Visible;
+            CouncilUiImgui.DestroyHost();
+            if (wasImguiVisible) CouncilNative.Show();   // hand an already-open IMGUI window over to the native one
+            return;
+        }   // false = GUI not loaded yet, retry on the next call
         if (CouncilNative.BuildFailed) CouncilUiImgui.EnsureHost();
     }
 

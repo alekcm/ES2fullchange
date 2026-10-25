@@ -214,7 +214,7 @@ public static partial class CouncilGame
             if (!buildStampLogged)
             {
                 buildStampLogged = true;
-                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-25.7 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
+                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-25.8 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
             }
             float foundingTurns = MakeAcademyTalkable(mgr);
             // No UI work from the turn hook: building the native Council window (cloning the whole laws
