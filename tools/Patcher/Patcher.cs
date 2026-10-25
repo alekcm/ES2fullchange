@@ -20,6 +20,7 @@ public static class Patcher
         (Environment.GetEnvironmentVariable("PATCH_SKIP") ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(s => s.Trim().ToLowerInvariant()));
     static bool Skip(string token) { return SkipSet.Contains("hooks") || SkipSet.Contains(token); }
+    static int brokenBranchesBefore;   // the baseline itself ships one broken branch; only NEW ones are fatal
 
     public static int Main(string[] args)
     {
@@ -38,10 +39,15 @@ public static class Patcher
         if (mod.GetType("CouncilGame") != null) throw new Exception("base assembly already contains the Council; start from the baseline assembly");
         Console.WriteLine("PATCH_SKIP=" + (SkipSet.Count == 0 ? "<none>" : string.Join(",", SkipSet.OrderBy(x => x).ToArray())));
 
+        brokenBranchesBefore = CountBadBranches();
         if (!SkipSet.Contains("repair")) RepairHackingModes(); else Console.WriteLine("skip: RepairHackingModes");
 
+      if (!SkipSet.Contains("clone"))
+      {
         var council = AssemblyDefinition.ReadAssembly(councilPath, new ReaderParameters { AssemblyResolver = resolver });
         cl = new Cloner(council.MainModule, mod);
+        cl.DoPublicize = !SkipSet.Contains("publicize");
+        if (!cl.DoPublicize) Console.WriteLine("skip: publicizing");
         cl.CloneAll();
         Console.WriteLine("cloned types: " + cl.NewTypes.Count);
 
@@ -87,6 +93,8 @@ public static class Patcher
 
         Console.WriteLine("publicized members: " + cl.PublicizedLog.Count);
         foreach (var s in cl.PublicizedLog.OrderBy(x => x)) Console.WriteLine("  + " + s);
+      }
+      else Console.WriteLine("skip: clone (pure Cecil round-trip)");
 
         CheckSelfReferences(selfRefsBefore);
         CheckBranches();
@@ -175,8 +183,40 @@ public static class Patcher
             foreach (var n in t.NestedTypes) walk(n);
         };
         foreach (var t in mod.Types) walk(t);
-        if (bad > 0) throw new Exception("broken branches: " + bad);
-        Console.WriteLine("branch check: ok");
+        Console.WriteLine("branch check: bad=" + bad + " (baseline had " + brokenBranchesBefore + ")");
+        // diagnostic builds may intentionally keep the baseline verbatim (PATCH_SKIP=repair, round-trip): tolerate its own broken branch
+        if (bad > brokenBranchesBefore) throw new Exception("broken branches: " + bad + " > baseline " + brokenBranchesBefore);
+    }
+
+    static int CountBadBranches()
+    {
+        int bad = 0;
+        Action<TypeDefinition> walk = null;
+        walk = t =>
+        {
+            foreach (var md in t.Methods)
+            {
+                if (!md.HasBody) continue;
+                var set = new HashSet<Instruction>(md.Body.Instructions);
+                foreach (var i in md.Body.Instructions)
+                {
+                    var ot = i.OpCode.OperandType;
+                    if (ot == OperandType.ShortInlineBrTarget || ot == OperandType.InlineBrTarget)
+                    {
+                        var target = i.Operand as Instruction;
+                        if (target == null || !set.Contains(target)) bad++;
+                    }
+                    else if (ot == OperandType.InlineSwitch)
+                    {
+                        foreach (var x in (Instruction[])i.Operand)
+                            if (x == null || !set.Contains(x)) bad++;
+                    }
+                }
+            }
+            foreach (var n in t.NestedTypes) walk(n);
+        };
+        foreach (var t in mod.Types) walk(t);
+        return bad;
     }
 
     // Cecil writes a short branch whose target no longer fits in an sbyte by silently truncating the offset

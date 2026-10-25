@@ -16,6 +16,8 @@ public class Cloner
     readonly Dictionary<string, TypeDefinition> dstTypes = new Dictionary<string, TypeDefinition>();
     public readonly List<TypeDefinition> NewTypes = new List<TypeDefinition>();
     public readonly HashSet<string> PublicizedLog = new HashSet<string>();
+    // Diagnostic bisection (PATCH_SKIP=publicize): clone the types without flipping any game member public.
+    public bool DoPublicize = true;
 
     public Cloner(ModuleDefinition source, ModuleDefinition destination)
     {
@@ -303,6 +305,7 @@ public class Cloner
 
     public void Publicize(TypeDefinition t)
     {
+        if (!DoPublicize) return;
         if (typeMap.ContainsValue(t)) return;
         for (var x = t; x != null; x = x.DeclaringType)
         {
@@ -313,6 +316,7 @@ public class Cloner
 
     public void Publicize(MethodDefinition m)
     {
+        if (!DoPublicize) return;
         if (typeMap.ContainsValue(m.DeclaringType)) return;
         Publicize(m.DeclaringType);
         if (!m.IsPublic) { m.IsPublic = true; PublicizedLog.Add(m.FullName); }
@@ -320,6 +324,7 @@ public class Cloner
 
     public void Publicize(FieldDefinition f)
     {
+        if (!DoPublicize) return;
         if (typeMap.ContainsValue(f.DeclaringType)) return;
         Publicize(f.DeclaringType);
         if (!f.IsPublic) { f.IsPublic = true; PublicizedLog.Add(f.FullName); }
