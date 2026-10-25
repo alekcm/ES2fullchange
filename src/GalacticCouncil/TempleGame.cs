@@ -253,14 +253,28 @@ public static class TempleGame
         catch (Exception e) { Fail("PerTurn", e); }
     }
 
+    // ResolveNode is also called from the God-Mod debug lines (every IMGUI event while the tab is open),
+    // so the GUID map is cached per game+turn instead of being rebuilt on every lookup.
+    static Game nodeMapGame;
+    static int nodeMapTurn = int.MinValue;
+    static Dictionary<ulong, SpecialNode> nodeMapCache;
+
     static Dictionary<ulong, SpecialNode> BuildNodeMap(Game game)
     {
+        try
+        {
+            if (nodeMapCache != null && ReferenceEquals(nodeMapGame, game) && nodeMapTurn == game.Turn) return nodeMapCache;
+        }
+        catch (Exception) { }
         var map = new Dictionary<ulong, SpecialNode>();
         try
         {
             foreach (SpecialNode sn in game.Galaxy.SpecialNodes) if (sn != null) map[sn.GUID] = sn;
         }
         catch (Exception e) { Fail("BuildNodeMap", e); }
+        nodeMapGame = game;
+        try { nodeMapTurn = game.Turn; } catch (Exception) { nodeMapTurn = int.MinValue; }
+        nodeMapCache = map;
         return map;
     }
 

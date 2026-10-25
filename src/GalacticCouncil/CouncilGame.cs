@@ -14,9 +14,10 @@ public static partial class CouncilGame
     public static CouncilCore Core = new CouncilCore();
     public static string LastError = "";
 
-    static readonly List<SimulationDescriptor> appliedDescriptors = new List<SimulationDescriptor>();
-    static readonly List<SimulationObject> appliedTargets = new List<SimulationObject>();
-    static string appliedSignature = "";
+    // Per-empire applied empire-descriptor state (RefreshEffects): each member keeps its own signature,
+    // so a change for one empire no longer recreates the descriptors - and Refresh()es - of all the others.
+    sealed class AppliedEmpireFx { public int Emp; public string Sig; public SimulationDescriptor Desc; public SimulationObject Target; }
+    static readonly List<AppliedEmpireFx> appliedFx = new List<AppliedEmpireFx>();
     static int lastHandledTurn = int.MinValue;
     static bool buildStampLogged;
     static AcademyRequestsManager firstRequestMgr;   // manager instance whose formula delay we captured
@@ -138,9 +139,7 @@ public static partial class CouncilGame
     static void ResetRuntime(CouncilCore fresh)
     {
         Core = fresh;
-        appliedDescriptors.Clear();
-        appliedTargets.Clear();
-        appliedSignature = "";
+        appliedFx.Clear();
         lastHandledTurn = int.MinValue;
         squadScanNeeded = true;
     }
@@ -176,7 +175,7 @@ public static partial class CouncilGame
     public static void ClientBeginTurn(AcademyRequestsManager mgr)
     {
         var perfWatch = System.Diagnostics.Stopwatch.StartNew();
-        long perfHero = -1, perfDetect = -1, perfActions = -1;
+        long perfHero = -1, perfTemple = -1, perfTexts = -1, perfDetect = -1, perfActions = -1;
         int perfTurn = -1;
         try
         {
@@ -189,16 +188,18 @@ public static partial class CouncilGame
             if (!buildStampLogged)
             {
                 buildStampLogged = true;
-                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-25.5 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
+                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-25.6 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
             }
             float foundingTurns = MakeAcademyTalkable(mgr);
             // No UI work from the turn hook: building the native Council window (cloning the whole laws
             // screen) on the main thread here froze the game for many seconds at the first turns / vote open.
             // The window is built lazily on the first explicit open (Academy window hook, HUD launcher).
             HeroRework.PerTurn(game);
-            TempleGame.PerTurn(game, turn);   // Endless Temples: independent of the Council (own turn guard inside)
-            EnsureVoteTexts();
             perfHero = perfWatch.ElapsedMilliseconds;
+            TempleGame.PerTurn(game, turn);   // Endless Temples: independent of the Council (own turn guard inside)
+            perfTemple = perfWatch.ElapsedMilliseconds;
+            EnsureVoteTexts();
+            perfTexts = perfWatch.ElapsedMilliseconds;
 
             if (Core.Enabled && AcademyIsGone(mgr))
             {
@@ -235,8 +236,10 @@ public static partial class CouncilGame
             long total = perfWatch.ElapsedMilliseconds;
             ModPerf.AddMs(ModPerf.CouncilTurnBucket, total);
             if (total > 50)
-                Perf("ClientBeginTurn turn=" + perfTurn + " total=" + total + "ms hero/texts=" + perfHero
-                    + " detect=" + (perfDetect < 0 ? -1 : perfDetect - perfHero)
+                Perf("ClientBeginTurn turn=" + perfTurn + " total=" + total + "ms hero=" + perfHero
+                    + " temple=" + (perfTemple < 0 ? -1 : perfTemple - perfHero)
+                    + " texts=" + (perfTexts < 0 ? -1 : perfTexts - perfTemple)
+                    + " detect=" + (perfDetect < 0 ? -1 : perfDetect - perfTexts)
                     + " tally/open/ai=" + (perfActions < 0 ? -1 : perfActions - perfDetect)
                     + " effects/buys=" + (perfActions < 0 ? -1 : total - perfActions));
         }
@@ -351,49 +354,60 @@ public static partial class CouncilGame
         }
     }
 
-    static string DesiredSignature()
+    static int IndexOfAppliedFx(int emp)
     {
-        var sb = new StringBuilder();
-        for (int i = 0; i < Core.Members.Count; i++)
-        {
-            int e = Core.Members[i];
-            int colony = Core.GetColonyDelta(e);
-            bool repl = Core.IsLawActiveFor(CouncilLaws.Replenishment, e) && !LawIsGlobal(CouncilLaws.Replenishment);
-            bool eye = Core.Holds(e, CouncilLaws.Eye);
-            float upk = 0f;
-            try { var me = GetMajor(e); if (me != null) upk = UpkeepDelta(me); } catch (Exception) { }
-            if (colony != 0 || repl || eye || upk != 0f) sb.Append(e).Append(':').Append(colony).Append(':').Append(repl ? 1 : 0).Append(':').Append(eye ? 1 : 0).Append(':').Append(upk).Append(';');
-        }
-        return sb.ToString();
+        for (int i = 0; i < appliedFx.Count; i++) if (appliedFx[i].Emp == emp) return i;
+        return -1;
+    }
+
+    static void RemoveAppliedFx(int at)
+    {
+        try { if (appliedFx[at].Target != null && appliedFx[at].Desc != null) appliedFx[at].Target.RemoveDescriptor(appliedFx[at].Desc); } catch (Exception) { }
+        appliedFx.RemoveAt(at);
     }
 
     static bool LawIsGlobal(string id) { var d = CouncilLaws.Get(id); return d != null && !d.Targeted; }
 
-    /// <summary>Descriptor-based effects (colonization limit, manpower). Re-applied after load / whenever the state changes.</summary>
+    /// <summary>Descriptor-based effects (colonization limit, manpower). Re-applied after load / whenever the state changes.
+    /// Each empire has its own signature: only empires whose own inputs changed get their descriptor recreated and an
+    /// emp.Refresh(false). The previous single global signature rebuilt (and refreshed) EVERY member whenever one
+    /// empire's upkeep delta moved - and its ClearEffects also wiped the per-system effects, refreshing every affected
+    /// system a second time. This runs at ClientBeginTurn and twice inside the turn-end states (BeforeTurnEnd), so the
+    /// unchanged case must stay a pure signature comparison.</summary>
     static void RefreshEffects(Game game)
     {
-        string sig = DesiredSignature();
-        if (sig == appliedSignature) return;
-        ClearEffects(game);
-        appliedSignature = sig;
+        // empires that left the Council (or were eliminated) lose their descriptor
+        for (int i = appliedFx.Count - 1; i >= 0; i--)
+            if (!Core.IsMember(appliedFx[i].Emp)) RemoveAppliedFx(i);
         for (int i = 0; i < Core.Members.Count; i++)
         {
             int idx = Core.Members[i];
             var emp = GetMajor(idx);
             if (emp == null || emp.SimulationObject == null) continue;
-            var mods = new List<SimulationModifierDescriptor>();
             int colony = Core.GetColonyDelta(idx);
+            bool replLaw = Core.IsLawActiveFor(CouncilLaws.Replenishment, idx);
+            bool repl = replLaw && !LawIsGlobal(CouncilLaws.Replenishment);
+            bool eye = Core.Holds(idx, CouncilLaws.Eye);
+            float upk = 0f;
+            try { upk = UpkeepDelta(emp); } catch (Exception) { }
+            string sig = (colony != 0 || repl || eye || upk != 0f)
+                ? colony + ":" + (repl ? 1 : 0) + ":" + (eye ? 1 : 0) + ":" + upk
+                : "";
+            int at = IndexOfAppliedFx(idx);
+            if (at >= 0 && appliedFx[at].Sig == sig) continue;   // nothing changed for this empire
+            if (at >= 0) RemoveAppliedFx(at);
+            if (sig.Length == 0) continue;
+            var mods = new List<SimulationModifierDescriptor>();
             if (colony != 0)
                 mods.Add(CustomHackingHelper.MakeModifier(SimulationProperties.Empire.OverColonizationThreshold.ToString(),
                     SimulationModifierDescriptor.ModifierOperation.Addition, colony, "ClassEmpire"));
-            if (Core.IsLawActiveFor(CouncilLaws.Replenishment, idx))
+            if (replLaw)
                 mods.Add(CustomHackingHelper.MakeModifier(SimulationProperties.Empire.NetEmpireManpower.ToString(),
                     SimulationModifierDescriptor.ModifierOperation.Multiplication, 1.5f, "ClassEmpire"));
-            float upkeep = UpkeepDelta(emp);
-            if (upkeep != 0f)
+            if (upk != 0f)
                 mods.Add(CustomHackingHelper.MakeModifier(SimulationProperties.Empire.EmpireMoneyUpkeep.ToString(),
-                    SimulationModifierDescriptor.ModifierOperation.Addition, upkeep, "ClassEmpire"));
-            if (Core.Holds(idx, CouncilLaws.Eye))
+                    SimulationModifierDescriptor.ModifierOperation.Addition, upk, "ClassEmpire"));
+            if (eye)
             {
                 // Eye of the Academy: +1 simultaneous hacking operation, +20 to the processing power cap
                 mods.Add(CustomHackingHelper.MakeModifier(SimulationProperties.Empire.MaximumHackingOperationsCount.ToString(),
@@ -404,8 +418,7 @@ public static partial class CouncilGame
             if (mods.Count == 0) continue;
             var desc = CustomHackingHelper.CreateAndRegisterDescriptor(null, "GalacticCouncil_" + idx + "_" + (++descSeq), "GalacticCouncilEmp", null, mods.ToArray());
             emp.SimulationObject.AddDescriptor(desc);
-            appliedDescriptors.Add(desc);
-            appliedTargets.Add(emp.SimulationObject);
+            appliedFx.Add(new AppliedEmpireFx { Emp = idx, Sig = sig, Desc = desc, Target = emp.SimulationObject });
             emp.Refresh(false);
         }
     }
@@ -415,13 +428,7 @@ public static partial class CouncilGame
     static void ClearEffects(Game game)
     {
         try { ClearSystemEffects(); } catch (Exception) { }
-        for (int i = 0; i < appliedDescriptors.Count; i++)
-        {
-            try { appliedTargets[i].RemoveDescriptor(appliedDescriptors[i]); } catch (Exception) { }
-        }
-        appliedDescriptors.Clear();
-        appliedTargets.Clear();
-        appliedSignature = "";
+        for (int i = appliedFx.Count - 1; i >= 0; i--) RemoveAppliedFx(i);
     }
 
     // ---------------------------------------------------------------- queries used by hooks in other game classes
