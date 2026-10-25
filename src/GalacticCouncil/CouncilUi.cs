@@ -1,11 +1,11 @@
 // Galactic Council - UI entry point.
 //
 // The Council is shown in the native Endless Space 2 interface (CouncilUiNative.cs): a runtime
-// clone of the game's laws screen registered as a real GuiModalWindow, plus a HUD launcher button;
-// toasts use the game's MessageBoxNonBlockingWindow. If that construction fails (another game
-// version, missing widgets...), everything falls back to the old IMGUI window below, which needs
-// no Unity prefabs: a "Council" button appears while the Academy window is open; tabs
-// Vote / Laws / Mandates / Results.
+// clone of the game's laws screen registered as a real GuiModalWindow, plus a HUD launcher button.
+// The mod deliberately shows no autonomous popup notifications: state changes are read from the
+// Council window itself. If that construction fails (another game version, missing widgets...),
+// everything falls back to the old IMGUI window below, which needs no Unity prefabs: a "Council"
+// button appears while the Academy window is open; tabs Vote / Laws / Mandates / Results.
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -73,13 +73,11 @@ public static class CouncilUi
 
     public static void Toast(string text)
     {
-        // Never build the Council window just to show a toast: toasts fire from turn processing,
-        // where cloning the laws screen blocked the main thread for many seconds. The native
-        // MessageBoxNonBlockingWindow toast needs no Council window; the IMGUI copy below only
-        // renders when the IMGUI fallback host already exists.
-        CouncilNative.Toast(text);
-        ToastText = text;
-        ToastUntil = Time.realtimeSinceStartup + 12f;
+        // Compatibility sink for existing call sites. There are intentionally no autonomous
+        // notifications: the fullscreen MessageBoxNonBlockingWindow was intrusive and had no
+        // close button. Keep the last text only as state for debugging; never surface it as UI.
+        ToastText = text ?? string.Empty;
+        ToastUntil = 0f;
     }
 
     // ------------------------------------------------------------ visibility
@@ -116,21 +114,25 @@ public static class CouncilUi
 
     public static void OnVoteOpened(int expiredLaws)
     {
-        // No auto-popup: voting lives in the game interface - it is opened from the Academy window
-        // (AcademyModalWindow.OnBeginShow hook) or the HUD launcher, which gets highlighted instead.
-        // The launcher must exist even when vanilla Academy diplomacy is gated ("the Academy is
-        // deliberating"), so make sure the cheap HUD button is there (the window builds on click).
+        // No auto-popup and no notification: the HUD launcher is highlighted instead. It must exist
+        // even when vanilla Academy diplomacy is gated ("the Academy is deliberating"), so make
+        // sure the cheap HUD button is there (the window builds on click).
         try { CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }
-        Toast(CouncilGame.Tr("Галактический совет: открыто голосование. Итоги будут подведены в начале следующего хода.",
-                              "Galactic Council: voting is open. Results will be counted at the start of next turn."));
         CouncilNative.RebuildIfVisible();
     }
 
     public static void OnVoteTallied(int enacted)
     {
-        Toast(CouncilGame.Tr("Галактический совет: подведены итоги голосования (принято законов: " + enacted + ").",
-                              "Galactic Council: votes counted (laws enacted: " + enacted + ")."));
+        // Results are available in the Council window's Results tab; do not pop anything up.
         CouncilNative.RebuildIfVisible();
+    }
+
+    /// <summary>Called from GameOverlayWindow.OnBeginShow. This is the reliable late retry point for the
+    /// launcher when neither Council founding nor vote opening happened after the GUI had finished loading
+    /// (for example, after loading a save in the middle of a vote).</summary>
+    public static void OnGameOverlayShown()
+    {
+        try { if (CouncilGame.Core != null && CouncilGame.Core.Enabled) CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }
     }
 
     /// <summary>Called from AcademyModalWindow.OnBeginShow so the existing Academy button opens the council.</summary>
@@ -219,12 +221,6 @@ public static class CouncilUiImgui
         if (voting) GUI.backgroundColor = new Color(1f, 0.8f, 0.2f);
         if (GUI.Button(new Rect(sw - 222, 4, 210, 26), label)) Visible = !Visible;
         GUI.backgroundColor = oldColor;
-
-        if (Time.realtimeSinceStartup < CouncilUi.ToastUntil && !string.IsNullOrEmpty(CouncilUi.ToastText))
-        {
-            var r = new Rect((sw - 640) / 2, 40, 640, 34);
-            GUI.Box(r, CouncilUi.ToastText);
-        }
 
         if (Visible)
         {

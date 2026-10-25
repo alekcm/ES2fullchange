@@ -78,7 +78,7 @@ public static class Patcher
             DisableHackingEndTurnWarning();
         }
         else Console.WriteLine("skip: council hooks");
-        if (!Skip("council") && !Skip("gui")) HookAcademyWindow(ui); else Console.WriteLine("skip: AcademyModalWindow hooks");
+        if (!Skip("council") && !Skip("gui")) { HookAcademyWindow(ui); HookGameOverlayWindow(ui); } else Console.WriteLine("skip: AcademyModalWindow/GameOverlayWindow hooks");
         var hero = cl.Mapped("HeroRework");
         if (hero == null) throw new Exception("HeroRework missing");
         var academyOrder = cl.Mapped("OrderAcademyHeroKind");
@@ -459,6 +459,29 @@ public static class Patcher
             il.InsertBefore(m.Body.Instructions[0], il.Create(OpCodes.Call, GameMethod(ui, pair[1])));
         }
         Console.WriteLine("hook: AcademyModalWindow show/hide");
+    }
+
+    // GameOverlayWindow.OnBeginShow: after the base show, retry creating the Council launcher. Founding and
+    // vote-open can happen before GuiWindowsLoaded (or during save loading), when EnsureLauncherOnly must defer.
+    static void HookGameOverlayWindow(TypeDefinition ui)
+    {
+        var m = Method("GameOverlayWindow", "OnBeginShow", 1);
+        var ins = m.Body.Instructions;
+        Instruction afterBase = null;
+        for (int i = 0; i + 1 < ins.Count; i++)
+        {
+            var mr = ins[i].Operand as MethodReference;
+            if ((ins[i].OpCode == OpCodes.Call || ins[i].OpCode == OpCodes.Callvirt) && mr != null &&
+                mr.Name == "OnBeginShow" && mr.DeclaringType != null && mr.DeclaringType.Name == "GuiWindow")
+            {
+                afterBase = ins[i + 1];
+                break;
+            }
+        }
+        if (afterBase == null) throw new Exception("GameOverlayWindow.OnBeginShow: base call not found");
+        var il = m.Body.GetILProcessor();
+        il.InsertBefore(afterBase, il.Create(OpCodes.Call, GameMethod(ui, "OnGameOverlayShown")));
+        Console.WriteLine("hook: GameOverlayWindow.OnBeginShow ensures the Council launcher");
     }
 
     // Rewrites every `ret` of m in place into `<push extra args> call hook; ret`. The original ret instruction object is

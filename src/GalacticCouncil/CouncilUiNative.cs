@@ -13,7 +13,7 @@
 // Voting interaction (native style): the card list holds one card per question (and option cards
 // under the selected targeted/mandate question); the details pane shows the description and two
 // context buttons. Left click on a button adds 10 votes, right click removes 10 (see tooltips).
-// Toasts go through the game's MessageBoxNonBlockingWindow, confirmations through ShowMessage.
+// There are no autonomous toast popups; confirmations go through ShowMessage.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -1145,6 +1145,8 @@ public static class CouncilNative
 
     static AgeControlButton launcher;
     static AgePrimitiveLabel launcherLabel;
+    static AgeTransform launcherTransform;
+    static AgeTransform launcherParent;
     static GameObject launcherCallbacksHost;   // message target for the launcher before the window exists
 
     public static string[] TabNames()
@@ -1224,7 +1226,7 @@ public static class CouncilNative
     /// cycle to Dormant, so that path may never open the Academy window).</summary>
     public static void EnsureLauncherOnly()
     {
-        if (launcher != null) { RefreshLauncher(); return; }
+        if (launcher != null) { PositionLauncher(); RefreshLauncher(); return; }
         try
         {
             var gui = Services.GetService<IGuiService>();
@@ -1232,7 +1234,41 @@ public static class CouncilNative
             EnsureLauncher(gui);
         }
         catch (Exception e) { NoteFailure("launcher-only", e); }
+        PositionLauncher();
         RefreshLauncher();
+    }
+
+    static void PositionLauncher()
+    {
+        if (launcherTransform != null) PositionLauncher(launcherTransform, launcherParent);
+    }
+
+    static void PositionLauncher(AgeTransform lat, AgeTransform parent)
+    {
+        if (lat == null) return;
+        try
+        {
+            if (parent == null) parent = lat.Parent;
+            lat.Anchored = true;
+            lat.AttachLeft = false; lat.AttachRight = true;
+            lat.AttachBottom = false; lat.AttachTop = true;
+            lat.PercentLeft = 0;
+            // AGE computes a right-attached X as parentWidth * PercentRight / 100 - Width.
+            // PercentRight = 0 therefore places the entire button at X = -236, off-screen.
+            // 100 is the parent's right edge; PixelMarginRight then leaves the 8px gap.
+            lat.PercentRight = 100;
+            lat.PercentTop = 0; lat.PercentBottom = 0;
+            lat.PixelMarginLeft = 0; lat.PixelMarginRight = 8;
+            lat.PixelMarginTop = 6; lat.PixelMarginBottom = 0;
+            lat.PixelOffsetLeft = 0; lat.PixelOffsetRight = 0;
+            lat.PixelOffsetTop = 0; lat.PixelOffsetBottom = 0;
+            lat.Width = 236;
+            lat.Height = 32;
+            lat.Visible = true;
+            if (parent != null && parent.Width > lat.Width && parent.Height > lat.Height)
+                lat.ComputeExtents(parent.Width, parent.Height);
+        }
+        catch (Exception e) { NoteFailure("launcher-position", e); }
     }
 
     static void EnsureLauncher(IGuiService gui)
@@ -1255,22 +1291,19 @@ public static class CouncilNative
             var at = overlay.AgeTransform.InstantiateChild<Transform>(prefab, "CouncilLauncherButton");
             var lat = at.GetComponent<AgeTransform>();
             if (lat == null) return;
-            // pin to the top-right corner of the screen-sized overlay, 236x32
-            lat.Anchored = true;
-            lat.AttachLeft = false; lat.AttachRight = true;
-            lat.AttachBottom = false; lat.AttachTop = true;
-            lat.PercentLeft = 0; lat.PercentRight = 0; lat.PercentTop = 0; lat.PercentBottom = 0;
-            lat.PixelMarginLeft = 0; lat.PixelMarginRight = 8;
-            lat.PixelMarginTop = 6; lat.PixelMarginBottom = 0;
-            lat.PixelOffsetLeft = 0; lat.PixelOffsetRight = 0;
-            lat.PixelOffsetTop = 0; lat.PixelOffsetBottom = 0;
-            lat.Width = 236;
-            lat.Height = 32;
-            lat.ComputeExtents(overlay.AgeTransform.Width, overlay.AgeTransform.Height);
+            ((Component)lat).gameObject.SetActive(true);
+            PositionLauncher(lat, overlay.AgeTransform);
 
             launcher = at.GetComponent<AgeControlButton>();
             if (launcher == null) return;
+            launcherTransform = lat;
+            launcherParent = overlay.AgeTransform;
             launcherLabel = at.GetComponentInChildren<AgePrimitiveLabel>();
+            if (launcherLabel != null)
+            {
+                launcherLabel.DisableAutoLocalize = true;
+                launcherLabel.Visible = true;
+            }
             GameObject callbacksHost = null;
             if (Window != null)
             {
@@ -1293,6 +1326,9 @@ public static class CouncilNative
             launcher.OnActivateObject = callbacksHost;
             launcher.OnActivateMethod = "OnCouncilLauncher";
             launcher.OnRightClickMethod = null;
+            launcher.Visible = true;
+            launcher.Enable = true;
+            lat.Visible = true;
             var tip = at.GetComponentInChildren<AgeTooltip>();
             if (tip != null) tip.Content = CouncilGame.Tr("Галактический совет Академии", "The Galactic Council of the Academy");
         }
@@ -1302,9 +1338,15 @@ public static class CouncilNative
     /// <summary>Highlights the launcher button while a vote is open and not yet cast.</summary>
     public static void RefreshLauncher()
     {
-        if (launcher == null || launcherLabel == null) return;
+        if (launcher == null) return;
         try
         {
+            PositionLauncher();
+            launcher.Visible = true;
+            launcher.Enable = true;
+            if (launcherLabel == null) return;
+            launcherLabel.DisableAutoLocalize = true;
+            launcherLabel.Visible = true;
             var c = CouncilGame.Core;
             var me = CouncilGame.LocalEmpire();
             bool voting = c.Enabled && c.Phase == CouncilCore.PhaseVoting && me != null && c.IsMember(me.Index) && !c.HasVoted(me.Index);
@@ -1366,25 +1408,11 @@ public static class CouncilNative
 
     // ------------------------------------------------------------------ native messages
 
-    /// <summary>A native toast: the game's non-blocking message box, auto-closed after a few seconds.</summary>
+    /// <summary>Compatibility sink: no autonomous native popup is ever shown. The old implementation
+    /// used MessageBoxNonBlockingWindow, whose fullscreen title/message had no close button.</summary>
     public static void Toast(string text)
     {
-        try
-        {
-            var gui = Services.GetService<IGuiService>();
-            if (gui == null) return;
-            var box = gui.GetWindow<MessageBoxNonBlockingWindow>(false);
-            if (box == null) return;
-            box.Title = CouncilGame.Tr("Галактический совет", "Galactic Council");
-            box.Message = text;
-            box.Type = MessageBoxType.INFORMATIVE;
-            box.ActiveEventHandler = null;
-            box.ValidateTitle = null;
-            box.CancelTitle = null;
-            box.TimeoutDuration = 14;
-            gui.ShowWindow(box, false);
-        }
-        catch (Exception e) { NoteFailure("toast", e); }
+        CouncilUi.Toast(text);
     }
 
     /// <summary>A native blocking confirmation with Validate/Cancel buttons.</summary>

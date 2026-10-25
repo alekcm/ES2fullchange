@@ -223,7 +223,7 @@ public static partial class CouncilGame
         }
         catch (Exception e) { Fail("DebugOpenAcademy manager", e); }
         if (!Core.Enabled) FoundCouncil(mgr, game, turn);
-        DebugNote("Академия открыта", "The Academy is open");
+        // No notification: vanilla EventAcademyDiscovered already produces the game's own popup.
     }
 
     /// <summary>Reports as many different (fake) conditions as the mandate needs.</summary>

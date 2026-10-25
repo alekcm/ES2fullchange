@@ -205,9 +205,10 @@ Native Endless Space 2 interface (no Unity prefabs needed — the game's own win
   the whole ballot. The same ±10 steppers sit on mandate cards.
 * A **HUD launcher button** (a clone of the laws-screen vote button, pinned to the top-right of the game overlay)
   opens the window any time; it is tinted orange while a vote is open and not yet cast.
-* **Toasts** use the game's `MessageBoxNonBlockingWindow` (auto-closing, with the timeout gauge); **confirmations**
+* There are **no autonomous Council popups or toast notifications**. Existing `Toast` call sites are silent
+  compatibility sinks; state and results are read in the window itself. User-triggered **confirmations** still
   go through `GuiManager.ShowMessage` (native Validate/Cancel message box).
-* The window pops up by itself when a vote opens (for council members).
+* The window does not pop up by itself when a vote opens; the HUD launcher is highlighted instead.
 
 If the native construction fails (another game version, missing widgets), the mod automatically falls back to the old
 IMGUI window (`CouncilUiImgui` in `src/GalacticCouncil/CouncilUi.cs`): a "Council" button appears while the Academy
@@ -230,12 +231,12 @@ Both sections are folded by default (a toggle line opens them).
 - "Convene the Council now", "Open the vote now", "Vote at next turn", "AIs vote now", "Tally now", "Council window";
 - "Give the senator class (vote purchases)" - every senator that represents a party of the current empire gets the whole
   `ClassCorporate` tree (the five purchases, the passive votes and the ultimate) at full level, free (`OrderUnlockHeroSkill`
-  with `IsFree`), so the purchases can be tested without growing a senator. A toast reports how many skills were given;
+  with `IsFree`), so the purchases can be tested without growing a senator;
 - votes: +10 / +100 / −100, "Recompute from game", "Reset manual changes", "+ declared war (−20)", "Forget wars";
 - alliance of the Supreme Legate: auto / alone (51%) / allied (67%) - this is how both keep thresholds of "Establishment of Absolute Power" are tested;
 - every mandate: progress, holder, "Grant condition" (the Supreme Legate button grants two ordinary qualifications), "Give to me", "Take away";
 - "Detect conditions from game", "Clear conditions", last results.
-All actions are `OrderCouncilVote(KindDebug, action, param)`, executed by every client, so the state stays in sync. The Academy manager is taken from the game service (`IAcademyRequestsService`) when no turn has started since the load. "Convene" works only when the game has an Academy that is not eliminated; failures are shown as a toast.
+All actions are `OrderCouncilVote(KindDebug, action, param)`, executed by every client, so the state stays in sync. The Academy manager is taken from the game service (`IAcademyRequestsService`) when no turn has started since the load. "Convene" works only when the game has an Academy that is not eliminated; debug failures do not open popups (use the God-Mod status/state lines and Diagnostics).
 Natural founding (without the button): the Academy must be discovered (`DiscoveredTurn`), the turn must be greater than that turn and at least `MinTurnsForFirstRequest`.
 
 Recipe for the keep-vote: "Give to me" on the Supreme Legate → "Open the vote now" → vote (Absolute Power: option 0 = keep, 1 = remove) → "Tally now".
