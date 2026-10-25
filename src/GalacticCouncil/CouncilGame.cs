@@ -170,6 +170,32 @@ public static partial class CouncilGame
         catch (Exception) { return mgr != null ? mgr.MinTurnsForFirstRequest : 0f; }
     }
 
+    // ---------------------------------------------------------------- loading-screen bootstrap (prepended to GameClientState_LaunchGame.Begin / GameServerState_LaunchGame.Begin)
+
+    /// <summary>All one-time content generation of the mod, run while the session loading screen is up instead of
+    /// lazily inside the first turns: the reworked hero skills (otherwise built at the first HeroSkill.Load -
+    /// in a NEW game there are no heroes at generation time, so this used to hitch the first hero/academy action
+    /// with the map already on screen), the dictator hero definitions (otherwise at the first
+    /// DepartmentOfEducation.SerializeElements), the council vote texts, the Empire-Development quadrant scan
+    /// and the static constructors of the hand-written tables. Every part is self-guarded and cheap when already
+    /// done, and the old lazy call sites stay as safety nets, so running this on every session launch is harmless;
+    /// the game databases are loaded long before a session starts.</summary>
+    public static void EnsureEarlyContent()
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        try { HeroRework.EnsureContent(); } catch (Exception e) { Fail("EnsureEarlyContent/hero skills", e); }
+        try { HeroRework.EnsureDictatorDefinitions(); } catch (Exception e) { Fail("EnsureEarlyContent/dictator heroes", e); }
+        try { EnsureVoteTexts(); } catch (Exception e) { Fail("EnsureEarlyContent/vote texts", e); }
+        try { EnsureDevQuadrants(); } catch (Exception e) { Fail("EnsureEarlyContent/dev quadrants", e); }
+        try { System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(CouncilLaws).TypeHandle); } catch (Exception) { }
+        try { System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(HeroDesign).TypeHandle); } catch (Exception) { }
+        long ms = watch.ElapsedMilliseconds;
+        if (ms > 25)
+        {
+            try { Diagnostics.LogWarning("[GalacticCouncil] one-time content generated on the loading screen in " + ms + "ms"); } catch (Exception) { }
+        }
+    }
+
     // ---------------------------------------------------------------- turn hook (prepended to AcademyRequestsManager.ClientBeginTurn; the vanilla cycle runs after us)
 
     public static void ClientBeginTurn(AcademyRequestsManager mgr)
@@ -188,7 +214,7 @@ public static partial class CouncilGame
             if (!buildStampLogged)
             {
                 buildStampLogged = true;
-                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-25.6 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
+                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-25.7 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
             }
             float foundingTurns = MakeAcademyTalkable(mgr);
             // No UI work from the turn hook: building the native Council window (cloning the whole laws

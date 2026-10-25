@@ -59,6 +59,7 @@ public static class Patcher
         if (!Skip("council"))
         {
             HookClientBeginTurn(game);
+            HookEarlyContent(game);
             HookSerialize(game);
             HookTreasury(game, voteOrder);
             HookBackdoor(game);
@@ -316,6 +317,26 @@ public static class Patcher
         il.InsertBefore(first, il.Create(OpCodes.Ldarg_0));
         il.InsertBefore(first, il.Create(OpCodes.Call, GameMethod(game, "ClientBeginTurn")));
         Console.WriteLine("hook: AcademyRequestsManager.ClientBeginTurn prepended (vanilla cycle kept)");
+    }
+
+    // GameClientState_LaunchGame.Begin / GameServerState_LaunchGame.Begin => CouncilGame.EnsureEarlyContent(); <vanilla body>
+    // The mod's one-time content generation (reworked hero skills, dictator hero definitions, council vote texts,
+    // static tables) runs while the session loading screen is up - the client state literally sets the "Loading"
+    // cursor/text in Begin - instead of lazily during the first turns (a NEW game has no heroes at generation time,
+    // so HeroSkill.Load never fired during the load and the generation hitched the first hero/academy action with
+    // the map already on screen). Both states are hooked; EnsureEarlyContent is self-guarded (a few dictionary
+    // lookups once everything exists) and the old lazy hooks stay as safety nets.
+    static void HookEarlyContent(TypeDefinition game)
+    {
+        foreach (var type in new[] { "GameClientState_LaunchGame", "GameServerState_LaunchGame" })
+        {
+            var m = Method(type, "Begin", 1);
+            LengthenBranches(m);
+            var il = m.Body.GetILProcessor();
+            var first = m.Body.Instructions[0];
+            il.InsertBefore(first, il.Create(OpCodes.Call, GameMethod(game, "EnsureEarlyContent")));
+            Console.WriteLine("hook: " + type + ".Begin generates the mod content on the loading screen");
+        }
     }
 
     // AcademyRequestsManager.SerializeAttributes(...) : append CouncilGame.SerializeAttributes(serializer, versionProvider)
