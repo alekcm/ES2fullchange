@@ -202,7 +202,9 @@ public static partial class CouncilGame
         Core.Found(turn, members, interval);
         // the old resource-demand cycle is replaced by the council
         try { mgr.CurrentState = RequestState.Dormant; mgr.ShowAlert = false; } catch (Exception) { }
-        CouncilUi.Toast(Tr("Академия созвала Галактический совет", "The Academy has convened the Galactic Council"));
+        // No toast here: the game already pops up its own Academy-discovered notification.
+        // Make the Council reachable right away (cheap single HUD button, window itself builds on open).
+        try { CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }
     }
 
     static void DisbandCouncil(Game game, int turn)

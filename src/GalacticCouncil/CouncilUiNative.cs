@@ -1145,6 +1145,7 @@ public static class CouncilNative
 
     static AgeControlButton launcher;
     static AgePrimitiveLabel launcherLabel;
+    static GameObject launcherCallbacksHost;   // message target for the launcher before the window exists
 
     public static string[] TabNames()
     {
@@ -1217,14 +1218,41 @@ public static class CouncilNative
         }
     }
 
+    /// <summary>Creates only the HUD launcher button (a single cloned button): the Council must stay
+    /// reachable even while the full window is not built yet and vanilla Academy diplomacy is gated
+    /// ("the Academy is deliberating and not ready to negotiate" - our founding pins the vanilla request
+    /// cycle to Dormant, so that path may never open the Academy window).</summary>
+    public static void EnsureLauncherOnly()
+    {
+        if (launcher != null) { RefreshLauncher(); return; }
+        try
+        {
+            var gui = Services.GetService<IGuiService>();
+            if (gui == null || !gui.GuiWindowsLoaded) return;
+            EnsureLauncher(gui);
+        }
+        catch (Exception e) { NoteFailure("launcher-only", e); }
+        RefreshLauncher();
+    }
+
     static void EnsureLauncher(IGuiService gui)
     {
-        if (launcher != null || Window == null || Window.ActionButton == null) return;
+        if (launcher != null) return;
         try
         {
             var overlay = gui.GetWindow<GameOverlayWindow>(false);
             if (overlay == null || overlay.AgeTransform == null) return;
-            var at = overlay.AgeTransform.InstantiateChild<Transform>(Window.ActionButton.AgeTransform.transform, "CouncilLauncherButton");
+            Transform prefab = null;
+            if (Window != null && Window.ActionButton != null && Window.ActionButton.AgeTransform != null)
+                prefab = Window.ActionButton.AgeTransform.transform;
+            if (prefab == null)
+            {
+                var donor = gui.GetWindow<LawsManagementModalWindow>(false);
+                if (donor != null && donor.VoteButton != null && donor.VoteButton.AgeTransform != null)
+                    prefab = donor.VoteButton.AgeTransform.transform;
+            }
+            if (prefab == null) return;
+            var at = overlay.AgeTransform.InstantiateChild<Transform>(prefab, "CouncilLauncherButton");
             var lat = at.GetComponent<AgeTransform>();
             if (lat == null) return;
             // pin to the top-right corner of the screen-sized overlay, 236x32
@@ -1243,11 +1271,26 @@ public static class CouncilNative
             launcher = at.GetComponent<AgeControlButton>();
             if (launcher == null) return;
             launcherLabel = at.GetComponentInChildren<AgePrimitiveLabel>();
-            var callbacks = ((Component)Window).GetComponent<CouncilNativeCallbacks>();
+            GameObject callbacksHost = null;
+            if (Window != null)
+            {
+                var callbacks = ((Component)Window).GetComponent<CouncilNativeCallbacks>();
+                callbacksHost = callbacks != null ? callbacks.gameObject : ((Component)Window).gameObject;
+            }
+            if (callbacksHost == null)
+            {
+                if (launcherCallbacksHost == null)
+                {
+                    launcherCallbacksHost = new GameObject("__ES2CouncilLauncherCallbacks__");
+                    UnityEngine.Object.DontDestroyOnLoad(launcherCallbacksHost);
+                    launcherCallbacksHost.AddComponent<CouncilNativeCallbacks>();
+                }
+                callbacksHost = launcherCallbacksHost;
+            }
             launcher.UseLeftClick = true;
             launcher.UseRightClick = false;
             launcher.UseDoubleClick = false;
-            launcher.OnActivateObject = callbacks != null ? callbacks.gameObject : ((Component)Window).gameObject;
+            launcher.OnActivateObject = callbacksHost;
             launcher.OnActivateMethod = "OnCouncilLauncher";
             launcher.OnRightClickMethod = null;
             var tip = at.GetComponentInChildren<AgeTooltip>();

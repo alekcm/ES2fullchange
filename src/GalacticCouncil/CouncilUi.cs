@@ -118,6 +118,9 @@ public static class CouncilUi
     {
         // No auto-popup: voting lives in the game interface - it is opened from the Academy window
         // (AcademyModalWindow.OnBeginShow hook) or the HUD launcher, which gets highlighted instead.
+        // The launcher must exist even when vanilla Academy diplomacy is gated ("the Academy is
+        // deliberating"), so make sure the cheap HUD button is there (the window builds on click).
+        try { CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }
         Toast(CouncilGame.Tr("Галактический совет: открыто голосование. Итоги будут подведены в начале следующего хода.",
                               "Galactic Council: voting is open. Results will be counted at the start of next turn."));
         CouncilNative.RebuildIfVisible();
