@@ -14,6 +14,9 @@ public static class BattleDebug
     static bool open;
     static bool showAll;
     static Vector2 templateScroll;
+    static bool refitOpen;
+    static Vector2 refitScroll;
+    static string refitInfo = "";
 
     static string T(string ru, string en) { return CouncilGame.Tr(ru, en); }
     static void Say(string s) { try { CouncilUi.Toast(s); } catch (Exception) { } }
@@ -162,6 +165,86 @@ public static class BattleDebug
             if (cur != null) GUILayout.Label("     " + cur.Description);
         }
         GUILayout.EndScrollView();
+        DrawRefit(game, player);
+    }
+
+    /// <summary>docs/BATTLES_REWORK.md §8: refit the ships of an existing fleet to a template variant. The design is
+    /// the empire's (not the ship's), so one row shows how many ships share it; the actual work is
+    /// BattleTemplates.RefitShip (SetChoice + the game's own ApplyShipDesignToShip). This is the God-Mod panel
+    /// version of the feature: the playtest has to show whether the vanilla refit path needs more than that
+    /// (costs, a docked requirement), and only then does it get its own order + native window.</summary>
+    static void DrawRefit(Game game, MajorEmpire player)
+    {
+        var defense = player != null ? player.GetAgency<DepartmentOfDefense>() : null;
+        if (defense == null || defense.Fleets == null) return;
+        GUILayout.Space(6);
+        refitOpen = GUILayout.Toggle(refitOpen, T("══ ПЕРЕВОРУЖЕНИЕ ФЛОТОВ ══", "══ FLEET REFIT ══"));
+        if (!refitOpen) return;
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button(T("лучший шаблон для всего флота", "best template for each hull"), GUILayout.ExpandWidth(false)))
+        {
+            int n = 0;
+            foreach (Fleet f in defense.Fleets)
+            {
+                if (f == null || f.Ships == null) continue;
+                for (int i = 0; i < f.Ships.Count; i++) if (RefitBest(f.Ships[i])) n++;
+            }
+            refitInfo = T("переснаряжено кораблей: ", "ships refitted: ") + n;
+        }
+        if (GUILayout.Button(T("HUD: показать состав", "HUD: show composition"), GUILayout.ExpandWidth(false)))
+        {
+            BattleTemplates.RefreshHudOverlay(game, player);
+            refitInfo = BattleTemplates.FleetOverlayText(game, player, true);
+        }
+        GUILayout.EndHorizontal();
+        if (!string.IsNullOrEmpty(refitInfo)) GUILayout.Label(refitInfo);
+        refitScroll = GUILayout.BeginScrollView(refitScroll, GUILayout.Height(200f));
+        foreach (Fleet f in defense.Fleets)
+        {
+            if (f == null || f.Ships == null || f.Ships.Count == 0) continue;
+            GUILayout.Label(T("Флот: ", "Fleet: ") + FleetName(f) + "  (" + f.Ships.Count + T(" кораблей", " ships") + ")");
+            for (int i = 0; i < f.Ships.Count; i++)
+            {
+                Ship ship = f.Ships[i];
+                if (ship == null) continue;
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(BattleTemplates.FleetShipLine(ship));
+                string hull = ship.ShipDesign != null && ship.ShipDesign.Hull != null ? ship.ShipDesign.Hull.Name.ToString() : null;
+                var variants = string.IsNullOrEmpty(hull) ? null : BattleTemplates.Variants(hull);
+                for (int v = 0; variants != null && v < variants.Count; v++)
+                {
+                    var t = variants[v];
+                    if (GUILayout.Button(T("→ ", "-> ") + (CouncilGame.IsRussian() ? t.Variant.NameRu : t.Variant.NameEn), GUILayout.ExpandWidth(false)))
+                        refitInfo = BattleTemplates.RefitShip(ship, t, false);
+                }
+                GUILayout.EndHorizontal();
+            }
+        }
+        GUILayout.EndScrollView();
+    }
+
+    /// <summary>Refit one ship to the variant it (or its hull) is set to: the design's own binding first, then the
+    /// hull default the player picked with the design window's Auto-design button. There is no automatic "best
+    /// against the enemy" pick here on purpose - choosing the counter is the player's call (docs §8) and a
+    /// background auto-refit of every fleet is the kind of surprise that makes a save unplayable.</summary>
+    static bool RefitBest(Ship ship)
+    {
+        try
+        {
+            if (ship == null || ship.ShipDesign == null || ship.ShipDesign.Hull == null) return false;
+            string hull = ship.ShipDesign.Hull.Name.ToString();
+            var variants = BattleTemplates.Variants(hull);
+            if (variants.Count == 0) return false;
+            BattleTemplate pick = BattleTemplates.Match(ship.ShipDesign);
+            if (pick == null)
+            {
+                string current = BattleTemplates.ChoiceForHull(hull);
+                if (!string.IsNullOrEmpty(current)) pick = BattleTemplates.ById(current);
+            }
+            if (pick == null) return false;      // nothing chosen: no blind auto-refit
+            return !string.IsNullOrEmpty(BattleTemplates.RefitShip(ship, pick, false));
+        }
+        catch (Exception) { return false; }
     }
 
     static string FleetName(Fleet f)

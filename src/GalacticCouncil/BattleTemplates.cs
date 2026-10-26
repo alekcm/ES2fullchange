@@ -343,6 +343,87 @@ public static class BattleTemplates
         else BattleRework.Core.HullVariantChoice[hull] = templateId;
     }
 
+    // ------------------------------------------------------------------ refitting an existing ship (docs §8)
+
+    /// <summary>Refit one ship to a template variant: the shared design is re-laid-out (that is how the game works -
+    /// a design belongs to the empire, not to a ship), and the ship is re-applied through the game's own
+    /// DepartmentOfDefense path so that the simulation entity is rebuilt the way a vanilla refit does it.
+    /// <paramref name="rememberForHull"/> false = only this ship's design, true = also the default for the hull
+    /// (what the player's Auto-design button does). Returns the human result line ("" = nothing to do).</summary>
+    public static string RefitShip(Ship ship, BattleTemplate variant, bool rememberForHull)
+    {
+        try
+        {
+            if (ship == null || variant == null) return "";
+            MajorEmpire player = CouncilGame.LocalEmpire() as MajorEmpire;
+            var defense = player != null ? player.GetAgency<DepartmentOfDefense>() : null;
+            if (defense == null) return CouncilGame.Tr("нет департамента обороны", "no DepartmentOfDefense");
+            ShipDesign design = ship.ShipDesign;
+            if (design == null)
+            {
+                // a ship without a design of its own (vanilla "default" hull): take the empire's design for that hull
+                design = BestDesignForHull(defense, variant.Hull);
+                if (design == null) return CouncilGame.Tr("нет проекта этого корпуса", "no design of this hull");
+            }
+            int bound = SetChoice(design, variant.Id, rememberForHull) ? 1 : 0;
+            int shared = ShipsUsingDesign(design);
+            try { DepartmentOfDefense.ApplyShipDesignToShip(ship, design); }
+            catch (Exception e)
+            {
+                try { ship.RetrofitShipDesign(design); }
+                catch (Exception e2) { return CouncilGame.Tr("рефит не удался: ", "refit failed: ") + e2.GetType().Name; }
+            }
+            string what = SafeName(design);
+            return what + (CouncilGame.IsRussian() ? ": слотов обновлено " : ": slots refreshed ") + bound
+                   + (shared > 1 ? (CouncilGame.IsRussian() ? ", кораблей на этом проекте: " : ", ships on this design: ") + shared : "")
+                   + ")";
+        }
+        catch (Exception e) { Fail("RefitShip", e); return ""; }
+    }
+
+    /// <summary>The empire's design that best matches a hull (for ships that have no design of their own, or when
+    /// the refit menu needs a candidate to edit).</summary>
+    public static ShipDesign BestDesignForHull(DepartmentOfDefense defense, string hull)
+    {
+        try
+        {
+            if (defense == null || defense.AvailableShipDesigns == null || string.IsNullOrEmpty(hull)) return null;
+            ShipDesign best = null;
+            foreach (ShipDesign d in defense.AvailableShipDesigns)
+            {
+                if (d == null || d.Hull == null) continue;
+                if (d.Hull.Name.ToString() != hull) continue;
+                if (best == null) { best = d; continue; }
+                bool ok = false;
+                try { ok = defense.IsShipDesignUpToDate(d) && !defense.IsShipDesignUpToDate(best); } catch (Exception) { }
+                if (ok) best = d;
+            }
+            return best;
+        }
+        catch (Exception) { return null; }
+    }
+
+    /// <summary>How many ships of the player share this design - a refit touches all of them, the player must know.</summary>
+    public static int ShipsUsingDesign(ShipDesign design)
+    {
+        try
+        {
+            if (design == null) return 0;
+            MajorEmpire player = CouncilGame.LocalEmpire() as MajorEmpire;
+            var defense = player != null ? player.GetAgency<DepartmentOfDefense>() : null;
+            if (defense == null || defense.Fleets == null) return 0;
+            int n = 0;
+            foreach (Fleet f in defense.Fleets)
+            {
+                if (f == null || f.Ships == null) continue;
+                for (int i = 0; i < f.Ships.Count; i++)
+                    if (f.Ships[i] != null && f.Ships[i].ShipDesign == design) n++;
+            }
+            return n;
+        }
+        catch (Exception) { return 0; }
+    }
+
     /// <summary>The design's binding from the save, if there is one.</summary>
     public static BattleTemplate BoundOf(ShipDesign design)
     {
