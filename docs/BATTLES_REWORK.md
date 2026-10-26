@@ -17,12 +17,12 @@
 | Мораль защитника + автокапитуляция при 0 | **реализован** (хук в бою) | `BattleCore.TickMorale`, `BattleRework.CheckSurrender`, хук в `ServerGroundBattle.IsFinished` |
 | Пополнение manpower только из «связных» систем | **реализован** | `BattleRework.AllowedRefillFor`, хук в `Ship.RefillManpower` (1 место чтения) |
 | Отладочная панель в God-Mod | **реализован** | `BattleDebug.DrawBattleTools` (вкладка «Дипломатия и империи») |
-| Шаблоны кораблей: каталог, подвиды, описания, привязка проекта, кнопка «Автодизайн» | **реализован** (без отдельного окна выбора) | `TemplateCore` + `BattleTemplates`, хуки в `ShipDesignModalWindow.{OnAutoDesignCb,RefreshButtons}` |
+| Шаблоны кораблей: каталог, подвиды, описания, привязка проекта, кнопка «Автодизайн» | код есть, **в сборке ОТКЛЮЧЁН** (космос = ваниль; `PATCH_SPACE=1`) | `TemplateCore` + `BattleTemplates`, хуки в `ShipDesignModalWindow.{OnAutoDesignCb,RefreshButtons}` |
 | Шаблоны для ИИ (чтобы он брал корабли из подвида) | **решение: не трогаем** (у `Database<T>` нет публичного reorder) | §5.3 |
-| Состав флотов в **нативном тултипе** строки флота | **реализован**: без Alt — только счётчики, с Alt — с описаниями | `BattleTemplates.RefreshFleetLineTooltip`, хук `FleetLine.Refresh`, §6 |
+| Состав флотов в **нативном тултипе** строки флота | код есть, **в сборке ОТКЛЮЧЁН** (`PATCH_SPACE=1`) | `BattleTemplates.RefreshFleetLineTooltip`, хук `FleetLine.Refresh`, §6 |
 | Двухрежимная справка на карточке корабля | **реализован**: без Alt — только атака, уровень, прочность, ход, люд. ресурсы + одна строка профиля (по ФАКТИЧЕСКОЙ дальности корабля, не по «семейной»); с Alt — ванильный текст целиком + защита, профиль, запись каталога | `BattleTemplates.RefreshShipItemTooltip`, хук `ShipItem.Refresh`, §6 |
-| Статистика в итогах боя («что в бою») | **реализован** (тултип цифры урона в отчёте) | `ReportCore` + `BattleReportStats`, хвост `AdvancedEncounterReportModalWindow.Refresh`, §7 |
-| «Перемодернизация флота» | **реализован как инструмент God-Mod'а**; отдельный приказ — после проверки пути в игре | `BattleDebug.DrawRefit` + `BattleTemplates.RefitShip`, §8 |
+| Статистика в итогах боя («что в бою») | код есть, **в сборке ОТКЛЮЧЁН** (`PATCH_SPACE=1`) | `ReportCore` + `BattleReportStats`, хвост `AdvancedEncounterReportModalWindow.Refresh`, §7 |
+| «Перемодернизация флота» | код есть, **скрыт вместе с космической половиной** | `BattleDebug.DrawRefit` + `BattleTemplates.RefitShip`, §8 |
 
 Все числа — константы в `src/GalacticCouncil/BattleCore.cs`, они проверяются тестами `tests/BattleCoreTests.cs`
 (62 проверки, все проходят). Чистые части второго этапа проверяются отдельно, без игры: `tests/TemplateCoreTests.cs`
