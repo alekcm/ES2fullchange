@@ -51,6 +51,14 @@ public static class BattleRework
         public SimulationDescriptor Desc;
     }
 
+    /// <summary>The space-battle half of the rework (template catalogue, report block, ship cards) is off: the
+    /// player asked to keep space battles vanilla, and only the ground-battle changes stay. Set the environment
+    /// variable ES2_SPACE_BATTLES=1 to bring the phase-2 behaviour back without a rebuild; the assembly-level
+    /// hooks additionally need a PATCH_SPACE=1 build of the patcher, so a runtime-only "on" without the patched
+    /// window hooks simply means "the catalogue exists, nothing rewrites the game's windows".</summary>
+    public static readonly bool SpaceBattlesEnabled =
+        (Environment.GetEnvironmentVariable("ES2_SPACE_BATTLES") ?? "").Trim() == "1";
+
     /// <summary>Called from CouncilGame's per-turn work (BeforeTurnEnd runs on the server and on the client).</summary>
     public static void PerTurn(Game game, int turn)
     {
@@ -59,7 +67,8 @@ public static class BattleRework
         try { TickMorale(game, turn); } catch (Exception e) { Fail("TickMorale", e); }
         try { RefreshCrewPenalties(game, turn); } catch (Exception e) { Fail("RefreshCrewPenalties", e); }
         // the template catalogue (phase 2): idempotent, and the databases are certainly loaded at turn end
-        try { BattleTemplates.RegisterVariantTemplates(); } catch (Exception e) { Fail("RegisterVariantTemplates", e); }
+        if (SpaceBattlesEnabled)
+            try { BattleTemplates.RegisterVariantTemplates(); } catch (Exception e) { Fail("RegisterVariantTemplates", e); }
     }
 
     static void TickMorale(Game game, int turn)

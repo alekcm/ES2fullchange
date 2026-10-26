@@ -70,7 +70,7 @@ public static class BattleDebug
                 }
             }
 
-            DrawTemplates();
+            if (BattleRework.SpaceBattlesEnabled) DrawTemplates();     // space battles are vanilla: no template/refit tools
 
             GUILayout.Label(T("Мораль систем", "System morale"));
             if (player != null)

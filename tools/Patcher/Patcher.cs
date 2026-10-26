@@ -20,6 +20,11 @@ public static class Patcher
         (Environment.GetEnvironmentVariable("PATCH_SKIP") ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(s => s.Trim().ToLowerInvariant()));
     static bool Skip(string token) { return SkipSet.Contains("hooks") || SkipSet.Contains(token); }
+
+    // The space-battle half of the rework (ship-design templates, the report "what happened" block, the ship-card
+    // help line) is opt-in: PATCH_SPACE=1 installs those hooks, without it the produced assembly leaves space
+    // battles and their UI completely vanilla and keeps only the ground-battle changes (docs/BATTLES_REWORK.md).
+    static readonly bool SpaceHooks = (Environment.GetEnvironmentVariable("PATCH_SPACE") ?? "").Trim() == "1";
     static int brokenBranchesBefore;   // the baseline itself ships one broken branch; only NEW ones are fatal
 
     public static int Main(string[] args)
@@ -747,9 +752,13 @@ public static class Patcher
         cil.InsertBefore(last, cil.Create(OpCodes.Ldarg_1));
         Console.WriteLine("hook: CouncilGame.SerializeAttributes also persists the battle rework state");
 
-        if (templates != null) HookTemplates(templates);
-        HookReportStats(cl.Mapped("BattleReportStats"));
-        HookShipItem(templates);      // (the FleetLine hook was removed on request: per-fleet dump replaced by per-ship)
+        if (SpaceHooks)
+        {
+            if (templates != null) HookTemplates(templates);
+            HookReportStats(cl.Mapped("BattleReportStats"));
+            HookShipItem(templates);      // (the FleetLine hook was removed on request: per-fleet dump replaced by per-ship)
+        }
+        else Console.WriteLine("skip: space battle hooks (templates / report block / ship cards) - ground battles only");
     }
 
     // ---- 6. the short help line of a single ship card: ShipItem.Refresh is where vanilla fills the card's own
