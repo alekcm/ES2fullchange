@@ -287,6 +287,34 @@ public static class TemplateCore
     public static void SetLanguageProvider(Func<bool> provider) { russianProvider = provider; }
     static bool CouncilGame_IsRu() { return russianProvider != null && russianProvider(); }
 
+    /// <summary>1-2 sentences describing what a ship actually is, from ITS OWN range efficiency (the game's
+    /// "ОБЩАЯ МЕТКОСТЬ" numbers, not the template's nominal bands) plus its AA/armor traits. This is what the
+    /// ship tooltip shows without Alt; deliberately short (docs §6 - the player asked for the whole truth in
+    /// one line, not for the catalogue entry reprinted).</summary>
+    public static string ShortProfileText(float effLong, float effMedium, float effShort, bool hasFlak, string armorBias, bool russian)
+    {
+        var sb = new System.Text.StringBuilder();
+        float hi = Max(effLong, effMedium, effShort), lo = Min(effLong, effMedium, effShort);
+        string range;
+        if (hi < 0.35f) range = null;                                    // no real guns / all ranges bad: nothing to say
+        else if (hi - lo <= 0.25f) range = russian ? "Универсален на любой дистанции" : "Universal at any range";
+        else if (effShort >= effLong + 0.25f) range = russian ? "Опасен вблизи, на дистанции промахивается" : "Deadly up close, misses at range";
+        else if (effLong >= effShort + 0.25f) range = russian ? "Бьёт издалека, в упор беспомощен" : "Strikes from afar, helpless at zero range";
+        else if (effMedium >= hi - 0.05f && effMedium >= effLong + 0.2f && effMedium >= effShort + 0.2f) range = russian ? "Силён на средней дистанции" : "Strongest at medium range";
+        else range = russian ? "Держит средние и ближние дистанции" : "Handles medium and short ranges";
+        string trait = null;
+        if (hasFlak) trait = russian ? "прикрывает флот от ракет и истребителей" : "screens the fleet from missiles and fighters";
+        else if (armorBias == "energy") trait = russian ? "пробивает энергетическую броню" : "punches through energy armor";
+        else if (armorBias == "projectile") trait = russian ? "пробивает снарядную броню" : "punches through projectile armor";
+        if (trait != null) sb.Append(range == null ? Cap(trait) + "." : range + ", " + trait + ".");
+        else if (range != null) sb.Append(range).Append('.');
+        return sb.Length > 0 ? sb.ToString() : (russian ? "Без выраженного профиля." : "No pronounced profile.");
+    }
+
+    static string Cap(string v) { return string.IsNullOrEmpty(v) ? v : char.ToUpper(v[0]) + v.Substring(1); }
+    static float Max(float a, float b, float c) { return a > b ? (a > c ? a : c) : (b > c ? b : c); }
+    static float Min(float a, float b, float c) { return a < b ? (a < c ? a : c) : (b < c ? b : c); }
+
     /// <summary>Family part of a template id ("HullSmall01Terrans_SmallAttacker_KineticBase" -> "KineticBase").</summary>
     public static string FamilyOfId(string templateId)
     {

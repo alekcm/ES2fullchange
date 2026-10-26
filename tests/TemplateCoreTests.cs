@@ -118,6 +118,22 @@ static class TemplateCoreTest
         Check(TemplateCore.FamilyOfId("NoUnderscore") == null, "a bad id yields no family");
         Check(TemplateCore.FamilyOfId(null) == null, "null too");
 
+        // ---------------- ShortProfileText: the ship tooltip one-liner from the game's own accuracy numbers
+        Check(TemplateCore.ShortProfileText(0.1f, 0.5f, 0.95f, false, null, true) == "Опасен вблизи, на дистанции промахивается.",
+              "short-range hunter (10/50/95 is NOT a universal)");
+        Check(TemplateCore.ShortProfileText(0.9f, 0.85f, 0.8f, false, null, true) == "Универсален на любой дистанции.",
+              "all bands high and close = universal");
+        Check(TemplateCore.ShortProfileText(1f, 0.5f, 0f, false, null, true) == "Бьёт издалека, в упор беспомощен.",
+              "sniper");
+        Check(TemplateCore.ShortProfileText(0.1f, 0.5f, 0.95f, true, "energy", true) == "Опасен вблизи, на дистанции промахивается, прикрывает флот от ракет и истребителей.",
+              "flak wins the second clause over armor bias");
+        Check(TemplateCore.ShortProfileText(0.5f, 0.5f, 0.5f, false, "projectile", true) == "Универсален на любой дистанции, пробивает снарядную броню.",
+              "flat profile + armor");
+        Check(TemplateCore.ShortProfileText(0f, 0f, 0f, false, null, false) == "No pronounced profile.",
+              "empty data is honest, not 'universal'");
+        Check(TemplateCore.ShortProfileText(1f, 0.6f, 0.2f, false, null, false) == "Strikes from afar, helpless at zero range.",
+              "english line");
+
         // ---------------- the real game data, when it is fetched next to the repo (tools/fetch script)
         int fromData = CheckVanillaData();
         if (fromData == 0) Console.WriteLine("note: no /tmp/es2d/modweap.xml - the data cross-check was skipped");

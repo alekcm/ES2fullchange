@@ -906,13 +906,9 @@ public static class BattleTemplates
             var tooltip = line.FleetTooltip;
             if (tooltip == null) return;
             var garrison = line.GuiGarrison != null ? line.GuiGarrison.Garrison : null;
-            string summary = GarrisonSummary(garrison, true);
-            if (string.IsNullOrEmpty(summary))
-            {
-                // a hangar (garrison without a fleet entity) still has ships; GuiGarrison may not be a Fleet
-                summary = GarrisonSummary(garrison, false);
-                if (string.IsNullOrEmpty(summary)) return;
-            }
+            // plain hover: counts only ("2× Крейсер [ракеты]"); Alt: + the variants' descriptions, as before
+            string summary = GarrisonSummary(garrison, IsAltDown());
+            if (string.IsNullOrEmpty(summary)) return;
             const string marker = "\u2550\u2550\u2550";    // ═ - our blocks are marked, vanilla text never contains this
             string content = tooltip.Content;
             if (content != null && content.IndexOf(marker, StringComparison.Ordinal) >= 0) return;
@@ -920,6 +916,166 @@ public static class BattleTemplates
             tooltip.Content = (string.IsNullOrEmpty(content) ? "" : content + "\n") + header + "\n" + summary;
         }
         catch (Exception) { }
+    }
+
+    /// <summary>Hook of ShipItem.Refresh (post-call): the short help line in the game's own tooltip of a single
+    /// ship card (docs §6). Without Alt: attack / level / hull points / movement / manpower + ONE sentence that
+    /// describes the ship by what it actually is - the game's own range-accuracy numbers, not the template's
+    /// nominal band. With Alt: the same plus the full catalogue entry of the design (the way the fleet block
+    /// did it before the player asked for less on plain hover).</summary>
+    public static void RefreshShipItemTooltip(ShipItem item)
+    {
+        try
+        {
+            if (item == null) return;
+            var gui = item.GuiShip;
+            if (gui == null || gui.Ship == null) return;
+            var at = item.AgeTransform;
+            var tooltip = at != null ? at.AgeTooltip : null;
+            if (tooltip == null) return;
+            string cur = tooltip.Content ?? "";
+            if (cur.IndexOf('\u2550') >= 0) return;                 // this bind was already extended
+            var sb = new System.Text.StringBuilder();
+            if (!string.IsNullOrEmpty(cur)) sb.Append(cur).Append('\n');
+            string stats = ShipStatsLine(gui);
+            if (!string.IsNullOrEmpty(stats)) sb.Append(stats).Append('\n');
+            string profile = ShipProfileSentence(gui);
+            if (!string.IsNullOrEmpty(profile)) sb.Append(profile).Append('\n');
+            if (IsAltDown())
+            {
+                string full = ShipDesignEntry(gui.Ship);
+                if (!string.IsNullOrEmpty(full)) sb.Append(full).Append('\n');
+            }
+            if (sb.Length == 0) return;
+            sb.Append("\u2550");                                     // marker: the extension exists even if all lines were empty
+            tooltip.Content = sb.ToString();
+        }
+        catch (System.Exception) { }
+    }
+
+    static string ShipStatsLine(GuiShip gui)
+    {
+        try
+        {
+            bool ru = CouncilGame.IsRussian();
+            var sb = new System.Text.StringBuilder();
+            AppendStat(sb, ru ? "атака " : "atk ", Stat(gui, "ShipStatOffensiveMilitaryPowerProperty"));
+            AppendStat(sb, ru ? "защита " : "def ", Stat(gui, "ShipStatDefensiveMilitaryPowerProperty"));
+            string level = Localized(gui.Level);
+            if (string.IsNullOrEmpty(level)) level = (string)gui.Level;
+            AppendStat(sb, "", level);
+            AppendStat(sb, ru ? "прочность " : "hull ", Stat(gui, "ShipStatHealthProperty"));
+            AppendStat(sb, ru ? "ход " : "move ", Stat(gui, "ShipStatMovementProperty"));
+            AppendStat(sb, ru ? "люд. ресурсы " : "manpower ", Stat(gui, "ShipStatManpowerProperty"));
+            return sb.ToString();
+        }
+        catch (System.Exception) { return ""; }
+    }
+    static void AppendStat(System.Text.StringBuilder sb, string label, string value)
+    {
+        if (string.IsNullOrEmpty(value)) return;
+        if (sb.Length > 0) sb.Append(" \u00b7 ");
+        sb.Append(label).Append(value);
+    }
+
+    static string Stat(GuiShip gui, string statName)
+    {
+        try
+        {
+            var key = new StaticString(statName);
+            string v = gui.GetStatValue(key, false);
+            return string.IsNullOrEmpty(v) || v == "0" ? v : v;
+        }
+        catch (System.Exception) { return null; }
+    }
+
+    /// <summary>Range profile from the game's own efficiency dictionary (the same numbers the card shows as
+    /// "ОБЩАЯ МЕТКОСТЬ 10/50/95"), plus flak/armor traits from the design's modules. THIS is what decides the
+    /// one-liner - a ship with 0.1/0.5/0.95 is a brawler no matter which template it was built from.</summary>
+    static string ShipProfileSentence(GuiShip gui)
+    {
+        float l = 0f, m = 0f, s = 0f;
+        bool seen = false;
+        try
+        {
+            var eff = gui.GetRangeEfficiencies();
+            if (eff != null && eff.Count > 0)
+            {
+                int idx = 0;
+                foreach (var kv in eff)
+                {
+                    string k = ((string)kv.Key ?? "").ToLowerInvariant();
+                    float v = kv.Value;
+                    if (k.IndexOf("short") >= 0 || k.IndexOf("close") >= 0 || k.IndexOf("near") >= 0) s = v;
+                    else if (k.IndexOf("long") >= 0 || k.IndexOf("far") >= 0) l = v;
+                    else if (k.IndexOf("medi") >= 0 || k.IndexOf("mid") >= 0) m = v;
+                    else if (eff.Count == 3) { if (idx == 0) l = v; else if (idx == 1) m = v; else s = v; }
+                    idx++;
+                }
+                seen = true;
+            }
+        }
+        catch (System.Exception) { }
+        if (!seen) return "";
+        bool flak = false;
+        string armor = null;
+        try
+        {
+            ShipDesign design = gui.ShipDesign;
+            var slots = design != null && design.Layout != null ? design.Layout.Slots : null;
+            for (int i = 0; slots != null && i < slots.Count; i++)
+            {
+                ModuleDefinition mod = slots[i] != null ? slots[i].ModuleDefinition : null;
+                if (mod == null) continue;
+                string n = mod.Name.ToString();
+                if (n.IndexOf("Flack", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Flak", StringComparison.OrdinalIgnoreCase) >= 0)
+                    flak = true;
+            }
+            string fam = design != null ? PrimaryWeaponFamily(design) : null;
+            TemplateModuleInfo info;
+            if (fam != null && familyInfo.TryGetValue(fam, out info) && info != null)
+            {
+                if (info.VsEnergyArmor - info.VsProjectileArmor >= 0.2f) armor = "energy";
+                else if (info.VsProjectileArmor - info.VsEnergyArmor >= 0.2f) armor = "projectile";
+            }
+        }
+        catch (System.Exception) { }
+        return TemplateCore.ShortProfileText(l, m, s, flak, armor, CouncilGame.IsRussian());
+    }
+
+    /// <summary>The full entry (Alt-mode): variant + catalogue description, exactly the text the design window's
+    /// button tooltip carries, plus what the design is bound to when no variant exists.</summary>
+    static string ShipDesignEntry(Ship ship)
+    {
+        try
+        {
+            ShipDesign design = ship != null ? ship.ShipDesign : null;
+            if (design == null) return "";
+            BattleTemplate t = Match(design);
+            if (t == null) return CouncilGame.Tr("проект без шаблона", "design without a template");
+            string name = t.Variant != null ? (CouncilGame.IsRussian() ? t.Variant.NameRu : t.Variant.NameEn) : t.Family;
+            return name + (string.IsNullOrEmpty(t.Description) ? "" : "\n" + t.Description);
+        }
+        catch (System.Exception) { return ""; }
+    }
+
+    static string Localized(string key)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(key)) return null;
+            var svc = Amplitude.Unity.Framework.Services.GetService<Amplitude.Unity.Localization.ILocalizationService>();
+            if (svc == null) return null;
+            string s = svc.Localize(key, null, null);
+            return string.IsNullOrEmpty(s) || s == key ? null : s;
+        }
+        catch (System.Exception) { return null; }
+    }
+
+    static bool IsAltDown()
+    {
+        try { return UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftAlt) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightAlt); }
+        catch (System.Exception) { return false; }
     }
 
     /// <summary>Same line for the battle report window's fleet panel tooltip (docs §7).</summary>

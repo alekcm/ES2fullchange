@@ -750,6 +750,20 @@ public static class Patcher
         if (templates != null) HookTemplates(templates);
         HookReportStats(cl.Mapped("BattleReportStats"));
         HookFleetLine(templates);
+        HookShipItem(templates);
+    }
+
+    // ---- 6b. the short help line of a single ship card: ShipItem.Refresh is where vanilla fills the card's own
+    // AgeTooltip (name + class "Ship"); our post-call rewrites that Content with stats + one profile sentence
+    // (plus the full entry while Alt is held). Same WrapReturns trick as the fleet line.
+    static void HookShipItem(TypeDefinition templates)
+    {
+        var item = mod.GetType("ShipItem");
+        if (item == null) throw new Exception("ShipItem not found");
+        var refresh = item.Methods.FirstOrDefault(x => x.Name == "Refresh" && x.Parameters.Count == 0);
+        if (refresh == null || !refresh.HasBody) throw new Exception("ShipItem.Refresh not found");
+        int n = WrapReturns(refresh, GameMethod(templates, "RefreshShipItemTooltip"), new[] { OpCodes.Ldarg_0 });
+        Console.WriteLine("hook: ShipItem.Refresh ends with BattleTemplates.RefreshShipItemTooltip (returns: " + n + ")");
     }
 
     // ---- 6. the native fleet tooltip (docs/BATTLES_REWORK.md §6): FleetLine.Refresh is where the game fills the
