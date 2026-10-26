@@ -896,33 +896,20 @@ public static class BattleTemplates
         catch (Exception) { return ""; }
     }
 
-    /// <summary>Hook of FleetLine.Refresh (post-call): appends the composition line to the line's own AgeTooltip.
-    /// Idempotent: the marker is checked, so a vanilla rebind simply gets the line re-appended on the next refresh.</summary>
-    public static void RefreshFleetLineTooltip(FleetLine line)
-    {
-        try
-        {
-            if (line == null) return;
-            var tooltip = line.FleetTooltip;
-            if (tooltip == null) return;
-            var garrison = line.GuiGarrison != null ? line.GuiGarrison.Garrison : null;
-            // plain hover: counts only ("2× Крейсер [ракеты]"); Alt: + the variants' descriptions, as before
-            string summary = GarrisonSummary(garrison, IsAltDown());
-            if (string.IsNullOrEmpty(summary)) return;
-            const string marker = "\u2550\u2550\u2550";    // ═ - our blocks are marked, vanilla text never contains this
-            string content = tooltip.Content;
-            if (content != null && content.IndexOf(marker, StringComparison.Ordinal) >= 0) return;
-            string header = CouncilGame.IsRussian() ? "═══ Шаблоны ═══" : "═══ Templates ═══";
-            tooltip.Content = (string.IsNullOrEmpty(content) ? "" : content + "\n") + header + "\n" + summary;
-        }
-        catch (Exception) { }
-    }
-
     /// <summary>Hook of ShipItem.Refresh (post-call): the short help line in the game's own tooltip of a single
     /// ship card (docs §6). Without Alt: attack / level / hull points / movement / manpower + ONE sentence that
     /// describes the ship by what it actually is - the game's own range-accuracy numbers, not the template's
     /// nominal band. With Alt: the same plus the full catalogue entry of the design (the way the fleet block
     /// did it before the player asked for less on plain hover).</summary>
+    /// <summary>Hook of ShipItem.Refresh (post-call): the player's own two-mode readout of a single ship card,
+    /// written into the game's tooltip widget. Plain hover: ONLY attack, level, hull points, movement and
+    /// manpower, plus one profile sentence at the very bottom - everything else the vanilla card writes is cut
+    /// out. With Alt: the vanilla content stays exactly as the game writes it today, and our lines go under it
+    /// (full stats including defense, the profile sentence, the catalogue entry of the design).
+    /// The profile sentence is computed from the ship's REAL range-accuracy numbers (the game's own dictionary,
+    /// "10/50/95"), never from the template's nominal bands - so a brawler is not called a universal again.
+    /// Vanilla rewrites Content on every bind, so whenever the text is not ours (no marker) we store it as the
+    /// vanilla original; Alt mode replays that original, never our own output.</summary>
     public static void RefreshShipItemTooltip(ShipItem item)
     {
         try
@@ -933,34 +920,47 @@ public static class BattleTemplates
             var at = item.AgeTransform;
             var tooltip = at != null ? at.AgeTooltip : null;
             if (tooltip == null) return;
+            const char marker = '\u2550';                        // ═ - our blocks are marked, vanilla text never has it
             string cur = tooltip.Content ?? "";
-            if (cur.IndexOf('\u2550') >= 0) return;                 // this bind was already extended
-            var sb = new System.Text.StringBuilder();
-            if (!string.IsNullOrEmpty(cur)) sb.Append(cur).Append('\n');
-            string stats = ShipStatsLine(gui);
-            if (!string.IsNullOrEmpty(stats)) sb.Append(stats).Append('\n');
+            bool ours = cur.IndexOf(marker) >= 0;
+            string vanilla;
+            if (ours) vanilla = LastVanilla;
+            else { vanilla = cur; LastVanilla = cur; }
+            bool alt = IsAltDown();
+            string stats = ShipStatsLine(gui, alt);
             string profile = ShipProfileSentence(gui);
-            if (!string.IsNullOrEmpty(profile)) sb.Append(profile).Append('\n');
-            if (IsAltDown())
+            var sb = new System.Text.StringBuilder();
+            if (alt)
             {
+                if (!string.IsNullOrEmpty(vanilla)) sb.Append(vanilla).Append('\n');
+                if (!string.IsNullOrEmpty(stats)) sb.Append(stats).Append('\n');
+                if (!string.IsNullOrEmpty(profile)) sb.Append(profile).Append('\n');
                 string full = ShipDesignEntry(gui.Ship);
                 if (!string.IsNullOrEmpty(full)) sb.Append(full).Append('\n');
             }
-            if (sb.Length == 0) return;
-            sb.Append("\u2550");                                     // marker: the extension exists even if all lines were empty
+            else
+            {
+                if (!string.IsNullOrEmpty(stats)) sb.Append(stats).Append('\n');
+                if (!string.IsNullOrEmpty(profile)) sb.Append(profile).Append('\n');
+            }
+            if (sb.Length == 0) { if (ours) tooltip.Content = vanilla ?? ""; return; }
+            sb.Append(marker);
             tooltip.Content = sb.ToString();
         }
         catch (System.Exception) { }
     }
 
-    static string ShipStatsLine(GuiShip gui)
+    static string LastVanilla;            // the vanilla tooltip text captured pre-override: only one tooltip is
+                                          // ever hovered, and every vanilla bind re-captures it - one field is enough
+
+    static string ShipStatsLine(GuiShip gui, bool full)
     {
         try
         {
             bool ru = CouncilGame.IsRussian();
             var sb = new System.Text.StringBuilder();
             AppendStat(sb, ru ? "атака " : "atk ", Stat(gui, "ShipStatOffensiveMilitaryPowerProperty"));
-            AppendStat(sb, ru ? "защита " : "def ", Stat(gui, "ShipStatDefensiveMilitaryPowerProperty"));
+            if (full) AppendStat(sb, ru ? "защита " : "def ", Stat(gui, "ShipStatDefensiveMilitaryPowerProperty"));
             string level = Localized(gui.Level);
             if (string.IsNullOrEmpty(level)) level = (string)gui.Level;
             AppendStat(sb, "", level);

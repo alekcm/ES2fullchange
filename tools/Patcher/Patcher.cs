@@ -749,13 +749,12 @@ public static class Patcher
 
         if (templates != null) HookTemplates(templates);
         HookReportStats(cl.Mapped("BattleReportStats"));
-        HookFleetLine(templates);
-        HookShipItem(templates);
+        HookShipItem(templates);      // (the FleetLine hook was removed on request: per-fleet dump replaced by per-ship)
     }
 
-    // ---- 6b. the short help line of a single ship card: ShipItem.Refresh is where vanilla fills the card's own
+    // ---- 6. the short help line of a single ship card: ShipItem.Refresh is where vanilla fills the card's own
     // AgeTooltip (name + class "Ship"); our post-call rewrites that Content with stats + one profile sentence
-    // (plus the full entry while Alt is held). Same WrapReturns trick as the fleet line.
+    // (plus the full entry while Alt is held). Vanilla rewrites Content on every bind, so the post-call always sees fresh text; our method keeps the original for Alt mode.
     static void HookShipItem(TypeDefinition templates)
     {
         var item = mod.GetType("ShipItem");
@@ -766,19 +765,6 @@ public static class Patcher
         Console.WriteLine("hook: ShipItem.Refresh ends with BattleTemplates.RefreshShipItemTooltip (returns: " + n + ")");
     }
 
-    // ---- 6. the native fleet tooltip (docs/BATTLES_REWORK.md §6): FleetLine.Refresh is where the game fills the
-    // row (and its FleetTooltip AgeTooltip is filled by the vanilla bind just before); the post-call appends the
-    // template summary to that tooltip's Content. FleetLine is used both on the galaxy map hover box and in the
-    // system side panels, so one hook covers all the places where a fleet is listed.
-    static void HookFleetLine(TypeDefinition templates)
-    {
-        var line = mod.GetType("FleetLine");
-        if (line == null) throw new Exception("FleetLine not found");
-        var refresh = line.Methods.FirstOrDefault(x => x.Name == "Refresh" && x.Parameters.Count == 0);
-        if (refresh == null || !refresh.HasBody) throw new Exception("FleetLine.Refresh not found");
-        int n = WrapReturns(refresh, GameMethod(templates, "RefreshFleetLineTooltip"), new[] { OpCodes.Ldarg_0 });
-        Console.WriteLine("hook: FleetLine.Refresh ends with BattleTemplates.RefreshFleetLineTooltip (returns: " + n + ")");
-    }
 
     // ---- 5. the "what happened" block in the game's own battle report: Refresh() is the single place the report
     // window re-binds everything, so the block is appended to the tooltip of the report's damage number right after
