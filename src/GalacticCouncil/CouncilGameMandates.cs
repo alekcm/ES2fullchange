@@ -1,5 +1,6 @@
 // Stage 2 glue: mandates, victory, leaving the council, supply, market and loot hooks.
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Amplitude;
@@ -315,21 +316,33 @@ public static partial class CouncilGame
         return false;
     }
 
-    static void DiscoverSquadShips(Game game)
+    static void RecordSquadFleet(MajorEmpire empire, Fleet fleet)
     {
-        if (!squadScanNeeded) return;
+        if (empire == null || fleet == null) return;
+        string tag; int owner;
+        if (!TryParseMarker(fleet.LocalizedName, out tag, out owner)) return;
+        if (owner != empire.Index || !Core.IsMember(owner)) return;
+        var ids = new List<ulong>();
+        foreach (Ship ship in fleet.Ships) if (ship != null) ids.Add(ship.GUID);
+        if (ids.Count > 0) Core.AddSquadShips(tag, owner, ids);
+    }
+
+    static IEnumerator DiscoverSquadShipsAsync(Game game)
+    {
+        if (!squadScanNeeded || game == null) yield break;
+        int scanned = 0;
         foreach (MajorEmpire e in game.EnumerableMajorEmpires)
         {
+            if (e == null) continue;
             var def = e.GetAgency<DepartmentOfDefense>();
             if (def == null) continue;
             foreach (Fleet f in def.Fleets)
             {
-                string tag; int owner;
-                if (!TryParseMarker(f.LocalizedName, out tag, out owner)) continue;
-                if (owner != e.Index || !Core.IsMember(owner)) continue;
-                var ids = new List<ulong>();
-                foreach (Ship s in f.Ships) ids.Add(s.GUID);
-                if (ids.Count > 0) Core.AddSquadShips(tag, owner, ids);
+                long t0 = ModPerf.Now();
+                try { RecordSquadFleet(e, f); }
+                catch (Exception ex) { Fail("DiscoverSquadShips", ex); }
+                finally { ModPerf.Add(ModPerf.BeforeTurnEndBucket, t0); }
+                if (++scanned >= 24) { scanned = 0; yield return null; }
             }
         }
         // Keep scanning while a needed squad has not materialized yet (its creation order may only be
@@ -337,35 +350,90 @@ public static partial class CouncilGame
         squadScanNeeded = SquadsIncomplete();
     }
 
-    /// <summary>Called right before the end-of-turn bailiff check and resource collection (server bailiff state and the client
-    /// collect-resources state; idempotent). A squad that was spawned during this turn only becomes known now, so its upkeep
-    /// would otherwise be charged in full - bankrupting a small empire (the Bailiff defeat quest then eliminates it).</summary>
-    public static void BeforeTurnEnd()
+    static void DiscoverSquadShips(Game game)
     {
-        var perfWatch = System.Diagnostics.Stopwatch.StartNew();
-        try
+        if (!squadScanNeeded || game == null) return;
+        foreach (MajorEmpire e in game.EnumerableMajorEmpires)
         {
-            var game = GetGame();
-            if (game == null) return;
-            int turn = game.Turn;
-            // This hook is inserted in both server and client end-turn iterators. In a local game they
-            // share state, so only the first callback should do the whole-galaxy / whole-fleet work.
-            if (lastBeforeTurnEndTurn == turn) return;
-            lastBeforeTurnEndTurn = turn;
-            // the battle rework (crew reserve, defender morale) is independent from the Council: it runs even
-            // when the Council was never founded, so it is deliberately outside the Core.Enabled guard below
-            BattleRework.PerTurn(game, turn);
-            if (!Core.Enabled) return;
-            if (game == null) return;
-            DiscoverSquadShips(game);
-            RefreshEffects(game);
+            if (e == null) continue;
+            var def = e.GetAgency<DepartmentOfDefense>();
+            if (def == null) continue;
+            foreach (Fleet f in def.Fleets)
+            {
+                try { RecordSquadFleet(e, f); }
+                catch (Exception ex) { Fail("DiscoverSquadShips", ex); }
+            }
         }
-        catch (Exception e) { Fail("BeforeTurnEnd", e); }
-        finally
+        squadScanNeeded = SquadsIncomplete();
+    }
+
+    /// <summary>Turn-end mod work runs as a child of the game's own Amplitude.Coroutine pass iterator.
+    /// It yields between bounded system/fleet batches, so the engine can keep the turn UI responsive and
+    /// only resumes the vanilla bailiff/resource pass after our required bookkeeping has completed.</summary>
+    public static IEnumerator WrapTurnEndPass(IEnumerator vanillaPass)
+    {
+        yield return BeforeTurnEndAsync();
+        if (vanillaPass != null) yield return vanillaPass;
+    }
+
+    public static IEnumerator BeforeTurnEndAsync()
+    {
+        var game = GetGame();
+        if (game == null) yield break;
+        int turn = game.Turn;
+        // Both server and client pass factories are wrapped. The first child performs the shared
+        // work; later wrappers in this same turn proceed directly to their vanilla pass.
+        if (lastBeforeTurnEndTurn == turn) yield break;
+        lastBeforeTurnEndTurn = turn;
+
+        IEnumerator battles = BattleRework.PerTurnAsync(game, turn);
+        yield return DrainSafely(battles, "BattleRework.PerTurnAsync");
+        if (!Core.Enabled) yield break;
+
+        if (squadScanNeeded)
+            yield return DrainSafely(DiscoverSquadShipsAsync(game), "DiscoverSquadShipsAsync");
+        // Keep simulation mutations serialized with the game pass, but let other frame work run
+        // between the large scans and descriptor refresh.
+        yield return null;
+        long t0 = ModPerf.Now();
+        try { RefreshEffects(game); }
+        catch (Exception e) { Fail("BeforeTurnEnd/RefreshEffects", e); }
+        finally { ModPerf.Add(ModPerf.BeforeTurnEndBucket, t0); }
+    }
+
+    static IEnumerator DrainSafely(IEnumerator work, string where)
+    {
+        if (work == null) yield break;
+        var stack = new Stack<IEnumerator>();
+        stack.Push(work);
+        while (stack.Count > 0)
         {
-            long ms = perfWatch.ElapsedMilliseconds;
-            ModPerf.AddMs(ModPerf.BeforeTurnEndBucket, ms);
-            if (ms > 50) Perf("BeforeTurnEnd took " + ms + "ms");
+            var currentEnumerator = stack.Peek();
+            bool moved;
+            object current = null;
+            try
+            {
+                moved = currentEnumerator.MoveNext();
+                if (moved) current = currentEnumerator.Current;
+            }
+            catch (Exception e)
+            {
+                Fail(where, e);
+                var disposable = currentEnumerator as IDisposable;
+                if (disposable != null) { try { disposable.Dispose(); } catch (Exception) { } }
+                stack.Pop();
+                continue;
+            }
+            if (!moved)
+            {
+                var disposable = currentEnumerator as IDisposable;
+                if (disposable != null) { try { disposable.Dispose(); } catch (Exception) { } }
+                stack.Pop();
+                continue;
+            }
+            var child = current as IEnumerator;
+            if (child != null) stack.Push(child);
+            else yield return current;
         }
     }
 

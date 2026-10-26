@@ -1,5 +1,6 @@
 // Galactic Council of the Academy - glue between CouncilCore and the game.
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
@@ -414,7 +415,7 @@ public static partial class CouncilGame
     /// Each empire has its own signature: only empires whose own inputs changed get their descriptor recreated and an
     /// emp.Refresh(false). The previous single global signature rebuilt (and refreshed) EVERY member whenever one
     /// empire's upkeep delta moved - and its ClearEffects also wiped the per-system effects, refreshing every affected
-    /// system a second time. This runs at ClientBeginTurn and twice inside the turn-end states (BeforeTurnEnd), so the
+    /// system a second time. This runs at ClientBeginTurn and once before the turn-end treasury pass, so the
     /// unchanged case must stay a pure signature comparison.</summary>
     static void RefreshEffects(Game game)
     {

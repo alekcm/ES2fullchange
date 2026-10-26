@@ -673,7 +673,7 @@ public static class Patcher
     //    chosen), then the vanilla body runs ShipDesign.AutoDesign() on top, exactly as before.
     //  * ShipDesignModalWindow.RefreshButtons  -> BattleTemplates.SyncDesignWindow: the Auto-design button shows the
     //    template the hull is currently set to (its own label, tooltip = the variant's short description).
-    // The variant templates themselves are registered from BattleRework.PerTurn (an existing hook): the databases
+    // The variant templates themselves are registered from BattleRework.PerTurnAsync (an existing turn-pass hook): the databases
     // are loaded there, both on the client and on the server, and the call is idempotent.
     static void HookTemplates(TypeDefinition templates)
     {
@@ -896,39 +896,31 @@ public static class Patcher
 
     // GameClient.CreateWarInstanceProcessor: right after CreateWarInstance(...) returned the new WarInstance => CouncilGame.OnWarCreated(war)
     // Council squads spawned during a turn must be known (and their upkeep waived) before the end-of-turn bailiff check.
-    // Both targets are iterator coroutines: the call is inserted at the start of state 0 of the compiler-generated MoveNext.
+    // Wrap the IEnumerator factory returned by each treasury pass. Amplitude.Coroutine recursively awaits
+    // nested IEnumerators, so our turn work can yield in bounded batches while the existing turn pipeline
+    // remains paused at this pass; only then does the original vanilla iterator continue.
+    static int WrapEnumeratorReturn(MethodDefinition m, MethodDefinition hook)
+    {
+        LengthenBranches(m);
+        var il = m.Body.GetILProcessor();
+        var rets = m.Body.Instructions.Where(i => i.OpCode == OpCodes.Ret).ToList();
+        foreach (var r in rets)
+        {
+            r.OpCode = OpCodes.Call; r.Operand = hook;  // IEnumerator return value is already on the stack
+            il.InsertAfter(r, il.Create(OpCodes.Ret));
+        }
+        return rets.Count;
+    }
+
     static void HookBeforeTurnEnd(TypeDefinition game)
     {
-        var hook = GameMethod(game, "BeforeTurnEnd");
-        var treasury = mod.GetType("DepartmentOfTheTreasury");
+        var hook = GameMethod(game, "WrapTurnEndPass");
         foreach (var name in new[] { "GameServerState_ComputeBailiff", "GameClientState_Turn_End_CollectResources" })
         {
-            var its = treasury.NestedTypes.Where(t => t.Name.StartsWith("<" + name + ">")).ToList();
-            if (its.Count != 1) throw new Exception("iterator of " + name + " not found/ambiguous: " + its.Count);
-            var mn = its[0].Methods.First(x => x.Name == "MoveNext");
-            var ins = mn.Body.Instructions;
-            Instruction first = null;
-            for (int i = 0; i < ins.Count && first == null; i++)
-            {
-                if (ins[i].OpCode == OpCodes.Switch) first = ((Instruction[])ins[i].Operand)[0];
-                else if (ins[i].OpCode == OpCodes.Brtrue || ins[i].OpCode == OpCodes.Brtrue_S) first = ins[i + 1];
-            }
-            if (first == null) throw new Exception("state 0 of " + name + " not found");
-            var call = Instruction.Create(OpCodes.Call, hook);
-            var il = mn.Body.GetILProcessor();
-            il.InsertBefore(first, call);
-            // branches that targeted the old first instruction must now enter through the hook call
-            foreach (var x in ins)
-            {
-                if (x == call) continue;
-                if (x.Operand == first) x.Operand = call;
-                else if (x.Operand is Instruction[])
-                {
-                    var arr = (Instruction[])x.Operand;
-                    for (int k = 0; k < arr.Length; k++) if (arr[k] == first) arr[k] = call;
-                }
-            }
-            Console.WriteLine("hook: " + its[0].Name + ".MoveNext state 0 calls BeforeTurnEnd");
+            var factory = Method("DepartmentOfTheTreasury", name, 2);
+            int n = WrapEnumeratorReturn(factory, hook);
+            if (n == 0) throw new Exception(name + ": IEnumerator factory has no return");
+            Console.WriteLine("hook: DepartmentOfTheTreasury." + name + " awaits async turn work before vanilla pass");
         }
     }
 

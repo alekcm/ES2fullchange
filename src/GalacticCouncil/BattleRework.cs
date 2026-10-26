@@ -5,10 +5,11 @@
 //  * ServerGroundBattle.IsFinished          -> CheckSurrender   : at 0 morale the defender capitulates
 //  * Ship.RefillManpower                    -> AllowedRefillFor : crews refill only in the rooted (capital-connected) network
 // Driven from the existing Council turn hooks:
-//  * CouncilGame.BeforeTurnEnd              -> PerTurn          : morale bookkeeping + under-crewed ship penalties
+//  * CouncilGame.BeforeTurnEndAsync         -> PerTurnAsync     : morale bookkeeping + under-crewed ship penalties
 //  * CouncilGame.SerializeAttributes         -> the "BR1|" state part
 //  * CouncilGame.AdjustOpponentProp          -> morale-aware attacker manpower limit bonus
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Amplitude;
@@ -60,45 +61,61 @@ public static class BattleRework
     public static readonly bool SpaceBattlesEnabled =
         (Environment.GetEnvironmentVariable("ES2_SPACE_BATTLES") ?? "").Trim() == "1";
 
-    /// <summary>Called from CouncilGame's per-turn work (BeforeTurnEnd runs on the server and on the client).</summary>
-    public static void PerTurn(Game game, int turn)
+    /// <summary>Turn-end work is returned to the game's Amplitude.Coroutine pass scheduler. Long empire
+    /// scans yield between bounded batches so the game can keep processing input/rendering its turn spinner.</summary>
+    public static IEnumerator PerTurnAsync(Game game, int turn)
     {
-        if (game == null || !Active || lastPerTurn == turn) return;
-        // The hook runs in both the server bailiff and client resource-collection states. In a local
-        // game those are the same process and the colony/ship scans are otherwise repeated verbatim.
+        if (game == null || !Active || lastPerTurn == turn) yield break;
         lastPerTurn = turn;
         Core.LastTurn = turn;
-        try { TickMorale(game, turn); } catch (Exception e) { Fail("TickMorale", e); }
-        try { RefreshCrewPenalties(game, turn); } catch (Exception e) { Fail("RefreshCrewPenalties", e); }
-        // the template catalogue (phase 2): idempotent, and the databases are certainly loaded at turn end
+
+        IEnumerator battles = MarkGroundBattlesAsync(turn);
+        while (battles.MoveNext()) yield return battles.Current;
+
+        IEnumerator morale = TickMoraleAsync(game, turn);
+        while (morale.MoveNext()) yield return morale.Current;
+
+        IEnumerator crews = RefreshCrewPenaltiesAsync(game, turn);
+        while (crews.MoveNext()) yield return crews.Current;
+
         if (SpaceBattlesEnabled)
-            try { BattleTemplates.RegisterVariantTemplates(); } catch (Exception e) { Fail("RegisterVariantTemplates", e); }
+        {
+            try { BattleTemplates.RegisterVariantTemplates(); }
+            catch (Exception e) { Fail("RegisterVariantTemplates", e); }
+        }
     }
 
-    static void TickMorale(Game game, int turn)
+    static IEnumerator MarkGroundBattlesAsync(int turn)
     {
         var repo = Services.GetService<IGroundBattleRepositoryService>();
-
-        // 1. ground battles of this turn mark their system and carry the "citizens to the militia" tactic with them
-        if (repo != null)
+        if (repo == null) yield break;
+        int count = 0;
+        foreach (var gb in repo.GroundBattles)
         {
-            foreach (var gb in repo.GroundBattles)
+            if (gb != null)
             {
-                if (gb == null) continue;
                 ColonizedStarSystem cs;
                 try { cs = gb.DefenderColonizedStarSystem ?? gb.TryRetrieveDefenderSystem(); }
-                catch (Exception) { continue; }
-                if (cs == null) continue;
-                ulong id = cs.GUID;
-                Core.State(id).LastBattleTurn = turn;
-                var rep = gb.BattleReport;
-                if (rep == null) continue;
-                if (rep.TemporaryConvertedPopulations != null && rep.TemporaryConvertedPopulations.Count > 0) militiaTemporary.Add(id);
-                if (rep.PermanentlyConvertedPopulations != null && rep.PermanentlyConvertedPopulations.Count > 0) militiaPermanent.Add(id);
+                catch (Exception) { cs = null; }
+                if (cs != null)
+                {
+                    ulong id = cs.GUID;
+                    Core.State(id).LastBattleTurn = turn;
+                    var rep = gb.BattleReport;
+                    if (rep != null)
+                    {
+                        if (rep.TemporaryConvertedPopulations != null && rep.TemporaryConvertedPopulations.Count > 0) militiaTemporary.Add(id);
+                        if (rep.PermanentlyConvertedPopulations != null && rep.PermanentlyConvertedPopulations.Count > 0) militiaPermanent.Add(id);
+                    }
+                }
             }
+            if (++count >= 8) { count = 0; yield return null; }
         }
+    }
 
-        // 2. every colonised system of every living major empire, once per turn
+    static IEnumerator TickMoraleAsync(Game game, int turn)
+    {
+        int count = 0;
         foreach (MajorEmpire emp in game.EnumerableMajorEmpires)
         {
             if (emp == null || emp.HasBeenEliminated) continue;
@@ -107,40 +124,49 @@ public static class BattleRework
             foreach (ColonizedStarSystem cs in interior.ColonizedStarSystems)
             {
                 if (cs == null) continue;
-                ulong id = cs.GUID;
-                var st = Core.State(id);
-
-                int owner = cs.Empire != null ? cs.Empire.Index : -1;
-                SysSnapshot prev;
-                bool known = snapshots.TryGetValue(id, out prev);
-                float manpower = GetProp(cs, SimulationProperties.StarSystem.SystemManpowerStock);
-                bool bombarded = known && manpower < prev.Manpower - 0.5f;         // the garrison bled out from orbit
-                if (bombarded) st.LastRazeTurn = turn;
-                bool besieged = IsBesieged(cs, owner);
-                if (besieged) st.LastSiegeTurn = turn;
-                if (known && prev.Owner != owner && owner >= 0)                    // the system just changed hands
-                {
-                    st.OccupationMarkTurn = turn;
-                    st.Morale = Math.Min(st.Morale < 0 ? BattleCore.MoraleMax : st.Morale, BattleCore.OccupationCap(0));
-                }
-
-                bool battle = turn - st.LastBattleTurn <= 1;
-                bool peaceful = !battle && !besieged && !bombarded;
-                int current = st.Morale >= 0
-                    ? st.Morale
-                    : BattleCore.BaseMorale(GetProp(cs, SimulationProperties.StarSystem.Happiness), cs.IsHomeSystemOfCurrentOwner);
-                int cap = BattleCore.OccupationCap(st.OccupationMarkTurn < 0 ? -1 : turn - st.OccupationMarkTurn);
-                int morale = BattleCore.TickMorale(current, battle, besieged && !battle, bombarded, 0,
-                                                    militiaTemporary.Contains(id), militiaPermanent.Contains(id),
-                                                    peaceful, cap, st.Morale == 0);
-                militiaTemporary.Remove(id);
-                militiaPermanent.Remove(id);
-                st.Morale = morale;
-                if (morale != prev.Morale) st.LastChangeTurn = turn;                // cheap "something happened" marker
-
-                snapshots[id] = new SysSnapshot { Owner = owner, Manpower = manpower, Morale = morale };
+                long t0 = ModPerf.Now();
+                try { TickMoraleForSystem(cs, turn); }
+                catch (Exception e) { Fail("TickMorale system " + cs.GUID, e); }
+                finally { ModPerf.Add(ModPerf.BeforeTurnEndBucket, t0); }
+                // Every slice is deliberately small; the game's turn-pass coroutine resumes this pass
+                // after yielding to its normal update loop.
+                if (++count >= 12) { count = 0; yield return null; }
             }
         }
+    }
+
+    static void TickMoraleForSystem(ColonizedStarSystem cs, int turn)
+    {
+        ulong id = cs.GUID;
+        var st = Core.State(id);
+        int owner = cs.Empire != null ? cs.Empire.Index : -1;
+        SysSnapshot prev;
+        bool known = snapshots.TryGetValue(id, out prev);
+        float manpower = GetProp(cs, SimulationProperties.StarSystem.SystemManpowerStock);
+        bool bombarded = known && manpower < prev.Manpower - 0.5f;
+        if (bombarded) st.LastRazeTurn = turn;
+        bool besieged = IsBesieged(cs, owner);
+        if (besieged) st.LastSiegeTurn = turn;
+        if (known && prev.Owner != owner && owner >= 0)
+        {
+            st.OccupationMarkTurn = turn;
+            st.Morale = Math.Min(st.Morale < 0 ? BattleCore.MoraleMax : st.Morale, BattleCore.OccupationCap(0));
+        }
+
+        bool battle = turn - st.LastBattleTurn <= 1;
+        bool peaceful = !battle && !besieged && !bombarded;
+        int current = st.Morale >= 0
+            ? st.Morale
+            : BattleCore.BaseMorale(GetProp(cs, SimulationProperties.StarSystem.Happiness), cs.IsHomeSystemOfCurrentOwner);
+        int cap = BattleCore.OccupationCap(st.OccupationMarkTurn < 0 ? -1 : turn - st.OccupationMarkTurn);
+        int morale = BattleCore.TickMorale(current, battle, besieged && !battle, bombarded, 0,
+                                            militiaTemporary.Contains(id), militiaPermanent.Contains(id),
+                                            peaceful, cap, st.Morale == 0);
+        militiaTemporary.Remove(id);
+        militiaPermanent.Remove(id);
+        st.Morale = morale;
+        if (known && morale != prev.Morale) st.LastChangeTurn = turn;
+        snapshots[id] = new SysSnapshot { Owner = owner, Manpower = manpower, Morale = morale };
     }
 
     /// <summary>The game exposes no per-system "under siege" flag for the defender, so: a visible foreign fleet
@@ -326,11 +352,11 @@ public static class BattleRework
         catch (Exception) { return BattleCore.CrewReserveMedium; }
     }
 
-    /// <summary>Under-crewed ships hit weaker and move slower. One descriptor per ship, refreshed when the
-    /// crew ratio moves by more than 2% (descriptors are cheap to keep, expensive to rebuild every turn).</summary>
-    static void RefreshCrewPenalties(Game game, int turn)
+    /// <summary>Apply crew penalties in bounded slices on the game's turn coroutine.</summary>
+    static IEnumerator RefreshCrewPenaltiesAsync(Game game, int turn)
     {
         foreach (var k in new List<ulong>(crew.Keys)) { var c = crew[k]; c.Seen = -1; }
+        int processed = 0;
         foreach (MajorEmpire emp in game.EnumerableMajorEmpires)
         {
             if (emp == null || emp.HasBeenEliminated) continue;
@@ -343,38 +369,44 @@ public static class BattleRework
                 if (ships == null) continue;
                 for (int i = 0; i < ships.Count; i++)
                 {
-                    var s = ships[i];
-                    if (s == null) continue;
-                    float stock = GetProp(s, SimulationProperties.Ship.ShipManpowerStock);
-                    float max = GetProp(s, SimulationProperties.Ship.MaximumShipManpower);
-                    int reserve = BattleCore.ReserveFor(max, stock, HullReserve(s));
-                    float ratio = BattleCore.CrewRatio(stock, reserve);
-                    float penalty = 1f - (1f - ratio) * BattleCore.LowCrewDamagePenalty;
-                    ulong id = s.GUID;
-                    CrewRecord rec;
-                    if (!crew.TryGetValue(id, out rec)) { rec = new CrewRecord { Penalty = 1f }; crew[id] = rec; }
-                    rec.Seen = turn;
-                    if (ratio >= 1f)
+                    var ship = ships[i];
+                    if (ship != null)
                     {
-                        if (rec.Penalty < 1f) ClearCrewDescriptor(s, rec);
-                        continue;
+                        long t0 = ModPerf.Now();
+                        try { RefreshCrewShip(ship, turn); }
+                        catch (Exception e) { Fail("RefreshCrewPenalties ship", e); }
+                        finally { ModPerf.Add(ModPerf.BeforeTurnEndBucket, t0); }
                     }
-                    if (Math.Abs(rec.Penalty - penalty) < 0.02f) continue;
-                    ApplyCrewDescriptor(s, rec, penalty);
+                    if (++processed >= 24) { processed = 0; yield return null; }
                 }
             }
         }
         foreach (var id in new List<ulong>(crew.Keys))
         {
             var c = crew[id];
-            if (c.Seen != turn)
-            {
-                // the ship is gone: drop the record, and its registered descriptor with it (the descriptor
-                // database is global, an orphaned one would leak into every later save)
-                if (c.Desc != null) { try { Databases.GetDatabase<SimulationDescriptor>(false).Remove(c.Desc); } catch (Exception) { } }
-                crew.Remove(id);
-            }
+            if (c.Seen == turn) continue;
+            if (c.Desc != null) { try { Databases.GetDatabase<SimulationDescriptor>(false).Remove(c.Desc); } catch (Exception) { } }
+            crew.Remove(id);
         }
+    }
+
+    static void RefreshCrewShip(Ship s, int turn)
+    {
+        float stock = GetProp(s, SimulationProperties.Ship.ShipManpowerStock);
+        float max = GetProp(s, SimulationProperties.Ship.MaximumShipManpower);
+        int reserve = BattleCore.ReserveFor(max, stock, HullReserve(s));
+        float ratio = BattleCore.CrewRatio(stock, reserve);
+        float penalty = 1f - (1f - ratio) * BattleCore.LowCrewDamagePenalty;
+        ulong id = s.GUID;
+        CrewRecord rec;
+        if (!crew.TryGetValue(id, out rec)) { rec = new CrewRecord { Penalty = 1f }; crew[id] = rec; }
+        rec.Seen = turn;
+        if (ratio >= 1f)
+        {
+            if (rec.Penalty < 1f) ClearCrewDescriptor(s, rec);
+            return;
+        }
+        if (Math.Abs(rec.Penalty - penalty) >= 0.02f) ApplyCrewDescriptor(s, rec, penalty);
     }
 
     static void ApplyCrewDescriptor(Ship ship, CrewRecord rec, float penalty)

@@ -138,8 +138,8 @@ militia(временная) = −8          militia(постоянная) = −2
 BattleRework.CheckSurrender` оборачивает все `ret` этого метода, поэтому сдача срабатывает и при штурме,
 и при бомбардировке (во втором случае — на следующем обращении движка к бою/системе).
 
-Счётчики хода ведёт `BattleRework.PerTurn(game, game.Turn)`, вызываемый из
-`CouncilGameMandates.BeforeTurnEnd` **до** проверки `Core.Enabled` (то есть работает и при выключенном Совете):
+Счётчики хода ведёт `BattleRework.PerTurnAsync(game, game.Turn)`, вызываемый из
+`CouncilGameMandates.BeforeTurnEndAsync` **до** проверки `Core.Enabled` (то есть работает и при выключенном Совете), внутри ожидаемой игрой coroutine-последовательности:
 
 * «был бой» — системы, упомянутые в `IGroundBattleRepositoryService.GroundBattles` этого хода
   (`BattleSystemState.LastBattleTurn`), заодно оттуда же берутся `Temporary/PermanentlyConvertedPopulations`
