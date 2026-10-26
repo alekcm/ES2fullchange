@@ -58,6 +58,8 @@ public static class BattleRework
         Core.LastTurn = turn;
         try { TickMorale(game, turn); } catch (Exception e) { Fail("TickMorale", e); }
         try { RefreshCrewPenalties(game, turn); } catch (Exception e) { Fail("RefreshCrewPenalties", e); }
+        // the template catalogue (phase 2): idempotent, and the databases are certainly loaded at turn end
+        try { BattleTemplates.RegisterVariantTemplates(); } catch (Exception e) { Fail("RegisterVariantTemplates", e); }
     }
 
     static void TickMorale(Game game, int turn)

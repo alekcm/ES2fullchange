@@ -69,7 +69,7 @@ public static class Patcher
             HookShipBlocks(game);
             HookProductionCost(game);
             HookBattleLaws(game);
-            if (!Skip("battles")) HookBattles(game, cl.Mapped("BattleRework")); else Console.WriteLine("skip: battle rework hooks");
+            if (!Skip("battles")) HookBattles(game, cl.Mapped("BattleRework"), cl.Mapped("BattleTemplates")); else Console.WriteLine("skip: battle rework hooks");
             HookCompany(game);
             HookDecolonize(game);
             HookWarCreated(game);
@@ -662,7 +662,36 @@ public static class Patcher
     //     defence as capitulated once the system morale is at 0.
     //  4. CouncilGame.SerializeAttributes: a "BattleState" attribute saves the morale/crew-reserve bookkeeping
     //     independently of the Council, so the rework keeps working when the Council was never founded.
-    static void HookBattles(TypeDefinition game, TypeDefinition battles)
+    // ---------------------------------------------------------------- battle rework, phase 2: the template catalogue
+    //  * ShipDesignModalWindow.OnAutoDesignCb  -> BattleTemplates.AutoDesignCb: the game's own Auto-design button
+    //    first lays the hull out from the variant the player chose for it (and does nothing while no variant is
+    //    chosen), then the vanilla body runs ShipDesign.AutoDesign() on top, exactly as before.
+    //  * ShipDesignModalWindow.RefreshButtons  -> BattleTemplates.SyncDesignWindow: the Auto-design button shows the
+    //    template the hull is currently set to (its own label, tooltip = the variant's short description).
+    // The variant templates themselves are registered from BattleRework.PerTurn (an existing hook): the databases
+    // are loaded there, both on the client and on the server, and the call is idempotent.
+    static void HookTemplates(TypeDefinition templates)
+    {
+        if (templates == null) throw new Exception("BattleTemplates type missing");
+        var win = mod.GetType("ShipDesignModalWindow");
+        if (win == null) throw new Exception("ShipDesignModalWindow not found");
+        foreach (var spec in new[] { new[] { "OnAutoDesignCb", "AutoDesignCb", "1" }, new[] { "RefreshButtons", "SyncDesignWindow", "0" } })
+        {
+            var target = win.Methods.FirstOrDefault(x => x.Name == spec[0] && (spec[2] == "0" || x.Parameters.Count == int.Parse(spec[2])));
+            if (target == null) throw new Exception("ShipDesignModalWindow::" + spec[0] + " not found");
+            var first = target.Body.Instructions[0];
+            if (first.OpCode != OpCodes.Ldarg_0) throw new Exception(spec[0] + ": unexpected first instruction " + first.OpCode.Name);
+            LengthenBranches(target);
+            var il = target.Body.GetILProcessor();
+            var call = il.Create(OpCodes.Call, GameMethod(templates, spec[1]));
+            first.OpCode = OpCodes.Nop; first.Operand = null;               // keep the instruction that branches may target
+            il.InsertAfter(first, il.Create(OpCodes.Ldarg_0));
+            il.InsertAfter(first, call);
+            Console.WriteLine("hook: ShipDesignModalWindow." + spec[0] + " starts with BattleTemplates." + spec[1]);
+        }
+    }
+
+    static void HookBattles(TypeDefinition game, TypeDefinition battles, TypeDefinition templates)
     {
         if (battles == null) throw new Exception("BattleRework type missing");
 
@@ -717,6 +746,8 @@ public static class Patcher
         cil.InsertBefore(last, cil.Create(OpCodes.Ldarg_0));
         cil.InsertBefore(last, cil.Create(OpCodes.Ldarg_1));
         Console.WriteLine("hook: CouncilGame.SerializeAttributes also persists the battle rework state");
+
+        if (templates != null) HookTemplates(templates);
     }
 
     // Pattern of every manpower-refill source read:  <get the owner's Empire> ; ldsfld Empire::EmpireManpowerStock ;

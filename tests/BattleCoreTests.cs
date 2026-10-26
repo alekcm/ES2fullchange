@@ -117,6 +117,25 @@ static class BattleCoreTest
         var back2 = BattleCore.Deserialize(core.Serialize());
         BattleTemplateBinding binding2;
         Check(back2.Designs.TryGetValue(2002, out binding2) && binding2.TemplateId == "a:b;c" && binding2.DesignName == "odd:name;split", "separators inside the strings survive");
+        // the per-hull template choice (phase 2): travels in the 5th segment, older saves simply have none
+        core.HullVariantChoice["HullSmall01Sophons"] = "HullSmall01Sophons_ShipRoleSmallAttacker_LaserBase";
+        core.HullVariantChoice["HullLarge00Terrans"] = "HullLarge00Terrans_ShipRoleCarrier_MissileBase";
+        var back3 = BattleCore.Deserialize(core.Serialize());
+        string chosen;
+        Check(back3.HullVariantChoice.TryGetValue("HullSmall01Sophons", out chosen)
+              && chosen == "HullSmall01Sophons_ShipRoleSmallAttacker_LaserBase", "the hull's template choice round-trips");
+        Check(back3.Designs.Count == 2 && back3.Systems.Count == 2, "and nothing else is lost when it is added");
+        // the shape of a save written before the template phase existed: header + systems + designs, no 5th part
+        var old = new BattleCore();
+        old.LastTurn = 4;
+        old.Systems[7] = new BattleSystemState { Morale = 25, LastSiegeTurn = 3 };
+        old.Designs[9] = new BattleTemplateBinding { TemplateId = "t", Hull = "h", Role = "r", WeaponFamily = "f", DesignName = "n" };
+        string legacy = old.Serialize();
+        legacy = legacy.Substring(0, legacy.LastIndexOf('|'));                       // cut the choice segment off
+        var back4 = BattleCore.Deserialize(legacy);
+        Check(back4.HullVariantChoice.Count == 0, "a save without the choice segment still loads");
+        Check(back4.Systems[7].Morale == 25 && back4.Designs[9].WeaponFamily == "f", "and keeps what it did have");
+
         Check(BattleCore.Deserialize("").Systems.Count == 0, "an old save (no data) gives a fresh, harmless state");
         Check(BattleCore.Deserialize("garbage|x|y|z").Systems.Count == 0, "broken data does not throw");
         Check(BattleCore.Deserialize("BR1|1|5|1001:30:1:2:3:4").Systems[1001].Morale == 30, "field-by-field parse");

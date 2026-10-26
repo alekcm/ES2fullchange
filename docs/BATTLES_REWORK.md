@@ -10,8 +10,9 @@
 | Мораль защитника + автокапитуляция при 0 | **реализован** (хук в бою) | `BattleCore.TickMorale`, `BattleRework.CheckSurrender`, хук в `ServerGroundBattle.IsFinished` |
 | Пополнение manpower только из «связных» систем | **реализован** | `BattleRework.AllowedRefillFor`, хук в `Ship.RefillManpower` (1 место чтения) |
 | Отладочная панель в God-Mod | **реализован** | `BattleDebug.DrawBattleTools` (вкладка «Дипломатия и империи») |
-| Шаблоны кораблей (каталог, подвиды, описания, выбор игрока, ИИ) | **спроектирован, не реализован** | §5 |
-| Тултип с описаниями шаблонов при наведении на флот | спроектирован | §6 |
+| Шаблоны кораблей: каталог, подвиды, описания, привязка проекта, кнопка «Автодизайн» | **реализован** (без отдельного окна выбора) | `TemplateCore` + `BattleTemplates`, хуки в `ShipDesignModalWindow.{OnAutoDesignCb,RefreshButtons}` |
+| Шаблоны для ИИ (чтобы он брал корабли из подвида) | только регистрация в той же БД, приоритет не переопределён | §5 |
+| Тултип с описаниями шаблонов при наведении на флот | есть готовая функция текста (`SummarizeFleet`), UI не подключён | §6 |
 | Статистика в итогах боя | спроектирован | §7 |
 | «Перемодернизация флота» в меню приказов | спроектирован | §8 |
 
@@ -169,7 +170,7 @@ ldarg.0; callvirt Empire::get_Empire; ldsfld Empire::EmpireManpowerStock; callvi
 пока только на корабли; `Garrison`/`Citadel` пополняются общим `RefreshManpowerRefill`, который гейтится
 в варианте «B» (см. §9, «что дальше»).
 
-## 5. Шаблоны кораблей (спроектировано)
+## 5. Шаблоны кораблей (реализовано ядро)
 
 Хорошая новость: игра уже хранит шаблоны как дата-таблицу — `ShipDesignTemplateDefinition`:
 
@@ -220,8 +221,60 @@ ShipDesignEditionPanel.AutoDesign → ShipDesign.AutoDesign()` (`UpgradeModulesA
 `DepartmentOfDefense.ServerAddShipDesign(name)` + `slot.BindModule(...)`. Для шаблонов вместо ручного
 лэйаута достаточно `ShipDesign.AutoDesign()`, потому что шаблон уже в БД.
 
+### 5.1 Как это устроено сейчас
+
+`TemplateCore.cs` (чистая математика, тесты `tests/TemplateCoreTests.cs`, 37 проверок) +
+`BattleTemplates.cs` (работа с живыми базами игры):
+
+1. **Каталог** строится из самих же датат — ничего не захардкожено:
+   `Databases.GetDatabase<ModuleDefinition>()` даёт все `WeaponModule`, у которых есть
+   `AIBattleSituations` (это отфильтровывает истребители/AOE); `Databases.GetDatabase<ShipDesignTemplateDefinition>()`
+   даёт 85 ванильных шаблонов (по одному на корпус), и для каждого мы разбираем его `TemplateSlotBindings`:
+   какие семейства оружия вообще могут встать в слоты этого корпуса. Итого: **корпус × роль × семейство оружия**.
+2. **Подвид (вариант)** выводится из свойств этих модулей (`TemplateCore.Classify`):
+   * `HasFlakSlave` (у модуля есть `SlaveModule` «Flack…») → «Заградительный огонь» (кинетыка T1 — она);
+   * иначе по AI-профилю дистанций `Use/Short|Medium|Long`: только `Long` ≥ 0.75 → «Снайпер» (ракеты);
+     только `Short` → «Штурмовик»; всё остальное → «Универсал» (лазер 0.5/1/0.5 и луч 1/1/1 — оба они).
+   Дamage type и броня берутся из `Against/EnergyDefense` и `Against/ProjectileDefense`; DPS и штрафы
+   дистанций — из дескрипторов модуля (`DamagePerSecond`, `Short/LongRangePenalty`) тем же обходом, что у
+   `HeroContent.Accumulate`.
+3. **Описание** собирает `TemplateCore.Describe`: «Корпус — малый атакующий. Роль — снайпер: держится в дальнем
+   ряду, вблизи беззащитен. N урона в секунду (по энергетической броне). Дистанции 0 / 0.5 / 1 (S/M/L). …»
+   — то есть имя и текст следуют за данными модулей, как и требовалось, а не за ролью.
+4. **Регистрация**: `RegisterVariantTemplates()` (вызывается из `BattleRework.PerTurn`) добавляет в ту же
+   `ShipDesignTemplateDefinition` запись на вариант — копия родительского шаблона, у которого в слотах `*Weapon*`
+   осталось только семейство варианта. Значит ванильный `FillShipDesignFromTemplate` (это и `AutoDesign()` игрока,
+   и генерация ИИ) **автоматически** получает «улучшение по мере открытия технологий»: он и так берёт
+   `Weight × ModuleDefinition.Level` лучшего доступного модуля семейства.
+5. **Привязка проекта**: `BattleCore.HullVariantChoice[hull]` — выбранный вариант корпуса; `BattleCore.Designs`
+   — привязка конкретного `ShipDesign` (для тултипов и «перемодернизации»). Всё это уезжает в 5-й сегмент
+   `BR1|`-строки (`BattleState`), старые сейвы грузятся без него.
+6. **Кнопка «Автодизайн»** (реальная кнопка оригинального окна проекта корабля):
+   * `IL` в начале `ShipDesignModalWindow.OnAutoDesignCb` → `BattleTemplates.AutoDesignCb(window)`: если для
+     корпуса выбран вариант — заполняем пустые слоты оружием этого семейства (`FillFromVariant`, повторяющий
+     правило ванили: только пустые слоты, `CanModuleBeBound`, проверка доступности технологий) и помечаем проект;
+     дальше ванильное тело делает своё `ShipDesign.AutoDesign()`.
+   * `IL` в начале `ShipDesignModalWindow.RefreshButtons` → `BattleTemplates.SyncDesignWindow(window)`: подпись
+     кнопки становится «Автодизайн: Снайпер», а её тултип — коротким описанием варианта. Без выбранного варианта
+     подпись возвращается к оригинальной.
+   * Выбор варианта пока делается в God-Mod (блок «Шаблоны кораблей»: список проектов империи, варианты корпуса,
+     кнопки + описание) — отдельное нативное окно выбора это следующий шаг.
+
+Что осталось в §5: приоритет варианта над ванильным шаблоном для ИИ (у `Database<T>.Add` нет вставки в начало, а
+`FillShipDesignFromTemplate` берёт первое совпадение — сейчас ванильный шаблон выигрывает), и нативное окно выбора.
+
 ## 6–8. UI-планы (не реализованы)
 
+* **§6 Тултип на глобальной карте.** Точка входа найдена: `GameOverlayTooltipPanel` (public, `GuiWindow`) — панель
+  наведения на карте; у неё есть `ContentTable`/`Label`/`PanelFeaturesTable` и `OnParentShow/OnParentHide`, т.е.
+  достаточно своего `AgePrimitiveLabel` внутри `ContentTable` (текст даёт `BattleTemplates.SummarizeFleet(fleet, includeOwn)`).
+* **§8.0** Для «перемодернизации» в игре уже есть готовый слой: `EntityActionDefinition` (public, виртуальные
+  `CanBeExecuted/BuildEntityAction/GetAvailableContext/GetEntityActionDefinition(name)`, `Costs`, `Prerequisites`,
+  `EntityFilters`) и живой образец `SpecializeJuggernautRetrofitShipActionDefinition : SpecializeJuggernautShipActionDefinition`
+  (у него есть `ShipDesignDefinitionName` и `GetShipDesign(Ship)`) + `ShipsManagementPanel.RetrofitTooltipData`
+  (`GetFinalCostsString(ICostResolutionContext)`, `GetFullTitle(AgePrimitiveLabel, bool)`) — то есть и подсказка о
+  стоимости, и место, куда она выводится. Наш приказ = `EntityActionDefinition` из БД (тот же путь, что у
+  `OrderCouncilVote`/`OrderAcademyHeroKind`), `GetShipDesign` которого возвращает проект выбранного варианта.
 * **§6 Тултип на глобальной карте.** На наведении на флот: слева — состав и шаблоны *своего* выбранного флота,
   справа — шаблоны чужого. Точка входа — `GuiFleet`/`BattleGroupInfoPanel` (`AdvancedEncounterReportModalWindow`
   уже показывает такие панели в отчёте) или `GuiTooltipManager`: клонировать существующий `GuiTooltip` и
@@ -248,7 +301,8 @@ ShipDesignEditionPanel.AutoDesign → ShipDesign.AutoDesign()` (`UpgradeModulesA
    `OnAttackerVictory`, либо свой `GroundBattleOutcomeDefinition`) — требует проверки на живой игре.
 2. Гейт пополнения гарнизона/цитадели (`RefreshManpowerRefill`) — вариант «B»: локальный пул системы,
    если сеть не связана; сейчас гейтится только имперский сток для кораблей.
-3. Реестр шаблонов §5 (генерация + описания + подвиды), затем UI выбора из кнопки «Автодизайн».
+3. ~~Реестр шаблонов §5~~ — сделано ядро (каталог, подвиды, описания, регистрация, кнопка «Автодизайн», привязка в сейв).
+   Осталось: отдельное нативное окно выбора варианта и приоритет варианта для ИИ.
 4. Привязка «ShipDesign → шаблон» для тултипов §6 и перемодернизации §8.
 5. Блок статистики §7.
 

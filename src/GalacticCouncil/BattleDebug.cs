@@ -13,8 +13,10 @@ public static class BattleDebug
 {
     static bool open;
     static bool showAll;
+    static Vector2 templateScroll;
 
     static string T(string ru, string en) { return CouncilGame.Tr(ru, en); }
+    static void Say(string s) { try { CouncilUi.Toast(s); } catch (Exception) { } }
 
     public static void DrawBattleTools(Game game, MajorEmpire player)
     {
@@ -65,6 +67,8 @@ public static class BattleDebug
                 }
             }
 
+            DrawTemplates();
+
             GUILayout.Label(T("Мораль систем", "System morale"));
             if (player != null)
             {
@@ -95,6 +99,69 @@ public static class BattleDebug
         {
             GUILayout.Label("[BattleDebug] " + e.GetType().Name + ": " + e.Message);
         }
+    }
+
+    // ---------------------------------------------------------------- templates (phase 2)
+
+    static void DrawTemplates()
+    {
+        GUILayout.Label(T("Шаблоны кораблей (каталог)", "Ship templates (catalogue)"));
+        GUILayout.Label("  " + BattleTemplates.Status);
+        if (BattleTemplates.Count == 0)
+        {
+            if (GUILayout.Button(T("Построить каталог сейчас", "Build the catalogue now"), GUILayout.ExpandWidth(false))) BattleTemplates.BuildCatalog();
+            return;
+        }
+        if (GUILayout.Button(T("Зарегистрировать шаблоны в базу игры", "Register the templates in the game database"), GUILayout.ExpandWidth(false)))
+        {
+            int added = BattleTemplates.RegisterVariantTemplates();
+            Say(T("добавлено шаблонов: ", "templates added: ") + added);
+        }
+        var game = CouncilGame.GetGame();
+        var player = game != null ? CouncilGame.LocalEmpire() as MajorEmpire : null;
+        var defense = player != null ? player.GetAgency<DepartmentOfDefense>() : null;
+        var designs = defense != null ? defense.AvailableShipDesigns : null;
+        if (designs == null || designs.Count == 0) { GUILayout.Label(T("  нет проектов кораблей", "  no ship designs")); return; }
+        templateScroll = GUILayout.BeginScrollView(templateScroll, GUILayout.Height(190f));
+        for (int d = 0; d < designs.Count; d++)
+        {
+            var design = designs[d];
+            if (design == null || design.Hull == null) continue;
+            string hull = design.Hull.Name.ToString();
+            var variants = BattleTemplates.Variants(hull);
+            if (variants.Count == 0) continue;
+            string current = BattleTemplates.ChoiceForHull(hull);
+            var bound = BattleTemplates.BoundOf(design);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label((design.UserName ?? design.Name.ToString()) + T("  [", "  [") + hull + "]  "
+                            + T("шаблон проекта: ", "design template: ") + (bound != null ? bound.Id : T("нет", "none")));
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            for (int v = 0; v < variants.Count; v++)
+            {
+                var t = variants[v];
+                string label = (CouncilGame.IsRussian() ? t.Variant.NameRu : t.Variant.NameEn);
+                GUI.enabled = t.Id != current;
+                if (GUILayout.Button(label, GUILayout.ExpandWidth(false)))
+                {
+                    BattleTemplates.SetChoice(design, t.Id);
+                    Say(T("для корпуса ", "hull set to: ") + hull + " -> " + label);
+                }
+                GUI.enabled = true;
+            }
+            if (!string.IsNullOrEmpty(current))
+            {
+                if (GUILayout.Button(T("сбросить", "clear"), GUILayout.ExpandWidth(false)))
+                {
+                    BattleTemplates.SetChoiceForHull(hull, null);
+                    Say(T("шаблон корпуса сброшен: ", "hull template cleared: ") + hull);
+                }
+            }
+            GUILayout.EndHorizontal();
+            var cur = BattleTemplates.ById(current);
+            if (cur != null) GUILayout.Label("     " + cur.Description);
+        }
+        GUILayout.EndScrollView();
     }
 
     static string FleetName(Fleet f)

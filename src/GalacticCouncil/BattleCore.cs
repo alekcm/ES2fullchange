@@ -85,6 +85,9 @@ public sealed class BattleCore
 
     public readonly Dictionary<ulong, BattleSystemState> Systems = new Dictionary<ulong, BattleSystemState>();
     public readonly Dictionary<ulong, BattleTemplateBinding> Designs = new Dictionary<ulong, BattleTemplateBinding>();
+    // per hull: the variant the player last chose (the game's own auto-design of that hull uses it, and the AI
+    // keeps its vanilla behaviour until the design generator is taught to read this)
+    public readonly Dictionary<string, string> HullVariantChoice = new Dictionary<string, string>(StringComparer.Ordinal);
     public bool Enabled = true;
     public int LastTurn = -1;
 
@@ -216,6 +219,14 @@ public sealed class BattleCore
             parts.Add(kv.Key + ":" + Esc(b.TemplateId) + ":" + Esc(b.Hull) + ":" + Esc(b.Role) + ":" + Esc(b.WeaponFamily) + ":" + Esc(b.DesignName));
         }
         parts.Sort();
+        sb.Append(string.Join(";", parts.ToArray())).Append('|');
+        parts.Clear();
+        foreach (var kv in HullVariantChoice)
+        {
+            if (string.IsNullOrEmpty(kv.Key) || string.IsNullOrEmpty(kv.Value)) continue;
+            parts.Add(Esc(kv.Key) + ":" + Esc(kv.Value));
+        }
+        parts.Sort();
         sb.Append(string.Join(";", parts.ToArray()));
         return sb.ToString();
     }
@@ -244,6 +255,16 @@ public sealed class BattleCore
                 };
                 ulong id;
                 if (ulong.TryParse(t[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out id)) b.Systems[id] = s;
+            }
+            if (f.Length >= 6)
+            {
+                foreach (var rec in Split(f[5], ';'))
+                {
+                    var t = rec.Split(':');
+                    if (t.Length < 2) continue;
+                    string hull = Unesc(t[0]);
+                    if (hull.Length > 0) b.HullVariantChoice[hull] = Unesc(t[1]);
+                }
             }
             if (f.Length >= 5)
             {

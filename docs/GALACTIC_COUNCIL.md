@@ -200,6 +200,8 @@ four wins for the alliance. AI empires use the same temple rules and have not ye
 | `VictoryManager.SetupInterpreterContextForContender` (end) | `CouncilGame.AdjustVictoryContext(manager, contender.Empires)`, then `TempleGame.AdjustScienceAllianceVictory(manager, contender.Empires, contender.Definition)` |
 | `CustomHackingHelper.DrawTabDiplomacyAndEmpires` (end) | `CouncilDebug.DrawCouncilTools`, then `BattleDebug.DrawBattleTools` (crew reserve + morale readout, works without the Council) |
 | `CouncilGame.SerializeAttributes` (ret) | appends the battle rework state: `CouncilGame.SerializeBattles` -> attribute `BattleState` -> `BattleRework.LoadState` |
+| `ShipDesignModalWindow.OnAutoDesignCb` (start) | `BattleTemplates.AutoDesignCb(window)`: lay the hull out from the template variant the player chose for it, then the vanilla `ShipDesign.AutoDesign()` finishes the rest (battle rework, docs/BATTLES_REWORK.md §5) |
+| `ShipDesignModalWindow.RefreshButtons` (start) | `BattleTemplates.SyncDesignWindow(window)`: the game's Auto-design button label/tooltip shows the current variant; vanilla text when none is chosen |
 | `GameClient.<CreateWarInstanceProcessor>.MoveNext` (after `CreateWarInstance`) | `CouncilGame.OnWarCreated` (war penalty) |
 | `DepartmentOfDefense.ScrapShipsPreprocessor`, `DepartmentOfCommerce.SelloutTradableShipsPreprocessor` (start) | return false when a ship belongs to a council squad |
 
