@@ -333,3 +333,16 @@ source tools/env.sh && mkdir -p /tmp/t && csc -codepage:65001 -nostdlib -langver
   из настроения).
 * Числа (`−6 / −4 / −10 / −8 / −25 / +5 / 0.75 / 500`) — балансировочные, их стоит прогнать на живой игре;
   меняются в одном месте — `BattleCore`.
+> **фаза 2 (готово, в игре не проверено):** в `AdvancedEncounterReportModalWindow.Refresh` к тултипу
+> собственной цифры урона отчёта дописывается блок «Что в бою»: самый частый ваш модуль, самый полезный корабль,
+> по какой броне вас били, чем ответить (тексты — `ReportCore`, только арифметика/строки; 26 проверок
+> `tests/ReportCoreTests.cs`). Числа берутся из статистики энкаунтера (`SimulationProperties.EncounterShip/
+> EncounterModule_Weapon`: `DamageApplied/DamageReceived/TotalShotSent/TotalHitSent`) через
+> `SimulationObjectWrapper.GetPropertyValue` — nothing is re-derived from the report instruction stream, the
+> game already records all of it; `GalaxyEncounterEntity*` (live objects of the battle scene) are not used on
+> purpose: the report is shown after the battle scene is gone. Строка «шаблон» — из `BattleTemplates.Match`
+> (то есть отчёт также показывает, из какого шаблона собран вражеский флот).
+> **Плюс строка состава флота в HUD** (`BattleTemplates.RefreshHudOverlay`, клон label'а `GameOverlayWindow`,
+> обновляется при показе оверлея и в конце хода; колонка «на что смотрю» невозможна — `GameOverlayTooltipPanel`
+> занимается только failure infos, публичной точки расширения у хова нет; вражеская колонка — задел на
+> `Match(design)` + `DescribeDesign`, если захотим ловить ховер своим хуком).

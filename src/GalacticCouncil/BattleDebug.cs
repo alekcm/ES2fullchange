@@ -118,7 +118,7 @@ public static class BattleDebug
             Say(T("добавлено шаблонов: ", "templates added: ") + added);
         }
         var game = CouncilGame.GetGame();
-        var player = game != null ? CouncilGame.LocalEmpire() as MajorEmpire : null;
+        var player = CouncilGame.LocalEmpire() as MajorEmpire;
         var defense = player != null ? player.GetAgency<DepartmentOfDefense>() : null;
         var designs = defense != null ? defense.AvailableShipDesigns : null;
         if (designs == null || designs.Count == 0) { GUILayout.Label(T("  нет проектов кораблей", "  no ship designs")); return; }

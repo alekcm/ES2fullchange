@@ -60,6 +60,8 @@ public static class BattleRework
         try { RefreshCrewPenalties(game, turn); } catch (Exception e) { Fail("RefreshCrewPenalties", e); }
         // the template catalogue (phase 2): idempotent, and the databases are certainly loaded at turn end
         try { BattleTemplates.RegisterVariantTemplates(); } catch (Exception e) { Fail("RegisterVariantTemplates", e); }
+        try { BattleTemplates.RefreshHudOverlay(game, CouncilGame.LocalEmpire() as MajorEmpire); }
+        catch (Exception e) { Fail("RefreshHudOverlay", e); }
     }
 
     static void TickMorale(Game game, int turn)
@@ -492,6 +494,7 @@ public static class BattleRework
             crew.Clear();
             militiaTemporary.Clear();
             militiaPermanent.Clear();
+            BattleTemplates.ResetHudOverlay();
         }
         catch (Exception e) { Fail("LoadState", e); }
     }
@@ -503,6 +506,7 @@ public static class BattleRework
         crew.Clear();
         militiaTemporary.Clear();
         militiaPermanent.Clear();
+        BattleTemplates.ResetHudOverlay();       // the HUD label is a cloned widget of the GUI, dead after a reload
     }
 
     // ------------------------------------------------------------------ helpers

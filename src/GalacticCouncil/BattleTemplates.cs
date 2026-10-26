@@ -17,6 +17,7 @@ using UnityEngine;
 using Amplitude;
 using Amplitude.Unity.Framework;
 using Amplitude.Unity.Game;
+using Amplitude.Unity.Gui;
 using Amplitude.Unity.Simulation;
 using Amplitude.Unity.Simulation.SimulationModifierDescriptors;
 
@@ -718,6 +719,103 @@ public static class BattleTemplates
         catch (Exception) { return ""; }
     }
 
+    // ------------------------------------------------------------------ the HUD composition line (docs §6)
+    // The hover tooltip of the galaxy map is built by the game from its own data and has no public extension
+    // point, so the same text is shown in a line of the game's own HUD (a cloned label of GameOverlayWindow -
+    // the same technique the Council launcher uses): one line per fleet of the player, "3 x Крейсер [Снайпер]"
+    // plus, on demand, the short template description. The enemy column needs the hover hook (see docs §6).
+
+    static AgeTransform hudTransform;
+    static AgePrimitiveLabel hudLabel;
+    static bool hudFailed;
+
+    /// <summary>The text of the overlay: the templates the player's fleets are built from.</summary>
+    public static string FleetOverlayText(Game game, MajorEmpire player, bool withDescriptions)
+    {
+        try
+        {
+            if (player == null) return "";
+            var defense = player.GetAgency<DepartmentOfDefense>();
+            if (defense == null || defense.Fleets == null) return "";
+            var sb = new System.Text.StringBuilder();
+            int shown = 0;
+            foreach (Fleet f in defense.Fleets)
+            {
+                if (f == null || f.Ships == null || f.Ships.Count == 0) continue;
+                string line = SummarizeFleet(f, withDescriptions);
+                if (string.IsNullOrEmpty(line)) continue;
+                if (shown > 0) sb.Append('\n');
+                sb.Append(FleetLabel(f)).Append(": ").Append(line);
+                if (++shown >= 6) { sb.Append('\n').Append(CouncilGame.Tr("… ещё флоты", "… more fleets")); break; }
+            }
+            return sb.ToString();
+        }
+        catch (Exception) { return ""; }
+    }
+
+    static string FleetLabel(Fleet f)
+    {
+        try { return string.IsNullOrEmpty(f.UserName) ? f.Name.ToString() : f.UserName; }
+        catch (Exception) { return "?"; }
+    }
+
+    /// <summary>Creates (once) and refreshes the HUD line. Called when the overlay window is shown and at turn end.</summary>
+    public static void RefreshHudOverlay(Game game, MajorEmpire player)
+    {
+        if (hudFailed) return;
+        try
+        {
+            var gui = Services.GetService<IGuiService>();
+            if (gui == null || !gui.GuiWindowsLoaded) return;
+            if (hudLabel == null)
+            {
+                var overlay = gui.GetWindow<GameOverlayWindow>(false);
+                if (overlay == null || overlay.AgeTransform == null) return;
+                var labels = ((UnityEngine.Component)overlay.AgeTransform).GetComponentsInChildren<AgePrimitiveLabel>(true);
+                AgePrimitiveLabel donor = null;
+                for (int i = 0; labels != null && i < labels.Length; i++)
+                    if (labels[i] != null && labels[i].AgeTransform != null) { donor = labels[i]; break; }
+                if (donor == null) { hudFailed = true; return; }
+                var at = overlay.AgeTransform.InstantiateChild<Transform>(donor.AgeTransform.transform, "GCCTemplateOverlay");
+                if (at == null) { hudFailed = true; return; }
+                hudTransform = at.GetComponent<AgeTransform>();
+                hudLabel = at.GetComponent<AgePrimitiveLabel>();
+                if (hudTransform == null || hudLabel == null) { hudFailed = true; return; }
+                ((UnityEngine.Component)hudTransform).gameObject.SetActive(true);
+                hudLabel.DisableAutoLocalize = true;
+                hudLabel.Visible = true;
+                hudTransform.Anchored = true;
+                hudTransform.AttachLeft = true; hudTransform.AttachRight = false;
+                hudTransform.AttachTop = false; hudTransform.AttachBottom = true;
+                hudTransform.PercentLeft = 0; hudTransform.PercentBottom = 0;
+                hudTransform.PixelMarginLeft = 12; hudTransform.PixelMarginBottom = 96;
+                hudTransform.Alpha = 0.85f;
+                hudTransform.Z = 0.8f;
+            }
+            string text = FleetOverlayText(game, player, false);
+            hudTransform.Visible = text.Length > 0;
+            hudLabel.Text = text;
+        }
+        catch (Exception e) { hudFailed = true; Fail("RefreshHudOverlay", e); }
+    }
+
+    public static void ResetHudOverlay() { hudTransform = null; hudLabel = null; hudFailed = false; }
+
+    /// <summary>The line for one ship of a fleet (used by the overlay and by the refit order's preview).</summary>
+    public static string FleetShipLine(Ship ship)
+    {
+        try
+        {
+            if (ship == null) return "";
+            ShipDesign design = ship.ShipDesign;
+            BattleTemplate t = design != null ? Match(design) : null;
+            string name = design != null ? (string.IsNullOrEmpty(design.UserName) ? design.Name.ToString() : design.UserName) : "?";
+            if (t == null || t.Variant == null) return name + " — " + CouncilGame.Tr("без шаблона", "no template");
+            return name + " — " + (CouncilGame.IsRussian() ? t.Variant.NameRu : t.Variant.NameEn);
+        }
+        catch (Exception) { return ""; }
+    }
+
     // ------------------------------------------------------------------ registration (the game's auto-design / the AI)
 
     /// <summary>Register the variant templates in the game's ShipDesignTemplateDefinition database, so the vanilla
@@ -780,21 +878,9 @@ public static class BattleTemplates
 
     // ------------------------------------------------------------------ helpers
 
-    /// <summary>GameEntityGUID is a struct with a private ulong field and no plain accessor (the IConvertible
-    /// ToUInt64 wants a format provider); the mod reads the field, which is exactly what the game's own
-    /// serializer does.</summary>
-    static readonly System.Reflection.FieldInfo guidField = typeof(GameEntityGUID).GetField("guid", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-
     static ulong IdOf(ShipDesign design)
     {
-        try
-        {
-            if (design == null || guidField == null) return 0UL;
-            GameEntityGUID g = design.GUID;
-            if (!g.IsValid) return 0UL;
-            object raw = guidField.GetValue(g);
-            return raw is ulong ? (ulong)raw : 0UL;
-        }
+        try { return design == null ? 0UL : design.GUID.ToUInt64Safe(); }
         catch (Exception) { return 0UL; }
     }
 

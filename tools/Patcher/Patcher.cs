@@ -69,7 +69,7 @@ public static class Patcher
             HookShipBlocks(game);
             HookProductionCost(game);
             HookBattleLaws(game);
-            if (!Skip("battles")) HookBattles(game, cl.Mapped("BattleRework"), cl.Mapped("BattleTemplates")); else Console.WriteLine("skip: battle rework hooks");
+            if (!Skip("battles")) HookBattles(game, cl.Mapped("BattleRework"), cl.Mapped("BattleTemplates"), cl); else Console.WriteLine("skip: battle rework hooks");
             HookCompany(game);
             HookDecolonize(game);
             HookWarCreated(game);
@@ -691,7 +691,7 @@ public static class Patcher
         }
     }
 
-    static void HookBattles(TypeDefinition game, TypeDefinition battles, TypeDefinition templates)
+    static void HookBattles(TypeDefinition game, TypeDefinition battles, TypeDefinition templates, Cloner cl)
     {
         if (battles == null) throw new Exception("BattleRework type missing");
 
@@ -748,6 +748,20 @@ public static class Patcher
         Console.WriteLine("hook: CouncilGame.SerializeAttributes also persists the battle rework state");
 
         if (templates != null) HookTemplates(templates);
+        HookReportStats(cl.Mapped("BattleReportStats"));
+    }
+
+    // ---- 5. the "what happened" block in the game's own battle report: Refresh() is the single place the report
+    // window re-binds everything, so the block is appended to the tooltip of the report's damage number right after
+    // the vanilla body has filled it (both returns get the call; the method has no branches into its body).
+    static void HookReportStats(TypeDefinition stats)
+    {
+        if (stats == null) throw new Exception("BattleReportStats type missing");
+        var win = mod.GetType("AdvancedEncounterReportModalWindow");
+        if (win == null) throw new Exception("AdvancedEncounterReportModalWindow not found");
+        var refresh = win.Methods.First(x => x.Name == "Refresh" && x.Parameters.Count == 0);
+        int n = WrapReturns(refresh, GameMethod(stats, "Refresh"), new[] { OpCodes.Ldarg_0 });
+        Console.WriteLine("hook: AdvancedEncounterReportModalWindow.Refresh ends with BattleReportStats.Refresh (returns: " + n + ")");
     }
 
     // Pattern of every manpower-refill source read:  <get the owner's Empire> ; ldsfld Empire::EmpireManpowerStock ;
