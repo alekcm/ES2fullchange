@@ -1236,6 +1236,7 @@ public static class CouncilNative
     static AgeTransform launcherTransform;
     static AgeTransform launcherParent;
     static bool launcherFailLogged;
+    static float nextBuildRetryAt;
 
     public static string[] TabNames()
     {
@@ -1254,9 +1255,16 @@ public static class CouncilNative
     public static bool EnsureWindow()
     {
         if (Window != null) return true;
-        if (BuildFailed) return false;
+        if (BuildFailed)
+        {
+            // GUI services can be mid-transition when a vote opens (especially after loading a save).
+            // Do not make one transient failure permanent for the whole session; retry on a later click / overlay.
+            if (Time.realtimeSinceStartup < nextBuildRetryAt) return false;
+            BuildFailed = false;
+        }
         var buildWatch = System.Diagnostics.Stopwatch.StartNew();
         string step = "gui service";
+        GameObject buildObject = null;
         try
         {
             var gui = Services.GetService<IGuiService>();
@@ -1270,6 +1278,7 @@ public static class CouncilNative
             // 1. clone the whole laws-screen prefab hierarchy (frame, tables, buttons, sounds, animations)
             step = "clone hierarchy";
             var go = (GameObject)UnityEngine.Object.Instantiate(donor.gameObject);
+            buildObject = go;
             go.name = "CouncilModalWindow";
             go.transform.parent = donor.transform.parent;
             // GuiPanel.Awake caches the panel's AgeTransform (a plain backing-field getter): on an INACTIVE
@@ -1335,9 +1344,11 @@ public static class CouncilNative
         catch (Exception e)
         {
             BuildFailed = true;
+            nextBuildRetryAt = Time.realtimeSinceStartup + 5f;
             BuildError = step + " -> " + e.GetType().Name + ": " + e.Message;
             CouncilGame.LastError = "native UI: " + BuildError;
-            try { Diagnostics.LogError("Galactic Council: native UI failed at '" + step + "', falling back to IMGUI. " + e); } catch (Exception) { }
+            if (buildObject != null) UnityEngine.Object.Destroy(buildObject);
+            try { Diagnostics.LogError("Galactic Council: native UI failed at '" + step + "'; obsolete IMGUI fallback is disabled. Retry in 5s. " + e); } catch (Exception) { }
             return false;
         }
     }
@@ -1578,8 +1589,9 @@ public static class CouncilNative
 
     public static void Toggle()
     {
-        if (IsVisible) Hide();
-        else Show();
+        // Route opens through the shared entry point so a click while AGE is still loading is queued
+        // and retried, rather than dropped on the floor.
+        CouncilUi.Visible = !IsVisible;
     }
 
     public static void RebuildIfVisible()

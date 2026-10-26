@@ -19,6 +19,7 @@ public static partial class CouncilGame
     sealed class AppliedEmpireFx { public int Emp; public string Sig; public SimulationDescriptor Desc; public SimulationObject Target; }
     static readonly List<AppliedEmpireFx> appliedFx = new List<AppliedEmpireFx>();
     static int lastHandledTurn = int.MinValue;
+    static int lastBeforeTurnEndTurn = int.MinValue;
     static bool buildStampLogged;
     static AcademyRequestsManager firstRequestMgr;   // manager instance whose formula delay we captured
     static float firstRequestTurns;                  // its ORIGINAL MinTurnsForFirstRequest (Council founding pace)
@@ -154,6 +155,7 @@ public static partial class CouncilGame
         Core = fresh;
         appliedFx.Clear();
         lastHandledTurn = int.MinValue;
+        lastBeforeTurnEndTurn = int.MinValue;
         squadScanNeeded = true;
         BattleRework.ResetRuntime();
     }
@@ -228,7 +230,7 @@ public static partial class CouncilGame
             if (!buildStampLogged)
             {
                 buildStampLogged = true;
-                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-25.8 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
+                try { Diagnostics.LogWarning("[GalacticCouncil] build 2026-10-26.1 active, turn " + turn + ", councilEnabled=" + Core.Enabled); } catch (Exception) { }
             }
             float foundingTurns = MakeAcademyTalkable(mgr);
             // No UI work from the turn hook: building the native Council window (cloning the whole laws

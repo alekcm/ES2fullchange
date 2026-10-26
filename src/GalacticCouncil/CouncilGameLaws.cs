@@ -278,15 +278,26 @@ public static partial class CouncilGame
 
     // ---------------------------------------------------------------- Strategic Presence Program
 
+    static Game presenceMapGame;
+    static object presenceMapGalaxy;
+    static Dictionary<ulong, StarSystemNode> presenceMap;
+
     static Dictionary<ulong, StarSystemNode> NodeMap(Game game)
     {
+        if (game == null || game.Galaxy == null) return new Dictionary<ulong, StarSystemNode>();
+        // The star-system graph does not change during a running session. PresenceLines may be called
+        // repeatedly while the God-Mod tab is open, so do not enumerate every galaxy node per repaint.
+        if (ReferenceEquals(presenceMapGame, game) && ReferenceEquals(presenceMapGalaxy, game.Galaxy) && presenceMap != null)
+            return presenceMap;
         var map = new Dictionary<ulong, StarSystemNode>();
-        if (game == null || game.Galaxy == null) return map;
         foreach (StarSystemNode n in game.Galaxy.StarSystemNodes)
         {
-            ulong id = n.GUID;
-            map[id] = n;
+            if (n == null) continue;
+            map[n.GUID] = n;
         }
+        presenceMapGame = game;
+        presenceMapGalaxy = game.Galaxy;
+        presenceMap = map;
         return map;
     }
 

@@ -82,57 +82,68 @@ public static class CouncilUi
 
     // ------------------------------------------------------------ visibility
 
+    static bool pendingVoteShow;
+
     public static bool Visible
     {
-        get
-        {
-            if (CouncilNative.Window != null) return CouncilNative.IsVisible;
-            return CouncilUiImgui.Visible;
-        }
+        get { return CouncilNative.IsVisible; }
         set
         {
-            // Hiding must never build the window just to close it (the Academy window's OnEndHide hook
-            // lands here; building the laws-screen clone there was a visible hitch for nothing).
-            if (!value && CouncilNative.Window == null) { CouncilUiImgui.Visible = false; return; }
-            EnsureHost();
-            if (CouncilNative.Window != null)
+            // The old IMGUI vote panel is intentionally retired: it duplicated the Academy controls and
+            // could remain visible when the native modal failed to initialize. Queue an open until AGE is
+            // ready instead of silently exposing that obsolete UI.
+            if (!value)
             {
-                if (value) CouncilNative.Show();
-                else CouncilNative.Hide();
+                pendingVoteShow = false;
+                CouncilNative.Hide();
+                CouncilUiImgui.DestroyHost();
+                return;
             }
-            else CouncilUiImgui.Visible = value;
+            pendingVoteShow = true;
+            EnsureHost();
         }
     }
 
-    /// <summary>Builds the native window once the game GUI is up; on failure keeps the IMGUI fallback.</summary>
+    /// <summary>Build the native window lazily once the game GUI is up. The obsolete IMGUI fallback is never shown.</summary>
     public static void EnsureHost()
     {
-        if (CouncilNative.Window != null) { CouncilUiImgui.DestroyHost(); return; }
-        if (CouncilNative.BuildFailed) { CouncilUiImgui.EnsureHost(); return; }
-        if (CouncilNative.EnsureWindow())
+        if (CouncilNative.Window == null) CouncilNative.EnsureWindow();
+        CouncilUiImgui.DestroyHost();
+        if (CouncilNative.Window != null && pendingVoteShow)
         {
-            bool wasImguiVisible = CouncilUiImgui.Visible;
-            CouncilUiImgui.DestroyHost();
-            if (wasImguiVisible) CouncilNative.Show();   // hand an already-open IMGUI window over to the native one
-            return;
-        }   // false = GUI not loaded yet, retry on the next call
-        if (CouncilNative.BuildFailed) CouncilUiImgui.EnsureHost();
+            pendingVoteShow = false;
+            CouncilNative.Show();
+        }
     }
 
     // ------------------------------------------------------------ game hooks (see Patcher)
 
     public static void OnVoteOpened(int expiredLaws)
     {
-        // No auto-popup and no notification: the HUD launcher is highlighted instead. It must exist
-        // even when vanilla Academy diplomacy is gated ("the Academy is deliberating"), so make
-        // sure the cheap HUD button is there (the window builds on click).
+        // A vote must land on the voting page, not merely change a launcher label. The native window
+        // is still built lazily; if AGE is not ready yet, OnGameOverlayShown retries the queued open.
         try { CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }
-        CouncilNative.RebuildIfVisible();
+        try
+        {
+            var c = CouncilGame.Core;
+            var me = CouncilGame.LocalEmpire();
+            if (c != null && c.Enabled && c.Phase == CouncilCore.PhaseVoting && me != null
+                && c.IsMember(me.Index) && !c.HasVoted(me.Index))
+            {
+                pendingVoteShow = true;
+                if (CouncilNative.Window != null) CouncilNative.Window.Tab = 0;
+                EnsureHost();
+            }
+            else CouncilNative.RebuildIfVisible();
+        }
+        catch (Exception) { CouncilNative.RebuildIfVisible(); }
     }
 
     public static void OnVoteTallied(int enacted)
     {
-        // Results are available in the Council window's Results tab; do not pop anything up.
+        // Results are available in the Council window's Results tab; do not leave a queued vote modal
+        // that might otherwise open after a delayed GUI initialization.
+        pendingVoteShow = false;
         CouncilNative.RebuildIfVisible();
     }
 
@@ -141,7 +152,23 @@ public static class CouncilUi
     /// (for example, after loading a save in the middle of a vote).</summary>
     public static void OnGameOverlayShown()
     {
-        try { if (CouncilGame.Core != null && CouncilGame.Core.Enabled) CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }
+        CouncilUiImgui.DestroyHost();
+        try
+        {
+            var c = CouncilGame.Core;
+            if (c != null && c.Enabled)
+            {
+                CouncilNative.EnsureLauncherOnly();
+                var me = CouncilGame.LocalEmpire();
+                if (c.Phase == CouncilCore.PhaseVoting && me != null && c.IsMember(me.Index) && !c.HasVoted(me.Index))
+                {
+                    pendingVoteShow = true;
+                    if (CouncilNative.Window != null) CouncilNative.Window.Tab = 0;
+                    EnsureHost();
+                }
+            }
+        }
+        catch (Exception) { }
         try { TempleUi.EnsureHost(); } catch (Exception) { }   // Endless Temples overlay (map markers + messages)
     }
 
@@ -214,6 +241,9 @@ public static class CouncilUiImgui
         try
         {
             Visible = false;
+            // Also remove a legacy DontDestroyOnLoad host left behind by an older assembly version;
+            // the static reference is null after a reload, but the old OnGUI component can survive.
+            if (host == null) host = GameObject.Find("__ES2GalacticCouncilUI__");
             if (host == null) return;
             UnityEngine.Object.Destroy(host);
             host = null;

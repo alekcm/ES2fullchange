@@ -346,9 +346,15 @@ public static partial class CouncilGame
         try
         {
             var game = GetGame();
+            if (game == null) return;
+            int turn = game.Turn;
+            // This hook is inserted in both server and client end-turn iterators. In a local game they
+            // share state, so only the first callback should do the whole-galaxy / whole-fleet work.
+            if (lastBeforeTurnEndTurn == turn) return;
+            lastBeforeTurnEndTurn = turn;
             // the battle rework (crew reserve, defender morale) is independent from the Council: it runs even
             // when the Council was never founded, so it is deliberately outside the Core.Enabled guard below
-            if (game != null) BattleRework.PerTurn(game, game.Turn);
+            BattleRework.PerTurn(game, turn);
             if (!Core.Enabled) return;
             if (game == null) return;
             DiscoverSquadShips(game);

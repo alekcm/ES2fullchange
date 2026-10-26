@@ -226,25 +226,17 @@ Native Endless Space 2 interface (no Unity prefabs needed — the game's own win
   the whole ballot. The same ±10 steppers sit on mandate cards.
 * A **HUD launcher button** (a clone of the laws-screen vote button, pinned to the top-right of the game overlay)
   opens the window any time; it is tinted orange while a vote is open and not yet cast.
-* There are **no autonomous Council popups or toast notifications**. Existing `Toast` call sites are silent
-  compatibility sinks; state and results are read in the window itself. User-triggered **confirmations** still
-  go through `GuiManager.ShowMessage` (native Validate/Cancel message box).
-* The window does not pop up by itself when a vote opens; the HUD launcher is highlighted instead.
+* There are **no autonomous toast notifications**. Opening a new vote for a human Council member now opens the native
+  modal directly on the Voting tab; if AGE is still loading, the open is queued and retried when the game overlay appears.
+  User-triggered **confirmations** still go through `GuiManager.ShowMessage` (native Validate/Cancel message box).
+* The obsolete IMGUI voting panel and its duplicate buttons are retired. If native window construction fails, the HUD
+  launcher remains available and the native build is retried after a short cooldown; the error is written to
+  `Diagnostics.html` instead of silently displaying the old panel.
 
-If the native construction fails (another game version, missing widgets), the mod automatically falls back to the old
-IMGUI window (`CouncilUiImgui` in `src/GalacticCouncil/CouncilUi.cs`): a "Council" button appears while the Academy
-window is open, with the same tabs Vote / Laws / Mandates / Results. The shared ballot state (`CouncilUi.Pending`)
-is common to both UIs, so a vote begun in one can be finished in the other.
-
-Build hardening (2026-10-25, found after the IMGUI fallback was seen in play): the window build no longer assumes the
-donor clone is active — `GuiPanel.Awake` caches the panel's `AgeTransform` (a plain backing-field getter), and on an
-inactive clone `AddComponent` never runs `Awake`, so `win.AgeTransform` was null and the build died at the AGE-graph
-step, permanently condemning the Council to IMGUI. The clone is now activated before `AddComponent`, the AgeTransform
-is written through its backing field if `Awake` still did not run (`WinPriv.SetAgeTransform`), the first content
-`Rebuild()` inside `Setup` and the post-build HUD launcher can no longer fail the construction, and an IMGUI window
-that is already open is handed over to the native one. Every build phase is named in the failure line
-(`Galactic Council: native UI failed at '<step>', falling back to IMGUI.` + full exception in `Diagnostics.html`;
-successful builds log `[GalacticCouncil] native window ready: ...`).
+Build hardening (2026-10-25 and follow-up): the window clone is activated before `AddComponent`, its AGE graph is
+initialized explicitly, and modal chrome binding is verified. UI build errors identify the failing phase and include
+the exception in `Diagnostics.html`; successful builds log `[GalacticCouncil] native window ready: ...`. Transient
+failures are retried, and partially-created clones are destroyed rather than leaked.
 
 ### "Gives votes" in the interface
 * Council window, Voting tab: the toggle "Where the votes come from" lists every source with its rule and the live value for the player's empire (`CouncilGame.VoteSourceLines`).
@@ -306,9 +298,10 @@ Level, points and Mastery changes are applied to the local simulation (like the 
 ## Performance (audit 2026-10-25)
 * **Diagnostics were compiled out.** `Amplitude.Diagnostics.Log/LogWarning/LogError` are `[Conditional("ENABLE_DIAGNOSTICS")]`, and `build_council.sh` never defined the symbol — every mod log line (build stamp, `Perf` stall reports, the whole `ModPerf` per-turn bucket line, temple/hero diagnostics) silently vanished at compile time while the timing code around them still ran. The build now compiles with `-define:ENABLE_DIAGNOSTICS`; look for one `[GalacticCouncil][perf] turn N: HeroFilter=.. ProdCost=.. TradeValue=.. TradePrice=.. CompanyIncome=.. CouncilClientBeginTurn=.. BeforeTurnEnd=.. UiElements=.. (ms, per-call avg/max/count)` line per turn in the game's `Diagnostics.html`, plus a `ClientBeginTurn total=.. hero=.. temple=.. texts=.. detect=.. tally/open/ai=.. effects/buys=..` breakdown whenever a begin-turn pass exceeds 50 ms.
 * **`RefreshEffects` is per-empire now.** It runs at `ClientBeginTurn` and twice inside the turn-end states (`BeforeTurnEnd`). Previously one global signature included every member's upkeep delta, so any member's fleet change recreated the empire descriptor and `emp.Refresh(false)` for **all** members — and the `ClearEffects` on that path also wiped the per-system law effects, refreshing every affected `ColonizedStarSystem` and forcing their rebuild next turn. Now each empire has its own signature (`appliedFx`); unchanged empires cost one signature comparison, only the changed empire is rebuilt/refreshed, system effects are untouched here (`ClearSystemEffects` only on disband), and `UpkeepDelta` is computed once per empire per pass instead of twice.
-* **Temple node map cached.** `TempleGame.BuildNodeMap` is memoized per game+turn; `ResolveNode` (also called from the God-Mod temple tab lines every IMGUI event) no longer rebuilds the GUID dictionary per call.
+* **Repeated turn-end work removed.** `BeforeTurnEnd` is injected into both the server bailiff and client resource-collection iterators. A local game previously repeated its galaxy/fleet scans in both callbacks; it now runs the shared pass once per turn. `BattleRework.PerTurn` also has its own turn guard so morale and crew scans cannot be duplicated by another caller.
+* **Galaxy node maps cached.** `TempleGame.BuildNodeMap` is memoized per game+turn; the strategic-presence `NodeMap` is cached for the current game/galaxy instead of rebuilding the GUID dictionary on each window repaint.
 * **One-time generation runs on the loading screen.** `CouncilGame.EnsureEarlyContent` is prepended to `GameClientState_LaunchGame.Begin` / `GameServerState_LaunchGame.Begin` (the states that show the session loading screen) and runs `HeroRework.EnsureContent` (all reworked hero skills), `EnsureDictatorDefinitions`, `EnsureVoteTexts`, `EnsureDevQuadrants` and the static constructors of `CouncilLaws`/`HeroDesign` before the map becomes interactive. Before this, the hero content was only triggered lazily by `HeroSkill.Load`/`TreesFor` — and a NEW game has no heroes at generation time, so the generation hitched the first hero/academy action with the map already on screen. Every part is self-guarded (dictionary lookups once done; runs over 25 ms are logged as `one-time content generated on the loading screen in ..ms`), and the old lazy hooks remain as safety nets (e.g. after a database reload when the mod set changes in the main menu).
-* **Known remaining costs (measured via the perf line, not guessed).** The first turn after launch still pays Mono JIT of the cloned mod methods on their first execution, and windows build their Age UI on first open (user-initiated). The ES2 simulation itself is single-threaded and deterministic — mod hooks cannot be moved to background threads; the lever is caching/early-outs and avoiding `Refresh(false)` cascades, as above.
+* **Known remaining costs (measured via the perf line, not guessed).** The first turn after launch still pays Mono JIT of the cloned mod methods on their first execution, and windows build their Age UI on first open (user-initiated). The game keeps the UI responsive during turn resolution using its own asynchronous execution flow. `BeforeTurnEnd` currently runs the mod's work synchronously when the hooked game iterator enters state 0; the turn guard only avoids duplicate work and does not offload it. Further optimization should integrate with the game's existing scheduler/yield points rather than assume that the simulation is single-threaded or introduce an unrelated worker thread.
 
 ## Mandate powers of AI empires (single player against computers)
 The buttons of the Council window are for humans; for an AI the same powers are run by `CouncilGame.AiMandateActions` (`CouncilGameAi.cs`) on every machine right after the tally/opening step of the turn, so the state stays identical:

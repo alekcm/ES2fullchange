@@ -29,6 +29,7 @@ public static class BattleRework
 
     readonly static Dictionary<ulong, SysSnapshot> snapshots = new Dictionary<ulong, SysSnapshot>();
     readonly static Dictionary<ulong, CrewRecord> crew = new Dictionary<ulong, CrewRecord>();
+    static int lastPerTurn = int.MinValue;
     readonly static HashSet<ulong> militiaTemporary = new HashSet<ulong>();
     readonly static HashSet<ulong> militiaPermanent = new HashSet<ulong>();
     static int descriptorSeq;
@@ -62,7 +63,10 @@ public static class BattleRework
     /// <summary>Called from CouncilGame's per-turn work (BeforeTurnEnd runs on the server and on the client).</summary>
     public static void PerTurn(Game game, int turn)
     {
-        if (game == null || !Active) return;
+        if (game == null || !Active || lastPerTurn == turn) return;
+        // The hook runs in both the server bailiff and client resource-collection states. In a local
+        // game those are the same process and the colony/ship scans are otherwise repeated verbatim.
+        lastPerTurn = turn;
         Core.LastTurn = turn;
         try { TickMorale(game, turn); } catch (Exception e) { Fail("TickMorale", e); }
         try { RefreshCrewPenalties(game, turn); } catch (Exception e) { Fail("RefreshCrewPenalties", e); }
@@ -497,6 +501,7 @@ public static class BattleRework
         try
         {
             Core = BattleCore.Deserialize(data ?? "");
+            lastPerTurn = int.MinValue;
             snapshots.Clear();
             crew.Clear();
             militiaTemporary.Clear();
@@ -508,6 +513,7 @@ public static class BattleRework
     /// <summary>Reset for a new game / a reload: the rework is per-session state, never persisted config.</summary>
     public static void ResetRuntime()
     {
+        lastPerTurn = int.MinValue;
         snapshots.Clear();
         crew.Clear();
         militiaTemporary.Clear();
