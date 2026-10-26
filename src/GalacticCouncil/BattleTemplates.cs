@@ -370,6 +370,7 @@ public static class BattleTemplates
             try { DepartmentOfDefense.ApplyShipDesignToShip(ship, design); }
             catch (Exception e)
             {
+                Fail("ApplyShipDesignToShip", e);            // the playtest needs to know which of the two paths the game allows
                 try { ship.RetrofitShipDesign(design); }
                 catch (Exception e2) { return CouncilGame.Tr("рефит не удался: ", "refit failed: ") + e2.GetType().Name; }
             }
