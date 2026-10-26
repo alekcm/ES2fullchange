@@ -191,10 +191,18 @@ public static class BattleDebug
             }
             refitInfo = T("переснаряжено кораблей: ", "ships refitted: ") + n;
         }
-        if (GUILayout.Button(T("HUD: показать состав", "HUD: show composition"), GUILayout.ExpandWidth(false)))
+        if (GUILayout.Button(T("предпросмотр тултипов", "tooltip preview"), GUILayout.ExpandWidth(false)))
         {
-            BattleTemplates.RefreshHudOverlay(game, player);
-            refitInfo = BattleTemplates.FleetOverlayText(game, player, true);
+            var sb = new System.Text.StringBuilder();
+            foreach (Fleet f in defense.Fleets)
+            {
+                if (f == null) continue;
+                string gsum = BattleTemplates.GarrisonSummary(f, true);
+                if (string.IsNullOrEmpty(gsum)) continue;
+                if (sb.Length > 0) sb.Append('\n');
+                sb.Append(FleetName(f)).Append(": ").Append(gsum.Replace("\n", " · "));
+            }
+            refitInfo = sb.Length > 0 ? sb.ToString() : T("пусто: шаблоны не заданы", "empty: no templates chosen");
         }
         GUILayout.EndHorizontal();
         if (!string.IsNullOrEmpty(refitInfo)) GUILayout.Label(refitInfo);
@@ -208,7 +216,7 @@ public static class BattleDebug
                 Ship ship = f.Ships[i];
                 if (ship == null) continue;
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(BattleTemplates.FleetShipLine(ship));
+                GUILayout.Label(BattleTemplates.ShipLine(ship));
                 string hull = ship.ShipDesign != null && ship.ShipDesign.Hull != null ? ship.ShipDesign.Hull.Name.ToString() : null;
                 var variants = string.IsNullOrEmpty(hull) ? null : BattleTemplates.Variants(hull);
                 for (int v = 0; variants != null && v < variants.Count; v++)

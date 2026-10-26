@@ -143,15 +143,6 @@ public static class CouncilUi
     {
         try { if (CouncilGame.Core != null && CouncilGame.Core.Enabled) CouncilNative.EnsureLauncherOnly(); } catch (Exception) { }
         try { TempleUi.EnsureHost(); } catch (Exception) { }   // Endless Temples overlay (map markers + messages)
-        // the battle rework's fleet-composition line (docs/BATTLES_REWORK.md §6): the game's own HUD, the game's
-        // own label style; refreshed here and at turn end because the map tooltip has no public extension point
-        try
-        {
-            var g = CouncilGame.GetGame();
-            var emp = CouncilGame.LocalEmpire() as MajorEmpire;
-            if (g != null) BattleTemplates.RefreshHudOverlay(g, emp);
-        }
-        catch (Exception) { }
     }
 
     /// <summary>Called from AcademyModalWindow.OnEndShow (the Academy is already fully shown at that

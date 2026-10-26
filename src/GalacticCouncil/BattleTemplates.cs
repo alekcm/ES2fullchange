@@ -40,6 +40,7 @@ public static class BattleTemplates
     /// <summary>Build the catalogue from the live databases (idempotent; safe to call every turn).</summary>
     public static void BuildCatalog()
     {
+        TemplateCore.SetLanguageProvider(CouncilGame.IsRussian);
         if (built) return;
         try
         {
@@ -801,99 +802,160 @@ public static class BattleTemplates
         catch (Exception) { return ""; }
     }
 
-    // ------------------------------------------------------------------ the HUD composition line (docs §6)
-    // The hover tooltip of the galaxy map is built by the game from its own data and has no public extension
-    // point, so the same text is shown in a line of the game's own HUD (a cloned label of GameOverlayWindow -
-    // the same technique the Council launcher uses): one line per fleet of the player, "3 x Крейсер [Снайпер]"
-    // plus, on demand, the short template description. The enemy column needs the hover hook (see docs §6).
+    // ------------------------------------------------------------------ native tooltip injection (docs §6)
+    // The game's own tooltip of a fleet line (FleetLine.FleetTooltip, an AgeTooltip filled in FleetLine.Refresh)
+    // is the place the fleet composition belongs: it is shown when hovering the fleet icon/row on the galaxy map
+    // AND in the system panels. We append the template summary to its Content after the vanilla bind - no new
+    // widgets, no separate labels: font, layout and show/hide logic stay 100% the game's.
 
-    static AgeTransform hudTransform;
-    static AgePrimitiveLabel hudLabel;
-    static bool hudFailed;
-
-    /// <summary>The text of the overlay: the templates the player's fleets are built from.</summary>
-    public static string FleetOverlayText(Game game, MajorEmpire player, bool withDescriptions)
+    /// <summary>One line per template: what this garrison (fleet/hangar) is built from. "" when nothing is bound.</summary>
+    public static string GarrisonSummary(Garrison garrison, bool withDescriptions)
     {
         try
         {
-            if (player == null) return "";
-            var defense = player.GetAgency<DepartmentOfDefense>();
-            if (defense == null || defense.Fleets == null) return "";
-            var sb = new System.Text.StringBuilder();
-            int shown = 0;
-            foreach (Fleet f in defense.Fleets)
+            if (garrison == null || garrison.Ships == null) return "";
+            var perTemplate = new Dictionary<string, int>(StringComparer.Ordinal);
+            var names = new Dictionary<string, string>(StringComparer.Ordinal);
+            int unbound = 0;
+            for (int i = 0; i < garrison.Ships.Count; i++)
             {
-                if (f == null || f.Ships == null || f.Ships.Count == 0) continue;
-                string line = SummarizeFleet(f, withDescriptions);
-                if (string.IsNullOrEmpty(line)) continue;
-                if (shown > 0) sb.Append('\n');
-                sb.Append(FleetLabel(f)).Append(": ").Append(line);
-                if (++shown >= 6) { sb.Append('\n').Append(CouncilGame.Tr("… ещё флоты", "… more fleets")); break; }
+                Ship ship = garrison.Ships[i];
+                ShipDesign design = ship != null ? ship.ShipDesign : null;
+                if (design == null) continue;
+                BattleTemplate t = Match(design);
+                if (t == null || string.IsNullOrEmpty(t.Id))
+                {
+                    unbound++;
+                    string dn = DesignName(design);
+                    if (!string.IsNullOrEmpty(dn)) { Inc(perTemplate, dn); names[dn] = ""; }
+                    continue;
+                }
+                Inc(perTemplate, t.Id);
+                names[t.Id] = withDescriptions ? t.Description : null;
             }
+            if (perTemplate.Count == 0) return "";
+            var sb = new System.Text.StringBuilder();
+            foreach (var kv in perTemplate)
+            {
+                if (sb.Length > 0) sb.Append("\n");
+                BattleTemplate t = ById(kv.Key);
+                string label = t != null && t.Variant != null
+                    ? (CouncilGame.IsRussian() ? t.Variant.NameRu : t.Variant.NameEn)
+                    : kv.Key;
+                sb.Append(kv.Value).Append("× ").Append(label);
+                if (t != null && t.Variant != null && t.Family != null)
+                    sb.Append(" [").Append(TemplateCore.FamilyLabel(t.Family)).Append("]");
+                string desc = t != null ? names[kv.Key] : null;
+                if (!string.IsNullOrEmpty(desc)) sb.Append("\n  ").Append(desc.Replace("\n", "\n  "));
+            }
+            if (unbound > 0 && perTemplate.Count == unbound)
+                sb.Append("\n").Append(CouncilGame.Tr("шаблоны не заданы — нажмите «Автодизайн» в конструкторе",
+                                                       "no templates chosen - press Auto design in the design window"));
             return sb.ToString();
         }
         catch (Exception) { return ""; }
     }
 
-    static string FleetLabel(Fleet f)
+    static void Inc(Dictionary<string, int> d, string key)
     {
-        try { return string.IsNullOrEmpty(f.UserName) ? f.Name.ToString() : f.UserName; }
-        catch (Exception) { return "?"; }
+        int old; d.TryGetValue(key, out old); d[key] = old + 1;
     }
 
-    /// <summary>Creates (once) and refreshes the HUD line. Called when the overlay window is shown and at turn end.</summary>
-    public static void RefreshHudOverlay(Game game, MajorEmpire player)
-    {
-        if (hudFailed) return;
-        try
-        {
-            var gui = Services.GetService<IGuiService>();
-            if (gui == null || !gui.GuiWindowsLoaded) return;
-            if (hudLabel == null)
-            {
-                var overlay = gui.GetWindow<GameOverlayWindow>(false);
-                if (overlay == null || overlay.AgeTransform == null) return;
-                var labels = ((UnityEngine.Component)overlay.AgeTransform).GetComponentsInChildren<AgePrimitiveLabel>(true);
-                AgePrimitiveLabel donor = null;
-                for (int i = 0; labels != null && i < labels.Length; i++)
-                    if (labels[i] != null && labels[i].AgeTransform != null) { donor = labels[i]; break; }
-                if (donor == null) { hudFailed = true; return; }
-                var at = overlay.AgeTransform.InstantiateChild<Transform>(donor.AgeTransform.transform, "GCCTemplateOverlay");
-                if (at == null) { hudFailed = true; return; }
-                hudTransform = at.GetComponent<AgeTransform>();
-                hudLabel = at.GetComponent<AgePrimitiveLabel>();
-                if (hudTransform == null || hudLabel == null) { hudFailed = true; return; }
-                ((UnityEngine.Component)hudTransform).gameObject.SetActive(true);
-                hudLabel.DisableAutoLocalize = true;
-                hudLabel.Visible = true;
-                hudTransform.Anchored = true;
-                hudTransform.AttachLeft = true; hudTransform.AttachRight = false;
-                hudTransform.AttachTop = false; hudTransform.AttachBottom = true;
-                hudTransform.PercentLeft = 0; hudTransform.PercentBottom = 0;
-                hudTransform.PixelMarginLeft = 12; hudTransform.PixelMarginBottom = 96;
-                hudTransform.Alpha = 0.85f;
-                hudTransform.Z = 0.8f;
-            }
-            string text = FleetOverlayText(game, player, false);
-            hudTransform.Visible = text.Length > 0;
-            hudLabel.Text = text;
-        }
-        catch (Exception e) { hudFailed = true; Fail("RefreshHudOverlay", e); }
-    }
-
-    public static void ResetHudOverlay() { hudTransform = null; hudLabel = null; hudFailed = false; }
-
-    /// <summary>The line for one ship of a fleet (used by the overlay and by the refit order's preview).</summary>
-    public static string FleetShipLine(Ship ship)
+    /// <summary>The line for one ship (God-Mod refit rows and previews): design name + its template variant.</summary>
+    public static string ShipLine(Ship ship)
     {
         try
         {
             if (ship == null) return "";
             ShipDesign design = ship.ShipDesign;
             BattleTemplate t = design != null ? Match(design) : null;
-            string name = design != null ? (string.IsNullOrEmpty(design.UserName) ? design.Name.ToString() : design.UserName) : "?";
+            string name = design != null ? DesignName(design) : "";
+            if (string.IsNullOrEmpty(name)) name = "?";
             if (t == null || t.Variant == null) return name + " — " + CouncilGame.Tr("без шаблона", "no template");
             return name + " — " + (CouncilGame.IsRussian() ? t.Variant.NameRu : t.Variant.NameEn);
+        }
+        catch (Exception) { return ""; }
+    }
+
+    /// <summary>Player-facing design name: the localized one when it exists (raw internal names like
+    /// "ShipDesign#416" must never reach a tooltip).</summary>
+    public static string DesignName(ShipDesign design)
+    {
+        try
+        {
+            if (design == null) return "";
+            string n = null;
+            var prop = design.GetType().GetProperty("LocalizedName");
+            if (prop != null) n = prop.GetValue(design, null) as string;
+            if (string.IsNullOrEmpty(n)) n = design.UserName;
+            if (string.IsNullOrEmpty(n) || n.StartsWith("ShipDesign"))
+                n = SafeName(design);
+            if (string.IsNullOrEmpty(n) || n.StartsWith("ShipDesign")) return "";   // nothing presentable
+            return n;
+        }
+        catch (Exception) { return ""; }
+    }
+
+    /// <summary>Hook of FleetLine.Refresh (post-call): appends the composition line to the line's own AgeTooltip.
+    /// Idempotent: the marker is checked, so a vanilla rebind simply gets the line re-appended on the next refresh.</summary>
+    public static void RefreshFleetLineTooltip(FleetLine line)
+    {
+        try
+        {
+            if (line == null) return;
+            var tooltip = line.FleetTooltip;
+            if (tooltip == null) return;
+            var garrison = line.GuiGarrison != null ? line.GuiGarrison.Garrison : null;
+            string summary = GarrisonSummary(garrison, true);
+            if (string.IsNullOrEmpty(summary))
+            {
+                // a hangar (garrison without a fleet entity) still has ships; GuiGarrison may not be a Fleet
+                summary = GarrisonSummary(garrison, false);
+                if (string.IsNullOrEmpty(summary)) return;
+            }
+            const string marker = "\u2550\u2550\u2550";    // ═ - our blocks are marked, vanilla text never contains this
+            string content = tooltip.Content;
+            if (content != null && content.IndexOf(marker, StringComparison.Ordinal) >= 0) return;
+            string header = CouncilGame.IsRussian() ? "═══ Шаблоны ═══" : "═══ Templates ═══";
+            tooltip.Content = (string.IsNullOrEmpty(content) ? "" : content + "\n") + header + "\n" + summary;
+        }
+        catch (Exception) { }
+    }
+
+    /// <summary>Same line for the battle report window's fleet panel tooltip (docs §7).</summary>
+    public static string FleetSummaryOf(EncounterGroup group)
+    {
+        try
+        {
+            if (group == null) return "";
+            var perTemplate = new Dictionary<string, int>(StringComparer.Ordinal);
+            var flotillas = group.Flotillas;
+            for (int f = 0; flotillas != null && f < flotillas.Length; f++)
+            {
+                var ships = flotillas[f] != null ? flotillas[f].Ships : null;
+                for (int s = 0; ships != null && s < ships.Length; s++)
+                {
+                    EncounterShip ship = ships[s];
+                    if (ship == null) continue;
+                    ShipDesign design = null;
+                    try { design = ship.ShipDesign; } catch (Exception) { }
+                    BattleTemplate t = design != null ? Match(design) : null;
+                    string key = t != null && !string.IsNullOrEmpty(t.Id) ? t.Id : (design != null ? DesignName(design) : "");
+                    if (string.IsNullOrEmpty(key)) continue;
+                    Inc(perTemplate, key);
+                }
+            }
+            if (perTemplate.Count == 0) return "";
+            var sb = new System.Text.StringBuilder();
+            foreach (var kv in perTemplate)
+            {
+                if (sb.Length > 0) sb.Append("\n");
+                BattleTemplate t = ById(kv.Key);
+                string label = t != null && t.Variant != null
+                    ? (CouncilGame.IsRussian() ? t.Variant.NameRu : t.Variant.NameEn) : kv.Key;
+                sb.Append(kv.Value).Append("\u00d7 ").Append(label);
+            }
+            return sb.ToString();
         }
         catch (Exception) { return ""; }
     }

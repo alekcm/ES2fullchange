@@ -27,8 +27,6 @@ public static class BattleReportStats
     static readonly StaticString PropModuleShots = SimulationProperties.EncounterModule_Weapon.TotalShot;
 
     readonly static Dictionary<ulong, string> lastText = new Dictionary<ulong, string>();     // per encounter: the block, computed once
-    static bool firstLabelLookedUp;
-    static AgePrimitiveLabel reportLabel;
 
     /// <summary>Hook of AdvancedEncounterReportModalWindow.Refresh (post-call): the report screen is bound, so the
     /// aggregation is added to the tooltip of the game's own damage number. Cheap: the result is cached per encounter.</summary>
@@ -56,13 +54,20 @@ public static class BattleReportStats
             if (tooltip != null)
             {
                 string current = TooltipContent(tooltip);
-                if (current == null || !current.Contains("═══"))
+                if (current == null || current.IndexOf("═══", StringComparison.Ordinal) < 0)
                 {
                     string block = (CouncilGame.IsRussian() ? "═══ Что в бою ═══" : "═══ Battle notes ═══") + "\n" + text;
+                    string ourTpl = BattleTemplates.FleetSummaryOf(mine);
+                    if (!string.IsNullOrEmpty(ourTpl))
+                        block += "\n" + (CouncilGame.IsRussian() ? "наши шаблоны:" : "our templates:") + "\n" + ourTpl;
+                    EncounterGroup enemyGroup = null;
+                    try { enemyGroup = encounter.GetEnemyGroup(mine.Index); } catch (Exception) { }
+                    string theirTpl = BattleTemplates.FleetSummaryOf(enemyGroup);
+                    if (!string.IsNullOrEmpty(theirTpl))
+                        block += "\n" + (CouncilGame.IsRussian() ? "шаблоны противника:" : "enemy templates:") + "\n" + theirTpl;
                     SetTooltipContent(tooltip, string.IsNullOrEmpty(current) ? block : current + "\n" + block);
                 }
             }
-            PlaceInReportPanel(window, text);
         }
         catch (Exception e) { Fail("Refresh", e); }
     }
@@ -201,7 +206,7 @@ public static class BattleReportStats
         return "";
     }
 
-    // ------------------------------------------------------------------ the game's tooltip / panel
+    // ------------------------------------------------------------------ the game's tooltip
 
     static string TooltipContent(AgeTooltip tooltip)
     {
@@ -213,47 +218,6 @@ public static class BattleReportStats
     {
         try { tooltip.Content = text; }
         catch (Exception) { }
-    }
-
-    /// <summary>A second place for the same text: one of the report panel's own labels, cloned from the panel's
-    /// content table (the game's font/size/colour come with the clone). Only when the label exists - the
-    /// notification window's layout differs per game version, so a missing label is not an error.</summary>
-    static void PlaceInReportPanel(AdvancedEncounterReportModalWindow window, string text)
-    {
-        try
-        {
-            var panel = window.PlayerBattleGroupReportPanel;
-            if (panel == null) return;
-            if (!firstLabelLookedUp)
-            {
-                firstLabelLookedUp = true;
-                reportLabel = FindLabel(panel);
-            }
-            if (reportLabel == null) return;
-            reportLabel.Text = text;
-        }
-        catch (Exception) { }
-    }
-
-    static AgePrimitiveLabel FindLabel(BattleGroupReportPanel panel)
-    {
-        try
-        {
-            var table = panel.ContentTable;
-            if (table == null) return null;
-            var go = ((UnityEngine.Component)table).gameObject;
-            var labels = go.GetComponentsInChildren<AgePrimitiveLabel>(true);
-            for (int i = 0; labels != null && i < labels.Length; i++)
-            {
-                var l = labels[i];
-                if (l == null) continue;
-                // the retreat notice is the only free-standing text line of this panel: it is invisible unless the
-                // army retreated, and it already carries the panel's own "small note" style
-                if (l == panel.RetreatFailedLabel) return l;
-            }
-        }
-        catch (Exception) { }
-        return null;
     }
 
     static void Fail(string where, Exception e)

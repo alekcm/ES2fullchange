@@ -272,6 +272,21 @@ public static class TemplateCore
         return hull + "_" + role + "_" + family;
     }
 
+    /// <summary>Short chip label of a weapon family for tooltips/panels.</summary>
+    public static string FamilyLabel(string family)
+    {
+        if (string.IsNullOrEmpty(family)) return "";
+        if (family.IndexOf("Kinetic", StringComparison.Ordinal) >= 0) return CouncilGame_IsRu() ? "кинетика" : "Kinetic";
+        if (family.IndexOf("Missile", StringComparison.Ordinal) >= 0) return CouncilGame_IsRu() ? "ракеты" : "Missiles";
+        if (family.IndexOf("Laser", StringComparison.Ordinal) >= 0) return CouncilGame_IsRu() ? "лазеры" : "Lasers";
+        if (family.IndexOf("Beam", StringComparison.Ordinal) >= 0) return CouncilGame_IsRu() ? "лучи" : "Beams";
+        return family;
+    }
+    // TemplateCore is pure - the language comes from the caller through this tiny indirection, set once at catalog build.
+    static Func<bool> russianProvider;
+    public static void SetLanguageProvider(Func<bool> provider) { russianProvider = provider; }
+    static bool CouncilGame_IsRu() { return russianProvider != null && russianProvider(); }
+
     /// <summary>Family part of a template id ("HullSmall01Terrans_SmallAttacker_KineticBase" -> "KineticBase").</summary>
     public static string FamilyOfId(string templateId)
     {

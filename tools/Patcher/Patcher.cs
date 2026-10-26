@@ -749,6 +749,21 @@ public static class Patcher
 
         if (templates != null) HookTemplates(templates);
         HookReportStats(cl.Mapped("BattleReportStats"));
+        HookFleetLine(templates);
+    }
+
+    // ---- 6. the native fleet tooltip (docs/BATTLES_REWORK.md §6): FleetLine.Refresh is where the game fills the
+    // row (and its FleetTooltip AgeTooltip is filled by the vanilla bind just before); the post-call appends the
+    // template summary to that tooltip's Content. FleetLine is used both on the galaxy map hover box and in the
+    // system side panels, so one hook covers all the places where a fleet is listed.
+    static void HookFleetLine(TypeDefinition templates)
+    {
+        var line = mod.GetType("FleetLine");
+        if (line == null) throw new Exception("FleetLine not found");
+        var refresh = line.Methods.FirstOrDefault(x => x.Name == "Refresh" && x.Parameters.Count == 0);
+        if (refresh == null || !refresh.HasBody) throw new Exception("FleetLine.Refresh not found");
+        int n = WrapReturns(refresh, GameMethod(templates, "RefreshFleetLineTooltip"), new[] { OpCodes.Ldarg_0 });
+        Console.WriteLine("hook: FleetLine.Refresh ends with BattleTemplates.RefreshFleetLineTooltip (returns: " + n + ")");
     }
 
     // ---- 5. the "what happened" block in the game's own battle report: Refresh() is the single place the report

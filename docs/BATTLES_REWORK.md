@@ -12,7 +12,7 @@
 | Отладочная панель в God-Mod | **реализован** | `BattleDebug.DrawBattleTools` (вкладка «Дипломатия и империи») |
 | Шаблоны кораблей: каталог, подвиды, описания, привязка проекта, кнопка «Автодизайн» | **реализован** (без отдельного окна выбора) | `TemplateCore` + `BattleTemplates`, хуки в `ShipDesignModalWindow.{OnAutoDesignCb,RefreshButtons}` |
 | Шаблоны для ИИ (чтобы он брал корабли из подвида) | **решение: не трогаем** (у `Database<T>` нет публичного reorder) | §5.3 |
-| Строка состава флотов в HUD | **реализован** (клон label'а `GameOverlayWindow`) | `BattleTemplates.RefreshHudOverlay`, §6 |
+| Состав флотов в **нативном тултипе** строки флота | **реализован** (append в `FleetLine.FleetTooltip.Content`) | `BattleTemplates.RefreshFleetLineTooltip`, хук `FleetLine.Refresh`, §6 |
 | Статистика в итогах боя («что в бою») | **реализован** (тултип цифры урона в отчёте) | `ReportCore` + `BattleReportStats`, хвост `AdvancedEncounterReportModalWindow.Refresh`, §7 |
 | «Перемодернизация флота» | **реализован как инструмент God-Mod'а**; отдельный приказ — после проверки пути в игре | `BattleDebug.DrawRefit` + `BattleTemplates.RefitShip`, §8 |
 
@@ -288,12 +288,16 @@ ShipDesignEditionPanel.AutoDesign → ShipDesign.AutoDesign()` (`UpgradeModulesA
   (`GetFinalCostsString(ICostResolutionContext)`, `GetFullTitle(AgePrimitiveLabel, bool)`) — то есть и подсказка о
   стоимости, и место, куда она выводится. Наш приказ = `EntityActionDefinition` из БД (тот же путь, что у
   `OrderCouncilVote`/`OrderAcademyHeroKind`), `GetShipDesign` которого возвращает проект выбранного варианта.
-* **§6 Состав флотов.** Реализовано как строка HUD: `BattleTemplates.RefreshHudOverlay` клонирует первый label
-  `GameOverlayWindow` (тот же приём, что у кнопки Совета), пишет в него `FleetOverlayText` (по строке на флот:
-  `SummarizeFleet`) и обновляется при показе оверлея (`CouncilUi.OnGameOverlayShown`) и в конце хода
-  (`BattleRework.PerTurn`). Колонка «на что смотрю» не делается: `GameOverlayTooltipPanel` умеет только
-  failure infos, публичной точки расширения у хова нет; при желании добавляется своим хуком `Update` —
-  данные (`Match(design)`, `DescribeDesign`, `SummarizeFleet`) для этого уже готовы.
+* **§6 Состав флотов — только нативный тултип.** Точка, найденная по скриншоту: блок «Обороняющиеся флоты /
+  1-й НАСТОЙЧИВЫЕ флоты / 4 кораблей…» на карте — это `FleetLine`, у которого есть **собственный `FleetTooltip`
+  (AgeTooltip)**, заполняемый в его же `Refresh` (`GuiGarrison` → контент). Хук `hook: FleetLine.Refresh ends with
+  BattleTemplates.RefreshFleetLineTooltip (returns: 2)` дописывает под всей этой информацией блок
+  «═══ Шаблоны ═══»: по строке «N× <вариант> [<семейство>]» + короткое описание варианта. Тот же `FleetLine`
+  используется и в панелях системы, так что один хук покрывает все места, где перечислен флот.
+  **Свой label в HUD убран** (первая версия показывала «Fleet#1041; 1 x ShipDesign#416» — сырые внутренние имена
+  и отдельный виджет; по требованию игрока никаких отдельных подписей не будет, только тултипы/панели игры,
+  а внутренние имена ещё и фильтруются: `BattleTemplates.DesignName` не отдаёт строки вида «ShipDesign#…»).
+  В God-Mod'е тот же текст доступен как кнопка «предпросмотр тултипов».
 * **§7 Статистика в итогах боя.** Всё для этого есть в `Encounter.Report`: инструкции
   `EncounterReportInstruction_Hit { WeaponEncounterGUID, TargetEncounterGUID, TheoreticalDamages }`
   (у урона есть и разбивка по типам: `DamagePerSecondKinetic|Missile|Laser|Beam` на секции/модуле).
@@ -407,7 +411,11 @@ source tools/env.sh && mkdir -p /tmp/t && csc -codepage:65001 -nostdlib -langver
 > game already records all of it; `GalaxyEncounterEntity*` (live objects of the battle scene) are not used on
 > purpose: the report is shown after the battle scene is gone. Строка «шаблон» — из `BattleTemplates.Match`
 > (то есть отчёт также показывает, из какого шаблона собран вражеский флот).
-> **Плюс строка состава флота в HUD** (`BattleTemplates.RefreshHudOverlay`, клон label'а `GameOverlayWindow`,
-> обновляется при показе оверлея и в конце хода; колонка «на что смотрю» невозможна — `GameOverlayTooltipPanel`
-> занимается только failure infos, публичной точки расширения у хова нет; вражеская колонка — задел на
-> `Match(design)` + `DescribeDesign`, если захотим ловить ховер своим хуком).
+> **Состав — в нативном тултипе строки флота** (см. §6 выше): отдельный label не создаётся вообще.
+> В отчёте, кроме строк `ReportCore`, дописываются «наши шаблоны:» и «шаблоны противника:»
+> (`BattleTemplates.FleetSummaryOf(EncounterGroup)`) — тем же тултипом, тем же виджетом игры.
+> Если после космического боя в логе есть `[BattleReportStats]` — значит свойства энкаунтера не читаются
+> после уничтожения боевой сцены; план «Б»: снимать снимок статистики в `Encounter_StateChanged` и показывать
+> из него. Если окна подробного отчёта вообще нет (после наземного боя) — это уже не тултип: нужен фрагмент
+> Player.log вокруг `AdvancedEncounterReportModalWindow`, пока правки отчёта целиком обёрнуты в try/catch и
+> не могут «съесть» окно.
